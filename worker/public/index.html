@@ -236,9 +236,9 @@
         </div>
       </div>
 
-      <!-- 지표별 상위 10개 업체 대비 비교 카드 -->
-      <h3 class="text-lg font-bold text-slate-900 mb-4 flex items-center gap-2">
-        <i class="fa-solid fa-flag-checkered text-blue-600"></i> 상위 10개 업체 대비 내 위치
+      <!-- 지표별 상위 업체 대비 비교 카드 -->
+      <h3 id="boundaryTitle" class="text-lg font-bold text-slate-900 mb-4 flex items-center gap-2">
+        <i class="fa-solid fa-flag-checkered text-blue-600"></i> 상위 업체 대비 내 위치
       </h3>
       <div id="boundaryCards" class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-8"></div>
 
@@ -487,6 +487,15 @@
       setVal('guiRevV', my.seoMetrics.visitorReviewsTotal + '건');
       setVal('guiRevB', my.seoMetrics.cafeBlogReviewsTotal + '건');
       setVal('guiScore', (my.seoMetrics.visitorReviewsScore || '비공개') + ' / 5.0');
+      const scoreVal = Number(my.seoMetrics.visitorReviewsScore);
+      const scoreEl = document.getElementById('guiScore');
+      if (!isNaN(scoreVal) && scoreVal >= 4.8) {
+        scoreEl.className = 'font-bold text-lime-700 bg-lime-200 px-2 py-0.5 rounded';
+      } else if (!isNaN(scoreVal) && scoreVal < 4.0) {
+        scoreEl.className = 'font-bold text-rose-600 bg-rose-50 px-2 py-0.5 rounded';
+      } else {
+        scoreEl.className = 'font-bold text-slate-900 bg-slate-100 px-2 py-0.5 rounded';
+      }
       setVal('guiRevT', my.seoMetrics.textReviewsTotal + '건');
       setVal('guiVote', my.seoMetrics.totalVoteCount + '표');
       setVal('guiPhoto', my.seoMetrics.photoCount + '장');
@@ -685,8 +694,14 @@ ${(my.samplePhotos || []).map((p, i) => `   ${(i + 1).toString().padStart(2, ' '
     function renderGap(data) {
       const my = data.myStore;
       const stats = data.stats;
+      const foundCount = Math.min(data.rankSearched || 0, 10); // 네이버 위젯이 실제로 노출한 오가닉 업체 수 (10 미만일 수 있음)
 
-      document.getElementById('gapTitle').innerText = `📊 '${data.targetKeyword}' 기준 상위 10개 업체 Gap 분석`;
+      document.getElementById('gapTitle').innerText = `📊 '${data.targetKeyword}' 기준 상위 ${foundCount}개 업체 Gap 분석`;
+      const boundaryTitle = document.getElementById('boundaryTitle');
+      boundaryTitle.innerHTML = `<i class="fa-solid fa-flag-checkered text-blue-600"></i> 상위 ${foundCount}개 업체 대비 내 위치`;
+      if (foundCount < 10) {
+        boundaryTitle.innerHTML += ` <span class="text-xs font-normal text-slate-400">(네이버 검색 결과가 ${foundCount}곳뿐이라 10개 미만입니다)</span>`;
+      }
 
       const rankBadge = document.getElementById('rankBadge');
       if (data.myRank) {
