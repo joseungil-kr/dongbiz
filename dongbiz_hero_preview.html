@@ -1,0 +1,826 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>동네비즈 (dongbiz.com) - 1위 경쟁사 분석 & 자동 모바일 미니홈피</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
+    * { font-family: 'Pretendard', sans-serif; }
+    .glass-card {
+      background: rgba(255, 255, 255, 0.85);
+      backdrop-filter: blur(16px);
+      border: 1px solid rgba(226, 232, 240, 0.8);
+    }
+  </style>
+</head>
+<body class="bg-[#F8FAFC] text-slate-900 min-h-screen flex flex-col justify-between">
+  <!-- 상단 네비게이션 -->
+  <header class="w-full max-w-6xl mx-auto px-6 py-6 flex justify-between items-center">
+    <div class="flex items-center gap-2">
+      <div class="w-9 h-9 rounded-xl bg-blue-600 flex items-center justify-center text-white font-black text-lg shadow-md shadow-blue-500/20">동</div>
+      <span class="text-xl font-bold tracking-tight text-slate-900">동네비즈 <span class="text-xs text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full font-semibold ml-1">dongbiz</span></span>
+    </div>
+    <div class="flex items-center gap-4">
+      <a href="#" class="text-sm font-semibold text-slate-600 hover:text-slate-900">상위노출 진단</a>
+      <a href="#" class="text-sm font-semibold text-slate-600 hover:text-slate-900">1.8만개 pSEO 사례</a>
+      <button class="text-sm font-semibold bg-slate-900 text-white px-4 py-2 rounded-xl hover:bg-slate-800 transition">대행 파트너 문의</button>
+    </div>
+  </header>
+
+  <!-- 메인 히어로 섹션 -->
+  <main class="w-full max-w-5xl mx-auto px-6 py-12 flex flex-col items-center text-center">
+    <div class="inline-flex items-center gap-2 bg-blue-50 border border-blue-200/60 px-4 py-1.5 rounded-full mb-6">
+      <span class="flex h-2 w-2 rounded-full bg-blue-600 animate-pulse"></span>
+      <span class="text-xs font-bold text-blue-700">네이버 플레이스 1위 알고리즘 Gap 실시간 진단</span>
+    </div>
+
+    <h1 class="text-3xl md:text-5xl font-black tracking-tight leading-[1.2] mb-5 text-slate-950">
+      전화번호 하나만 넣으면,<br />
+      <span class="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 via-indigo-600 to-teal-500">3초 만에 1위 경쟁사 분석과 홈페이지</span> 완성
+    </h1>
+
+    <p class="text-base md:text-lg text-slate-600 max-w-2xl mb-10 leading-relaxed">
+      스마트플레이스에 등록된 정보와 영수증 리뷰 데이터를 실시간으로 가져와<br class="hidden sm:inline" />
+      우리 동네 1등 매장과의 격차를 분석하고, 최적화된 모바일 미니홈피를 즉시 배포합니다.
+    </p>
+
+    <!-- 토스형 입력 폼 (검색 & 즉시 진단 카드) -->
+    <div class="w-full max-w-2xl glass-card p-6 md:p-8 rounded-3xl shadow-xl shadow-slate-200/50 mb-12">
+      <div class="flex flex-col sm:flex-row gap-3">
+        <div class="flex-1 relative text-left">
+          <label class="block text-xs font-bold text-slate-500 mb-1.5 ml-1">전화번호 / 스마트콜 / 상호명 / 지도 공유주소 (naver.me) / 플레이스 번호</label>
+          <div class="relative">
+            <input type="text" id="storeInput" value="https://naver.me/FE3ghnOU" placeholder="예: 031-407-0103, 0507-1342-1035, https://naver.me/FE3ghnOU, 1785101394 등" 
+              class="w-full px-4 py-4 rounded-2xl border border-slate-200 bg-white text-base font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600 transition pl-11" />
+            <i class="fa-solid fa-store absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"></i>
+          </div>
+        </div>
+        <div class="sm:self-end w-full sm:w-auto">
+          <button onclick="runDemo()" class="w-full sm:w-auto px-8 py-4 bg-blue-600 hover:bg-blue-700 text-white font-bold text-base rounded-2xl shadow-lg shadow-blue-600/30 transition transform active:scale-95 flex items-center justify-center gap-2">
+            <span>무료 진단 & 개설</span>
+            <i class="fa-solid fa-arrow-right text-sm"></i>
+          </button>
+        </div>
+      </div>
+
+      <div class="mt-4 flex items-center justify-center gap-6 text-xs text-slate-500 font-medium">
+        <span class="flex items-center gap-1.5"><i class="fa-solid fa-bolt text-amber-500"></i> 설치 불필요 (100% 웹)</span>
+        <span class="flex items-center gap-1.5"><i class="fa-solid fa-lock text-emerald-500"></i> 비밀번호 입력 불필요</span>
+        <span class="flex items-center gap-1.5"><i class="fa-solid fa-chart-pie text-blue-500"></i> 실시간 1위 Gap 리포트</span>
+      </div>
+    </div>
+
+    <!-- 하단 실시간 목업 프리뷰 (진단 및 생성 화면) -->
+    <div id="demoResult" class="hidden w-full max-w-4xl bg-white border border-slate-200 rounded-3xl p-6 md:p-8 shadow-2xl text-left transition-all">
+      <div class="flex items-center justify-between pb-4 border-b border-slate-100 mb-6">
+        <div class="flex items-center gap-3">
+          <div class="w-3 h-3 rounded-full bg-red-400"></div>
+          <div class="w-3 h-3 rounded-full bg-amber-400"></div>
+          <div class="w-3 h-3 rounded-full bg-emerald-400"></div>
+          <span class="text-xs font-semibold text-slate-400 ml-2">실시간 네이버 플레이스 Gap 분석 엔진</span>
+        </div>
+        <span id="liveStatus" class="text-xs font-bold text-emerald-600 bg-emerald-50 px-3 py-1 rounded-full">네이버 실시간 연동 준비완료</span>
+      </div>
+
+      <!-- 내 매장 상세 지표 (GUI) -->
+      <div class="mb-8">
+        <h3 class="text-lg font-bold text-slate-900 mb-4 flex items-center gap-2">
+          <i class="fa-solid fa-database text-blue-600"></i> 1단계: 내 매장 상세 지표
+        </h3>
+        
+        <div id="guiDataDisplay" class="flex flex-col gap-4">
+          <!-- Section 1 & 2 -->
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <!-- SECTION 1 -->
+            <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm">
+              <h4 class="text-xs font-bold text-blue-600 mb-3 border-b pb-2">매장 기본 식별 & 인프라 정보</h4>
+              <ul class="space-y-2 text-[13px]">
+                <li class="flex justify-between"><span class="text-slate-500">상호명</span> <span id="guiName" class="font-bold text-slate-900"></span></li>
+                <li class="flex justify-between"><span class="text-slate-500">카테고리</span> <span id="guiCat" class="text-slate-700"></span></li>
+                <li class="flex flex-col mt-1"><span class="text-slate-500 mb-0.5 text-xs">도로명 주소</span> <span id="guiRoad" class="text-slate-700 text-xs"></span></li>
+                <li class="flex flex-col"><span class="text-slate-500 mb-0.5 text-xs">지번 주소</span> <span id="guiAddr" class="text-slate-700 text-xs"></span></li>
+                <li class="flex flex-col mb-1"><span class="text-slate-500 mb-0.5 text-xs">찾아오는 길</span> <span id="guiDir" class="text-slate-700 text-xs line-clamp-2"></span></li>
+                <li class="flex justify-between pt-2 border-t"><span class="text-slate-500">전화번호</span> <span id="guiPhone" class="font-bold text-slate-900"></span></li>
+                <li class="flex justify-between items-center"><span class="text-slate-500">스마트콜</span> <span id="guiSmart"></span></li>
+                <li class="flex justify-between items-center"><span class="text-slate-500">네이버 톡톡</span> <span id="guiTalk"></span></li>
+                <li class="flex flex-col mt-1 pt-2 border-t">
+                  <span class="text-slate-500 mb-0.5 text-xs">대표키워드 (5개 기준)</span> 
+                  <span id="guiRepKwd" class="text-xs font-medium text-slate-800"></span>
+                  <div id="guiRepKwdAudit" class="text-[11px] mt-1 p-1.5 bg-slate-50 rounded"></div>
+                </li>
+              </ul>
+            </div>
+
+            <!-- SECTION 2 -->
+            <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm">
+              <h4 class="text-xs font-bold text-blue-600 mb-3 border-b pb-2">상위노출 랭킹 알고리즘 정량 지표 (SEO Scores)</h4>
+              <ul class="space-y-2.5 text-[13px]">
+                <li class="flex justify-between items-center"><span class="text-slate-500">방문자(영수증) 총 리뷰</span> <span id="guiRevV" class="font-bold text-slate-900 bg-slate-100 px-2 py-0.5 rounded"></span></li>
+                <li class="flex justify-between items-center"><span class="text-slate-500">블로그/카페 총 리뷰</span> <span id="guiRevB" class="font-bold text-slate-900 bg-slate-100 px-2 py-0.5 rounded"></span></li>
+                <li class="flex justify-between items-center"><span class="text-slate-500">방문자 평점 스코어</span> <span id="guiScore" class="font-bold text-rose-600 bg-rose-50 px-2 py-0.5 rounded"></span></li>
+                <li class="flex justify-between items-center"><span class="text-slate-500">정성 텍스트 리뷰 수</span> <span id="guiRevT" class="font-bold text-slate-900 bg-slate-100 px-2 py-0.5 rounded"></span></li>
+                <li class="flex justify-between items-center"><span class="text-slate-500">키워드 투표 참여수</span> <span id="guiVote" class="font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded"></span></li>
+                <li class="flex justify-between items-center"><span class="text-slate-500">대표 사진 등록 수</span> <span id="guiPhoto" class="font-bold text-slate-900 bg-slate-100 px-2 py-0.5 rounded"></span></li>
+                <li class="flex justify-between items-center"><span class="text-slate-500">메뉴/상품 등록 수</span> <span id="guiMenu" class="font-bold text-slate-900 bg-slate-100 px-2 py-0.5 rounded"></span></li>
+              </ul>
+            </div>
+          </div>
+
+          <!-- Section 3 & 5 & 7 -->
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <!-- SECTION 3 -->
+            <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm md:col-span-1">
+              <h4 class="text-xs font-bold text-blue-600 mb-3 border-b pb-2">소비자 키워드 리뷰 TOP 5</h4>
+              <ul id="guiTopKwd" class="space-y-2 text-xs text-slate-700"></ul>
+            </div>
+
+            <!-- SECTION 5 -->
+            <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm md:col-span-1 flex flex-col justify-center">
+              <h4 class="text-xs font-bold text-blue-600 mb-3 border-b pb-2">편의시설 & 결제 수단</h4>
+              <div class="mb-3">
+                <span class="block text-[11px] font-bold text-slate-400 mb-1">제공 편의시설</span>
+                <p id="guiAmen" class="text-xs text-slate-700 leading-relaxed"></p>
+              </div>
+              <div>
+                <span class="block text-[11px] font-bold text-slate-400 mb-1">지원 결제수단</span>
+                <p id="guiPay" class="text-xs text-slate-700 leading-relaxed"></p>
+              </div>
+            </div>
+
+            <!-- SECTION 7 -->
+            <div class="bg-slate-900 rounded-2xl p-5 border border-slate-800 shadow-sm text-white md:col-span-1">
+              <h4 class="text-xs font-bold text-amber-400 mb-3 border-b border-slate-700 pb-2">매장 누락 정보 감사 진단 (SEO 감점)</h4>
+              <ul class="space-y-3 text-xs">
+                <li class="flex justify-between items-center">
+                  <span class="text-slate-400">영업시간</span>
+                  <span id="guiAuditTime" class="font-bold"></span>
+                </li>
+                <li class="flex justify-between items-center">
+                  <span class="text-slate-400">메뉴 & 사진</span>
+                  <span id="guiAuditMenu" class="font-bold"></span>
+                </li>
+                <li class="flex justify-between items-center">
+                  <span class="text-slate-400">찾아오는 길</span>
+                  <span id="guiAuditDir" class="font-bold"></span>
+                </li>
+                <li class="flex justify-between items-center">
+                  <span class="text-slate-400">편의시설</span>
+                  <span id="guiAuditAmen" class="font-bold"></span>
+                </li>
+              </ul>
+            </div>
+          </div>
+          
+          <!-- 원천 데이터 풀 리포트 (Raw Data) -->
+          <div class="mt-8">
+            <h3 class="text-sm font-bold text-slate-800 mb-2">⬇️ 원천 데이터 풀 리포트 (Raw Data)</h3>
+            <pre id="rawDataDisplay" class="bg-slate-800 text-slate-300 p-4 rounded-xl text-[11px] overflow-x-auto whitespace-pre-wrap leading-relaxed shadow-inner border border-slate-700"></pre>
+          </div>
+        </div>
+      </div>
+
+      <h3 class="text-lg font-bold text-slate-900 mb-4 flex items-center gap-2 mt-10">
+        <i class="fa-solid fa-chart-line text-blue-600"></i> 2단계: 1위 경쟁사와의 격차(Gap) 분석
+      </h3>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <!-- 왼쪽: 내 매장 vs 1위 비교 카드 -->
+        <div class="bg-slate-50 rounded-2xl p-5 border border-slate-200/80">
+          <div class="flex justify-between items-center mb-4">
+            <h3 id="gapTitle" class="font-bold text-slate-900 text-sm">📊 '안산맛집' 기준 1위와의 격차</h3>
+            <span id="gapLocation" class="text-xs font-semibold text-slate-500">지역 1위와 비교</span>
+          </div>
+
+          <!-- 방사형 차트 영역 -->
+          <div class="w-full mb-6 bg-white rounded-xl border border-slate-200/60 p-2 flex justify-center" style="height: 250px;">
+            <canvas id="radarChart"></canvas>
+          </div>
+
+          <div class="space-y-3">
+            <div class="bg-white p-3 rounded-xl border border-slate-200/60 flex justify-between items-center">
+              <div>
+                <p class="text-xs text-slate-500 font-medium">영수증 인증 리뷰</p>
+                <p id="visitorMetric" class="text-sm font-black text-slate-900">내 매장 22건 vs <span class="text-blue-600">1위 1,830건</span></p>
+              </div>
+              <span id="visitorBadge" class="text-xs font-bold text-rose-600 bg-rose-50 px-2 py-1 rounded-lg">1,808건 부족 ⚠️</span>
+            </div>
+
+            <div class="bg-white p-3 rounded-xl border border-slate-200/60 flex justify-between items-center">
+              <div>
+                <p class="text-xs text-slate-500 font-medium">소비자 평점 스코어</p>
+                <p id="scoreMetric" class="text-sm font-black text-slate-900">내 매장 4.68점 vs 1위 4.55점</p>
+              </div>
+              <span id="scoreBadge" class="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded-lg">+0.13점 우세 ✅</span>
+            </div>
+
+            <div class="bg-white p-3 rounded-xl border border-slate-200/60 flex justify-between items-center">
+              <div>
+                <p class="text-xs text-slate-500 font-medium">키워드 설문 투표수</p>
+                <p id="voteMetric" class="text-sm font-black text-slate-900">내 매장 89표 vs <span class="text-blue-600">1위 5,428표</span></p>
+              </div>
+              <span id="voteBadge" class="text-xs font-bold text-rose-600 bg-rose-50 px-2 py-1 rounded-lg">참여율 확대 필요</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 오른쪽: 자동 발행된 모바일 미니홈피 프리뷰 -->
+        <div class="bg-slate-900 text-white rounded-2xl p-5 flex flex-col justify-between">
+          <div>
+            <div class="flex justify-between items-center mb-3">
+              <span class="text-xs font-bold text-emerald-400 flex items-center gap-1.5">
+                <i class="fa-solid fa-circle-check"></i> 자동 생성 완료
+              </span>
+              <span id="previewDomain" class="text-[11px] font-mono text-slate-400 bg-slate-800 px-2 py-0.5 rounded">0314070103.dongbiz.com</span>
+            </div>
+            <h4 id="previewName" class="text-lg font-bold text-white mb-1">백세보리밥 닭한마리</h4>
+            <div id="previewImageContainer" class="w-full h-32 bg-slate-800 rounded-xl mb-3 bg-cover bg-center border border-slate-700" style="display:none;"></div>
+            <p id="previewDesc" class="text-xs text-slate-400 line-clamp-2 mb-4">상록구청 진입 100m. 녹두삼계탕과 산채비빔밥 무한리필 전문점</p>
+
+            <div class="grid grid-cols-2 gap-2 text-xs">
+              <div class="bg-slate-800/80 p-2.5 rounded-xl border border-slate-700/60">
+                <span class="text-slate-400 block text-[10px]">대표메뉴</span>
+                <span id="previewMenu" class="font-bold text-white">닭한마리 33,000원</span>
+              </div>
+              <div class="bg-slate-800/80 p-2.5 rounded-xl border border-slate-700/60">
+                <span class="text-slate-400 block text-[10px]">인기키워드</span>
+                <span id="previewKeyword" class="font-bold text-amber-400">#음식이맛있어요</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="mt-4 pt-4 border-t border-slate-800 flex justify-between items-center">
+            <span class="text-xs text-slate-400">네이버 검색최적화(SEO) 반영</span>
+            <a id="previewLink" href="https://map.naver.com/p/entry/place/2058645213" target="_blank" class="text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-lg transition inline-block">네이버 플레이스 보기</a>
+          </div>
+        </div>
+      </div>
+
+      <!-- 3단계 결핍 자극 UI -->
+      <div class="mt-8 pt-8 border-t border-slate-200">
+        <h3 class="font-bold text-slate-900 text-lg mb-4">🚨 마케팅 결핍 및 생명력 진단</h3>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <!-- 1. 원츠 vs 팩트 미스매치 -->
+          <div class="bg-rose-50 rounded-2xl p-5 border border-rose-200 flex flex-col justify-between">
+            <div>
+              <div class="flex items-center gap-2 mb-2">
+                <i class="fa-solid fa-triangle-exclamation text-rose-500"></i>
+                <h4 class="font-bold text-rose-900 text-sm">키워드 미스매치 위험</h4>
+              </div>
+              <p class="text-[11px] text-rose-700 leading-relaxed mb-3">
+                원하는 타겟 키워드와 실제 고객이 느끼는 매력에 괴리가 발생하고 있습니다.
+              </p>
+              <div class="bg-white/60 p-2 rounded-lg mb-2 flex items-center justify-between">
+                <span class="text-[10px] text-slate-500">사장님 등록키워드</span>
+                <span id="defiWants" class="text-[11px] font-bold text-slate-800 truncate max-w-[120px] text-right">분석중...</span>
+              </div>
+              <div class="bg-white/60 p-2 rounded-lg flex items-center justify-between">
+                <span class="text-[10px] text-slate-500">실제 고객투표 1위</span>
+                <span id="defiFact" class="text-[11px] font-bold text-slate-800 truncate max-w-[120px] text-right">분석중...</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 2. 리뷰 따라잡기 속도전 -->
+          <div class="bg-amber-50 rounded-2xl p-5 border border-amber-200 flex flex-col justify-between">
+            <div>
+              <div class="flex items-center gap-2 mb-2">
+                <i class="fa-solid fa-stopwatch text-amber-500"></i>
+                <h4 class="font-bold text-amber-900 text-sm">1위 역전 소요시간</h4>
+              </div>
+              <p class="text-[11px] text-amber-700 leading-relaxed mb-3">
+                현재 자연 유입 리뷰 속도로 1위를 따라잡기 위해 걸리는 시간입니다.
+              </p>
+              <div class="flex justify-center items-center h-20">
+                <div id="defiTime" class="text-lg font-black text-amber-600 bg-amber-100/50 px-4 py-3 rounded-xl border border-amber-200 text-center shadow-sm">
+                  분석중...
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 3. 마케팅 생명력 신호등 -->
+          <div id="defiFreshBg" class="bg-slate-50 rounded-2xl p-5 border border-slate-200 flex flex-col justify-between transition-colors">
+            <div>
+              <div class="flex items-center gap-2 mb-2">
+                <i id="defiFreshIcon" class="fa-solid fa-traffic-light text-slate-500"></i>
+                <h4 id="defiFreshTitle" class="font-bold text-slate-900 text-sm">매장 생명력 지수</h4>
+              </div>
+              <p class="text-[11px] text-slate-600 leading-relaxed mb-3">
+                네이버 알고리즘은 자주 관리되는 매장에 순위 가산점을 부여합니다.
+              </p>
+              <div class="space-y-2">
+                <div class="flex justify-between items-center bg-white/60 p-2 rounded-lg">
+                  <span class="text-xs text-slate-600">최근 소식 (1개월)</span>
+                  <span id="defiNews" class="text-[11px] font-bold">확인중</span>
+                </div>
+                <div class="flex justify-between items-center bg-white/60 p-2 rounded-lg">
+                  <span class="text-xs text-slate-600">톡톡/스마트콜 연동</span>
+                  <span id="defiCall" class="text-[11px] font-bold">확인중</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 리드 제네레이션 (컨설팅 및 리포트 폼) -->
+      <div class="mt-8 pt-8 border-t border-slate-200">
+        <div class="bg-blue-50/50 rounded-2xl p-6 border border-blue-100 flex flex-col md:flex-row items-center justify-between gap-6">
+          <div class="text-left flex-1">
+            <h3 class="text-lg font-black text-slate-900 mb-1">진단 리포트 PDF & 알림톡 무료 받기</h3>
+            <p class="text-sm text-slate-600">지금 보신 상세 분석 결과와 맞춤형 해결책을 휴대폰으로 보내드립니다.</p>
+          </div>
+          <div class="flex-1 w-full flex gap-2">
+            <input type="text" placeholder="휴대폰 번호 (- 제외)" class="flex-1 px-4 py-3 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-600" />
+            <button onclick="alert('알림톡 발송 기능은 연동 준비 중입니다.')" class="bg-slate-900 hover:bg-slate-800 text-white font-bold text-sm px-6 py-3 rounded-xl transition whitespace-nowrap">
+              결과 받기
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- 푸터 -->
+  <footer class="w-full border-t border-slate-200 py-6 text-center text-xs text-slate-500">
+    © 2026 동네비즈 (dongbiz.com). All rights reserved. | 초개인화 소상공인 마케팅 자동화 엔진
+  </footer>
+
+  <script>
+    let loadingInterval = null;
+    let radarChartInstance = null;
+
+    async function runDemo() {
+      const input = document.getElementById('storeInput').value.trim();
+      if (!input) {
+        alert('전화번호 또는 상호명을 입력해주세요.');
+        return;
+      }
+
+      const btn = event.currentTarget;
+      const originalText = btn.innerHTML;
+      btn.disabled = true;
+
+      const liveStatus = document.getElementById('liveStatus');
+      liveStatus.className = 'text-xs font-bold text-blue-600 bg-blue-50 px-3 py-1 rounded-full';
+      liveStatus.innerText = '네이버 실시간 스크래핑 중...';
+
+      // 스와이프업 로딩 텍스트 연출
+      const loadingTexts = [
+        '영수증 리뷰 분석 중...',
+        '블로그 언급량 추출 중...',
+        '플레이스 사진 품질 평가 중...',
+        '경쟁사 스코어 대조 중...'
+      ];
+      let textIdx = 0;
+      btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> <span id="btnLoadingText">${loadingTexts[0]}</span>`;
+      loadingInterval = setInterval(() => {
+        textIdx = (textIdx + 1) % loadingTexts.length;
+        document.getElementById('btnLoadingText').innerText = loadingTexts[textIdx];
+      }, 800);
+
+      try {
+        // 로컬 진단 API 호출
+        const res = await fetch(`http://localhost:3000/api/diagnose?query=${encodeURIComponent(input)}`);
+        const data = await res.json();
+
+        if (!res.ok || data.error) {
+          throw new Error(data.error || '매장 정보를 찾을 수 없습니다.');
+        }
+
+        // 화면 데이터 실시간 갱신 및 URL 변경
+        renderData(data, false);
+
+      } catch (err) {
+        alert('실시간 진단 실패: ' + err.message + '\n(올바른 매장 전화번호나 상호를 입력해주세요)');
+        liveStatus.className = 'text-xs font-bold text-rose-600 bg-rose-50 px-3 py-1 rounded-full';
+        liveStatus.innerText = '조회 실패';
+      } finally {
+        clearInterval(loadingInterval);
+        btn.innerHTML = originalText;
+        btn.disabled = false;
+      }
+    }
+
+    // 엔터키 지원
+    document.getElementById('storeInput').addEventListener('keypress', function (e) {
+      if (e.key === 'Enter') {
+        runDemo();
+      }
+    });
+
+    // 공유 링크 처리
+    window.addEventListener('DOMContentLoaded', async () => {
+      const urlParams = new URLSearchParams(window.location.search);
+      const shareId = urlParams.get('shareId');
+      if (shareId) {
+        try {
+          const res = await fetch(`http://localhost:3000/api/history?shareId=${shareId}`);
+          if (res.ok) {
+            const data = await res.json();
+            renderData(data, true);
+          }
+        } catch (err) {
+          console.error('공유된 히스토리 로드 실패:', err);
+        }
+      }
+    });
+
+    function drawRadarChart(my, comp) {
+      const ctx = document.getElementById('radarChart').getContext('2d');
+      if (radarChartInstance) {
+        radarChartInstance.destroy();
+      }
+
+      // 점수 정규화 (최대치 대비 비율)
+      const maxVisitor = Math.max(my.seoMetrics.visitorReviewsTotal, comp.seoMetrics.visitorReviewsTotal, 1);
+      const maxBlog = Math.max(my.seoMetrics.cafeBlogReviewsTotal, comp.seoMetrics.cafeBlogReviewsTotal, 1);
+      const maxVote = Math.max(my.seoMetrics.totalVoteCount, comp.seoMetrics.totalVoteCount, 1);
+      
+      radarChartInstance = new Chart(ctx, {
+        type: 'radar',
+        data: {
+          labels: ['영수증 리뷰', '블로그 리뷰', '키워드 투표수', '소비자 평점'],
+          datasets: [
+            {
+              label: '내 매장',
+              data: [
+                (my.seoMetrics.visitorReviewsTotal / maxVisitor) * 100,
+                (my.seoMetrics.cafeBlogReviewsTotal / maxBlog) * 100,
+                (my.seoMetrics.totalVoteCount / maxVote) * 100,
+                (Number(my.seoMetrics.visitorReviewsScore || 4) / 5) * 100
+              ],
+              backgroundColor: 'rgba(59, 130, 246, 0.2)',
+              borderColor: 'rgba(59, 130, 246, 1)',
+              pointBackgroundColor: 'rgba(59, 130, 246, 1)',
+              borderWidth: 2
+            },
+            {
+              label: '1위 업체',
+              data: [
+                (comp.seoMetrics.visitorReviewsTotal / maxVisitor) * 100,
+                (comp.seoMetrics.cafeBlogReviewsTotal / maxBlog) * 100,
+                (comp.seoMetrics.totalVoteCount / maxVote) * 100,
+                (Number(comp.seoMetrics.visitorReviewsScore || 4) / 5) * 100
+              ],
+              backgroundColor: 'rgba(226, 232, 240, 0.2)',
+              borderColor: 'rgba(148, 163, 184, 1)',
+              pointBackgroundColor: 'rgba(148, 163, 184, 1)',
+              borderDash: [5, 5],
+              borderWidth: 2
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            r: {
+              beginAtZero: true,
+              max: 100,
+              ticks: { display: false },
+              pointLabels: {
+                font: { size: 11, family: 'Pretendard' }
+              }
+            }
+          },
+          plugins: {
+            legend: {
+              position: 'bottom',
+              labels: { font: { size: 12, family: 'Pretendard' }, usePointStyle: true }
+            },
+            tooltip: { enabled: false }
+          }
+        }
+      });
+    }
+
+    function renderData(data, isShared = false) {
+      const my = data.myStore;
+      const comp = data.comp1;
+      const gap = data.gap;
+      
+      const demoResult = document.getElementById('demoResult');
+      demoResult.classList.remove('hidden');
+
+      const liveStatus = document.getElementById('liveStatus');
+      liveStatus.className = 'text-xs font-bold text-emerald-600 bg-emerald-50 px-3 py-1 rounded-full';
+      liveStatus.innerText = isShared ? `[${my.name}] 진단 리포트 (저장됨)` : `[${my.name}] 네이버 최신 데이터 반영 완료`;
+
+      // 1단계: GUI 매핑
+      const setVal = (id, val, empty = '데이터 없음') => {
+        document.getElementById(id).innerText = val || empty;
+      };
+
+      // SECTION 1
+      setVal('guiName', my.name);
+      setVal('guiCat', my.category);
+      setVal('guiRoad', my.roadAddress);
+      setVal('guiAddr', my.address);
+      setVal('guiDir', my.directions);
+      setVal('guiPhone', my.phone);
+      
+      const badgeHtml = (isActive) => isActive 
+        ? '<span class="text-emerald-600 font-bold bg-emerald-50 px-2 py-0.5 rounded text-[11px]">연동됨(가산점획득)</span>' 
+        : '<span class="text-slate-400 text-[11px]">미연동</span>';
+      
+      document.getElementById('guiSmart').innerHTML = badgeHtml(my.seoMetrics.hasSmartCall);
+      document.getElementById('guiTalk').innerHTML = badgeHtml(my.seoMetrics.hasTalktalk);
+
+      const kList = my.keywordList || [];
+      const kText = kList.length > 0 ? kList.join(', ') : '등록된 키워드 없음';
+      document.getElementById('guiRepKwd').innerText = `${kText} (${kList.length}개 입력)`;
+
+      const kwdAuditEl = document.getElementById('guiRepKwdAudit');
+      if (kList.length < 5) {
+        kwdAuditEl.innerHTML = `<span class="text-rose-500 font-bold">⚠️ 개선필요</span> (5개 꽉 채워 입력해야 상위노출에 유리합니다)`;
+      } else {
+        const desc = my.description || '';
+        const missing = kList.filter(k => !desc.includes(k));
+        if (missing.length > 0) {
+          kwdAuditEl.innerHTML = `<span class="text-amber-600 font-bold">⚠️ 설명문구 최적화 필요</span><br>등록된 키워드 중 <b>[${missing.join(', ')}]</b> 단어가 매장 설명에 삽입되어 있지 않아 SEO 점수가 누락되고 있습니다.`;
+        } else {
+          kwdAuditEl.innerHTML = `<span class="text-emerald-600 font-bold">✅ 완벽함</span> (매장 설명에 5개 키워드가 모두 잘 녹아있습니다)`;
+        }
+      }
+
+      // SECTION 2
+      setVal('guiRevV', my.seoMetrics.visitorReviewsTotal + '건');
+      setVal('guiRevB', my.seoMetrics.cafeBlogReviewsTotal + '건');
+      setVal('guiScore', (my.seoMetrics.visitorReviewsScore || '비공개') + ' / 5.0');
+      setVal('guiRevT', my.seoMetrics.textReviewsTotal + '건');
+      setVal('guiVote', my.seoMetrics.totalVoteCount + '표');
+      setVal('guiPhoto', my.seoMetrics.photoCount + '장');
+      setVal('guiMenu', my.seoMetrics.menuCount + '개');
+
+      // SECTION 3
+      const ulKwd = document.getElementById('guiTopKwd');
+      ulKwd.innerHTML = '';
+      if (my.topRepKeywords && my.topRepKeywords.length > 0) {
+        my.topRepKeywords.slice(0, 5).forEach((k, idx) => {
+          ulKwd.innerHTML += `<li class="flex justify-between items-center"><span class="font-medium">${idx + 1}. ${k.keyword}</span> <span class="text-blue-600 font-bold">${k.count}표</span></li>`;
+        });
+      } else {
+        ulKwd.innerHTML = '<li>데이터 없음</li>';
+      }
+
+      // SECTION 5
+      setVal('guiAmen', (my.conveniences && my.conveniences.length > 0) ? my.conveniences.join(' | ') : null);
+      setVal('guiPay', (my.paymentMethods && my.paymentMethods.length > 0) ? my.paymentMethods.join(' | ') : null);
+
+      // SECTION 7
+      const auditHtml = (isOk) => isOk 
+        ? '<span class="text-emerald-400">정상 등록 (양호)</span>' 
+        : '<span class="text-rose-400">⚠️ 누락됨</span>';
+      
+      document.getElementById('guiAuditTime').innerHTML = auditHtml(!my.seoMetrics.isBizHourMissing);
+      document.getElementById('guiAuditMenu').innerHTML = auditHtml(my.seoMetrics.menuCount > 0);
+      document.getElementById('guiAuditDir').innerHTML = auditHtml(Boolean(my.directions));
+      document.getElementById('guiAuditAmen').innerHTML = auditHtml(my.conveniences && my.conveniences.length > 0);
+
+      let isNewsRecent = '❌ 없음 (최근 1개월 내 미등록)';
+      if (my.recentNewsDate) {
+        const diff = Date.now() - new Date(my.recentNewsDate).getTime();
+        const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+        if (days <= 30) {
+          isNewsRecent = `✅ 등록됨 (${days}일 전)`;
+        } else {
+          isNewsRecent = `❌ 오래됨 (${days}일 전 - 최근 1개월 내 미등록)`;
+        }
+      }
+
+      let report = `================================================================================
+📊 [네이버 스마트플레이스 전수 원천 데이터 풀 리포트 (Full Raw Specification)]
+• 수집 대상 고유 ID: ${my.placeId}
+• 플레이스 URL: ${my.placeUrl}
+================================================================================
+
+--------------------------------------------------------------------------------
+[SECTION 1. 매장 기본 식별 & 인프라 정보 (Identity & Location)]
+--------------------------------------------------------------------------------
+• 상호명 (name):                 ${my.name}
+• 카테고리 (category):           ${my.category}
+• 도로명 주소 (roadAddress):     ${my.roadAddress || '미등록'}
+• 지번 주소 (address):           ${my.address || '미등록'}
+• 찾아오는 길 (directions):      ${my.directions || '미등록'}
+• 일반 전화번호 (phone):         ${my.phone || '미등록'}
+• 스마트콜 여부:                 ${my.seoMetrics.hasSmartCall ? '연동됨' : '미연동'}
+• 지도 좌표 X (경도 lon):        ${my.coordinates?.x || '확인불가'}
+• 지도 좌표 Y (위도 lat):        ${my.coordinates?.y || '확인불가'}
+• 네이버 톡톡 연동 (talktalkUrl): ${my.seoMetrics.hasTalktalk ? '연동됨' : '미연동'}
+• 매장새소식 (최근 1개월):        ${isNewsRecent}
+• 대표 키워드 (keywordList):     ${(my.keywordList && my.keywordList.length > 0) ? my.keywordList.join(', ') : '미등록'}
+
+• 상세설명 (description):
+<div style="max-height: 120px; overflow-y: auto; background: rgba(0,0,0,0.3); padding: 8px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1); margin-top: 4px; white-space: pre-wrap;">${my.description || '미등록'}</div>
+
+--------------------------------------------------------------------------------
+[SECTION 2. 상위노출 랭킹 알고리즘 정량 지표 (SEO & Algorithm Scores)]
+--------------------------------------------------------------------------------
+• 방문자(영수증) 총 리뷰수:       ${my.seoMetrics.visitorReviewsTotal}건
+• 블로그 & 카페 총 리뷰수:        ${my.seoMetrics.cafeBlogReviewsTotal}건
+• 방문자 평점 스코어:             ${my.seoMetrics.visitorReviewsScore || '비공개'} / 5.0
+• 정성 텍스트 리뷰 수:            ${my.seoMetrics.textReviewsTotal}건
+• 키워드 리뷰 총 투표 참여수:     ${my.seoMetrics.totalVoteCount}표
+• 스마트콜(0507) 연동 가산점:     ${my.seoMetrics.hasSmartCall ? '가산점 획득 (연동됨)' : '미연동 (감점/보류)'}
+• 네이버 톡톡(실시간) 연동 가산점: ${my.seoMetrics.hasTalktalk ? '가산점 획득 (연동됨)' : '미연동 (감점/보류)'}
+• 대표 사진 등록 수:              ${my.seoMetrics.photoCount}장
+• 메뉴 및 상품 등록 수:           ${my.seoMetrics.menuCount}개
+
+--------------------------------------------------------------------------------
+[SECTION 3. 소비자 키워드 리뷰 전수 데이터 (Voted Keywords Full List)]
+--------------------------------------------------------------------------------
+`;
+      if (my.topRepKeywords && my.topRepKeywords.length > 0) {
+        report += `총 ${my.topRepKeywords.length}개 소비자 평가 키워드 전수 득표 내역:\n`;
+        my.topRepKeywords.forEach((k, i) => {
+          report += `   ${(i + 1).toString().padStart(2, ' ')}. [${k.keyword}] - ${k.count}표 (코드: ${k.code})\n`;
+        });
+      } else {
+        report += `키워드 투표 데이터가 없습니다.\n`;
+      }
+
+      report += `
+--------------------------------------------------------------------------------
+[SECTION 4. 등록 메뉴 & 가격 & 설명 전수 리스트 (Menu Catalog)]
+--------------------------------------------------------------------------------
+`;
+      if (my.menus && my.menus.length > 0) {
+        report += `총 ${my.menus.length}개 등록 메뉴 전수 데이터:\n`;
+        my.menus.forEach((m, i) => {
+          report += `   ${(i + 1).toString().padStart(2, ' ')}. ${m.isRecommend ? '⭐ [대표추천] ' : ''}${m.name} : ${m.price ? m.price.toLocaleString() + '원' : '가격문의'}\n`;
+          if (m.description) report += `       설명: "${m.description}"\n`;
+        });
+      } else {
+        report += `등록된 메뉴가 없습니다.\n`;
+      }
+
+      report += `
+--------------------------------------------------------------------------------
+[SECTION 5. 편의시설 및 결제 수단 (Amenities & Payments)]
+--------------------------------------------------------------------------------
+• 제공 편의시설: ${my.conveniences ? my.conveniences.join(' | ') : '정보 없음'}
+• 지원 결제수단: ${my.paymentMethods ? my.paymentMethods.join(' | ') : '정보 없음'}
+
+--------------------------------------------------------------------------------
+[SECTION 6. 등록 대표 이미지 갤러리 메타데이터 (Media Assets)]
+--------------------------------------------------------------------------------
+총 ${my.samplePhotos ? my.samplePhotos.length : 0}개 상단 대표 사진 목록 (미니홈피 자동 갤러리 이식용):\n`;
+      if (my.samplePhotos && my.samplePhotos.length > 0) {
+        my.samplePhotos.forEach((p, i) => {
+          report += `   ${(i + 1).toString().padStart(2, ' ')}. URL: ${p}\n`;
+        });
+      }
+
+      report += `
+--------------------------------------------------------------------------------
+[SECTION 7. 매장 누락 정보 감사 진단 (Missing Info Audit - 상위노출 감점 요인)]
+--------------------------------------------------------------------------------
+• 영업시간 정보 누락 여부:       ${my.seoMetrics.isBizHourMissing ? '⚠️ 누락됨 (네이버 랭킹 감점 요인!)' : '정상 등록 (양호)'}
+• 메뉴 사진 누락 여부:           ${my.seoMetrics.menuCount === 0 ? '⚠️ 누락됨' : '정상 등록 (양호)'}
+• 찾아오는길 정보 누락 여부:     ${!my.directions ? '⚠️ 누락됨' : '정상 등록 (양호)'}
+• 편의시설 누락 여부:           ${!my.conveniences || my.conveniences.length === 0 ? '⚠️ 누락됨' : '정상 등록 (양호)'}
+================================================================================`;
+      
+      document.getElementById('rawDataDisplay').innerHTML = report;
+
+      // 2단계 Gap 분석
+      document.getElementById('gapTitle').innerText = `📊 '${data.targetKeyword}' 기준 1위와의 격차`;
+      document.getElementById('gapLocation').innerText = `1위: ${comp.name}`;
+
+      // 방사형 차트 그리기
+      drawRadarChart(my, comp);
+
+      // 영수증 리뷰
+      document.getElementById('visitorMetric').innerHTML = `내 매장 ${my.seoMetrics.visitorReviewsTotal.toLocaleString()}건 vs <span class="text-blue-600">1위 ${comp.seoMetrics.visitorReviewsTotal.toLocaleString()}건</span>`;
+      const vBadge = document.getElementById('visitorBadge');
+      if (gap.visitorDiff > 0) {
+        vBadge.className = 'text-xs font-bold text-rose-600 bg-rose-50 px-2 py-1 rounded-lg';
+        vBadge.innerText = `${gap.visitorDiff.toLocaleString()}건 부족 ⚠️`;
+      } else {
+        vBadge.className = 'text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded-lg';
+        vBadge.innerText = '1위 대비 우세 ✅';
+      }
+
+      // 평점
+      const myScore = my.seoMetrics.visitorReviewsScore || '4.5';
+      const compScore = comp.seoMetrics.visitorReviewsScore || '4.5';
+      document.getElementById('scoreMetric').innerText = `내 매장 ${myScore}점 vs 1위 ${compScore}점`;
+      const sBadge = document.getElementById('scoreBadge');
+      if (Number(myScore) >= Number(compScore)) {
+        sBadge.className = 'text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded-lg';
+        sBadge.innerText = `+${(Number(myScore) - Number(compScore)).toFixed(2)}점 우세 ✅`;
+      } else {
+        sBadge.className = 'text-xs font-bold text-rose-600 bg-rose-50 px-2 py-1 rounded-lg';
+        sBadge.innerText = `${(Number(compScore) - Number(myScore)).toFixed(2)}점 부족 ⚠️`;
+      }
+
+      // 키워드 투표수
+      document.getElementById('voteMetric').innerHTML = `내 매장 ${my.seoMetrics.totalVoteCount.toLocaleString()}표 vs <span class="text-blue-600">1위 ${comp.seoMetrics.totalVoteCount.toLocaleString()}표</span>`;
+      const vtBadge = document.getElementById('voteBadge');
+      if (gap.voteDiff > 0) {
+        vtBadge.className = 'text-xs font-bold text-rose-600 bg-rose-50 px-2 py-1 rounded-lg';
+        vtBadge.innerText = `${gap.voteDiff.toLocaleString()}표 부족 ⚠️`;
+      } else {
+        vtBadge.className = 'text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded-lg';
+        vtBadge.innerText = '투표수 우세 ✅';
+      }
+
+      // 2. 미니홈피 프리뷰 갱신
+      const cleanPhone = (my.phone || '').replace(/[^0-9]/g, '');
+      document.getElementById('previewDomain').innerText = `${cleanPhone || my.placeId}.dongbiz.com`;
+      document.getElementById('previewName').innerText = my.name;
+      document.getElementById('previewDesc').innerText = my.directions || my.roadAddress || `${my.category} 전문점`;
+      
+      if (my.menus && my.menus.length > 0) {
+        document.getElementById('previewMenu').innerText = `${my.menus[0].name} ${my.menus[0].price ? my.menus[0].price.toLocaleString() + '원' : ''}`;
+      } else {
+        document.getElementById('previewMenu').innerText = '대표 메뉴 등록중';
+      }
+
+      if (my.topRepKeywords && my.topRepKeywords.length > 0) {
+        document.getElementById('previewKeyword').innerText = `#${my.topRepKeywords[0].keyword}`;
+      } else {
+        document.getElementById('previewKeyword').innerText = '#친절해요';
+      }
+
+      document.getElementById('previewLink').href = my.placeUrl;
+      
+      // 3단계 결핍 자극 UI 데이터 바인딩
+      // 1. 키워드 미스매치
+      const wants = (my.keywordList && my.keywordList.length > 0) ? my.keywordList[0] : '미등록';
+      const fact = (my.topRepKeywords && my.topRepKeywords.length > 0) ? my.topRepKeywords[0].keyword : '데이터 없음';
+      document.getElementById('defiWants').innerText = wants;
+      document.getElementById('defiFact').innerText = fact;
+
+      // 2. 1위 역전 소요시간 (재미 요소: 1위와의 리뷰 차이를 하루 0.5개 증가한다고 가정)
+      if (gap.visitorDiff > 0) {
+        const days = Math.floor(gap.visitorDiff / 0.5); // 하루 0.5개 기준
+        const years = Math.floor(days / 365);
+        const months = Math.floor((days % 365) / 30);
+        let timeStr = '';
+        if (years > 0) timeStr += `${years}년 `;
+        if (months > 0) timeStr += `${months}개월`;
+        if (!timeStr) timeStr = `${days}일`;
+        document.getElementById('defiTime').innerText = `약 ${timeStr} 소요 ⚠️`;
+      } else {
+        document.getElementById('defiTime').innerText = `이미 1위 초과 ✅`;
+        document.getElementById('defiTime').className = "text-lg font-black text-emerald-600 bg-emerald-100/50 px-4 py-3 rounded-xl border border-emerald-200 text-center shadow-sm";
+      }
+
+      // 3. 생명력 지수
+      let freshScore = 0;
+      let newsText = '❌ 없음 (감점)';
+      if (my.recentNewsDate) {
+        const diff = Date.now() - new Date(my.recentNewsDate).getTime();
+        const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+        if (days <= 30) {
+          newsText = `✅ 등록됨 (${days}일 전)`;
+          freshScore += 1;
+        }
+      }
+      document.getElementById('defiNews').innerText = newsText;
+
+      let callScore = 0;
+      if (my.seoMetrics.hasTalktalk) callScore += 1;
+      if (my.seoMetrics.hasSmartCall) callScore += 1;
+      document.getElementById('defiCall').innerText = callScore === 2 ? '✅ 모두 연동됨' : (callScore === 1 ? '⚠️ 일부 연동' : '❌ 미연동');
+      freshScore += (callScore * 0.5); // MAX 1
+
+      const freshBg = document.getElementById('defiFreshBg');
+      const freshTitle = document.getElementById('defiFreshTitle');
+      if (freshScore >= 1.5) { // 파란불
+        freshBg.className = "bg-emerald-50 rounded-2xl p-5 border border-emerald-200 flex flex-col justify-between transition-colors";
+        freshTitle.innerText = "매장 생명력 지수: 양호 🟢";
+        freshTitle.className = "font-bold text-emerald-900 text-sm";
+      } else if (freshScore >= 0.5) { // 노란불
+        freshBg.className = "bg-amber-50 rounded-2xl p-5 border border-amber-200 flex flex-col justify-between transition-colors";
+        freshTitle.innerText = "매장 생명력 지수: 경고 🟡";
+        freshTitle.className = "font-bold text-amber-900 text-sm";
+      } else { // 빨간불
+        freshBg.className = "bg-rose-50 rounded-2xl p-5 border border-rose-200 flex flex-col justify-between transition-colors";
+        freshTitle.innerText = "매장 생명력 지수: 위험 🔴";
+        freshTitle.className = "font-bold text-rose-900 text-sm";
+      }
+
+      // 이미지 처리
+      if (my.samplePhotos && my.samplePhotos.length > 0) {
+        const imgContainer = document.getElementById('previewImageContainer');
+        imgContainer.style.backgroundImage = `url('${my.samplePhotos[0]}')`;
+        imgContainer.style.display = 'block';
+      }
+
+      document.getElementById('demoResult').scrollIntoView({ behavior: 'smooth' });
+
+      // 공유 링크 반영
+      if (!isShared && data.shareId) {
+        window.history.pushState({}, '', `?shareId=${data.shareId}`);
+      }
+    }
+  </script>
+</body>
+</html>

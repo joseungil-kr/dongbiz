@@ -1,0 +1,9 @@
+name = "dongbiz-worker"
+main = "src/index.ts"
+compatibility_date = "2024-03-01"
+
+# D1 Database Bindings
+[[d1_databases]]
+binding = "DB"
+database_name = "dongbiz-db"
+database_id = "your-d1-db-id"
