@@ -393,8 +393,11 @@ app.get('/api/lead-click', async (c) => {
   const placeId = c.req.query('placeId') || '';
   const name = c.req.query('name') || '이름 미상';
   const keyword = c.req.query('keyword') || '';
+  const shareId = c.req.query('shareId') || '';
+  // 리포트 링크는 관리자만 열 수 있으면 됨 — /admin/* 기존 Basic Auth를 그대로 태운다.
+  const reportLine = shareId ? `\nPDF 리포트: ${new URL(c.req.url).origin}/admin/${shareId}/report` : '';
   c.executionCtx.waitUntil(Promise.all([
-    notify(c.env, `📞 [상담 CTA 클릭] ${name} (${placeId})${keyword ? `\n키워드: ${keyword}` : ''}\n카톡/문자로 연락할 가능성 있음 — 응답 준비.`),
+    notify(c.env, `📞 [상담 CTA 클릭] ${name} (${placeId})${keyword ? `\n키워드: ${keyword}` : ''}${reportLine}\n카톡/문자로 연락할 가능성 있음 — 응답 준비.`),
     logDiagnosisToSheet(c.env, {
       type: 'lead_click',
       timestamp: new Date().toISOString(),
@@ -766,6 +769,152 @@ app.get('/admin/:shareId', async (c) => {
   <h2 style="font-size:15px;">지표별 통계 (avg/median/boundary)</h2>
   <div class="card"><pre>${escapeHtml(JSON.stringify(data.stats, null, 2))}</pre></div>
 </body></html>`);
+});
+
+// 항목별 개선 주석. 사용자(조승일)가 직접 첨삭 확정한 문구 — 값 판정 로직과 분리해서
+// 문구만 바꿔야 할 때 이 객체만 건드리면 되도록 한다.
+const REPORT_NOTES: Record<string, string> = {
+  news: '최근소식은 최소 2개월에 1건, 이상적으로는 월 1건 이상 등록하는 것이 좋습니다. 오래 방치된 매장보다 자주 관리되는 매장에 네이버가 가산점을 부여합니다.',
+  talk: '톡톡·스마트콜 연동은 실제로 존재하는 네이버 가산점 요소입니다. 사용에 특별한 거부감이 없다면 두 기능 모두 켜두는 것을 권장드립니다.',
+  descLen: '상세설명은 상위노출을 원하는 키워드를 포함해 1,000자 이상 작성하는 것이 좋습니다. 친절한 말투와 함께 위치·주차·대표메뉴 등 고객이 궁금해할 정보를 빠짐없이 담아주세요.',
+  directions: '정보가 비어 있으면 고객이 매장을 찾기 어렵고, 네이버 정보 완성도 평가에서도 감점 요인이 됩니다. 지하철역·정류장 등 눈에 띄는 기준점으로 안내문을 등록해주세요.',
+  conveniences: '주차, 포장, 반려동물 동반 등은 실제 방문 결정에 직결되는 정보입니다. 해당하는 항목을 스마트플레이스에서 빠짐없이 체크해주세요.',
+  descMissing: "설명 자체가 없으면 네이버가 매장을 판단할 근거가 없는 것과 같습니다. 위 '상세설명 분량' 기준에 맞춰 새로 작성해주세요.",
+  bizHour: "'영업중' 표시가 뜨지 않아 신뢰도가 떨어지고 실제 방문에도 불리합니다. 브레이크타임·휴무일까지 정확히 등록해주세요.",
+  menuImage: '사진이 없으면 무엇을 파는 곳인지 한눈에 파악하기 어렵습니다. 대표메뉴 위주로 등록하면 클릭률과 예약 전환에 직접 도움이 됩니다.',
+  keywordCount: '대표키워드는 5개를 모두 채워야 상위노출에 유리합니다. 지역명+업종, 지역명+메뉴 조합처럼 실제 검색될 법한 단어로 채워주세요. 키워드의 순서도 중요합니다 — 중요한 키워드를 앞에 배치하는 것이 좋습니다.',
+  keywordMatch: '등록한 키워드가 상세설명 안에 실제로 포함돼야 네이버가 그 키워드를 중요 단어로 인식합니다. 설명 문구에 자연스럽게 녹여주세요. 단, 단순 키워드 나열은 오히려 감점 사유가 됩니다.',
+  visitorReviews: '실제 방문 고객이 남기는 신뢰 지표입니다. 방문 후 리뷰 작성을 유도하는 안내문이나 QR을 매장 내 비치하는 것이 효과적이며, 체험단이나 대가성(음료·할인 이벤트) 리뷰도 무방합니다. 단, 가짜 영수증·타인 영수증·영수증 중복사용은 감점 요인이 됩니다.',
+  blogReviews: '검색 노출 자체를 늘려주는 효과가 있습니다. 단골 고객에게 소소한 서비스와 함께 후기 작성을 요청해보세요.',
+  voteCount: '리뷰 작성 시 고객이 고르는 항목으로, 매장 강점을 네이버에 직접 알리는 지표입니다. 리뷰 요청 시 관련 키워드도 함께 눌러달라고 안내해보세요.',
+  photoCount: '사진이 많을수록 신뢰도와 체류시간이 올라갑니다. 메뉴·내부·외관·주차 등 다양한 각도로 꾸준히 추가해주세요.',
+  reviewScore: '평점은 신규 고객이 방문을 결정하는 가장 큰 기준입니다. 낮은 평점 리뷰엔 정중히 답글을 남겨 관리 중임을 보여주는 것이 좋습니다.',
+};
+
+function reportBadge(cls: 'ok' | 'mid' | 'warn', label: string): string {
+  return `<span class="rbadge rbadge-${cls}">${escapeHtml(label)}</span>`;
+}
+
+// 프론트 gradeTier()와 동일한 5단계 기준 — 키워드 순위 기반 리포트용.
+function serverGradeTier(ratio: number): { cls: 'ok' | 'mid' | 'warn'; label: string } {
+  if (ratio >= 1.2) return { cls: 'ok', label: '최우수' };
+  if (ratio >= 1.0) return { cls: 'ok', label: '우수' };
+  if (ratio >= 0.7) return { cls: 'mid', label: '양호' };
+  if (ratio >= 0.4) return { cls: 'warn', label: '개선필요' };
+  return { cls: 'warn', label: '위험' };
+}
+
+// 프론트 compareTier()와 동일 — 1:1 직접비교용. 값 그대로 비교해 0 vs 0을 "동일"로 정확히 잡는다.
+function serverCompareTier(myVal: number, otherVal: number): { cls: 'ok' | 'mid' | 'warn'; label: string } {
+  if (myVal === otherVal) return { cls: 'mid', label: '동일' };
+  if (myVal > otherVal) return { cls: 'ok', label: '강점' };
+  return { cls: 'warn', label: '약점' };
+}
+
+function reportItem(label: string, badgeHtml: string, noteKey: string): string {
+  return `<div class="ritem"><div class="ritem-head"><span class="ritem-label">${escapeHtml(label)}</span>${badgeHtml}</div><p class="ritem-note">${escapeHtml(REPORT_NOTES[noteKey])}</p></div>`;
+}
+
+// 관리자 전용 맞춤개선 PDF 리포트. 별도 PDF 라이브러리 없이 인쇄 친화 CSS로 만들고
+// 브라우저 "인쇄 → PDF로 저장"으로 뽑는다 — 사장님이 그걸 받아 카톡으로 고객에게 전달.
+app.get('/admin/:shareId/report', async (c) => {
+  const db = c.env.DB;
+  if (!db) return c.text('DB 미설정', 500);
+
+  const shareId = c.req.param('shareId');
+  const row = await db.prepare('SELECT raw_data, created_at FROM search_histories WHERE share_id = ?').bind(shareId).first();
+  if (!row) return c.html(`<!DOCTYPE html><html><body style="font-family:sans-serif;padding:24px;"><a href="/admin">&larr; 목록으로</a><p>해당 진단 기록을 찾을 수 없습니다.</p></body></html>`, 404);
+
+  const data = JSON.parse(row.raw_data as string);
+  const my = data.myStore;
+  const sm = my.seoMetrics;
+  const stats = data.stats;
+  const compareName: string | null = data.isDirectCompare ? (data.top10Competitors?.[0]?.name || '경쟁사') : null;
+
+  const tierFor = (key: string) => {
+    const myVal = Number(sm[key]) || 0;
+    if (compareName) return serverCompareTier(myVal, Number(stats[key].avg) || 0);
+    const denom = stats[key].boundary ?? stats[key].avg;
+    return serverGradeTier(myVal / Math.max(Number(denom) || 0, 0.01));
+  };
+  const compareColLabel = compareName || '경쟁사 평균';
+
+  let newsDays: number | null = null;
+  if (my.recentNewsDate) newsDays = Math.floor((Date.now() - new Date(my.recentNewsDate).getTime()) / 86400000);
+  const newsOk = newsDays !== null && newsDays <= 60;
+
+  const kList: string[] = my.keywordList || [];
+  const kwdFilled = kList.length >= 5;
+  const kwdMissing = kList.filter(k => !(my.description || '').includes(k));
+  const kwdMatched = kList.length > 0 && kwdMissing.length === 0;
+
+  const html = `<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><title>${escapeHtml(my.name)} - 맞춤개선 리포트</title><style>${ADMIN_STYLE}
+    .ritem { padding: 14px 0; border-bottom: 1px solid #E2E8F0; }
+    .ritem:last-child { border-bottom: none; }
+    .ritem-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+    .ritem-label { font-weight: 700; font-size: 13px; }
+    .ritem-note { font-size: 12.5px; color: #475569; line-height: 1.6; margin: 0; }
+    .rbadge { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 11px; font-weight: 700; white-space: nowrap; }
+    .rbadge-ok { background: #ECFDF5; color: #047857; }
+    .rbadge-mid { background: #EFF6FF; color: #1D4ED8; }
+    .rbadge-warn { background: #FEF2F2; color: #B91C1C; }
+    .rsection-title { font-size: 14px; font-weight: 800; margin: 24px 0 8px; }
+    .rcontact { background: #0F172A; color: #fff; border-radius: 16px; padding: 24px; text-align: center; margin-top: 28px; }
+    .rcontact .phone { font-size: 22px; font-weight: 800; margin: 6px 0; }
+    .rprint-btn { background: #2563EB; color: #fff; border: none; padding: 10px 18px; border-radius: 10px; font-weight: 700; font-size: 13px; cursor: pointer; }
+    @media print { .no-print { display: none !important; } body { padding: 0; background: #fff; } }
+  </style></head>
+  <body>
+    <div class="no-print" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+      <a class="back" href="/admin/${escapeHtml(shareId)}">&larr; 진단 상세로</a>
+      <button class="rprint-btn" onclick="window.print()">🖨️ 인쇄 / PDF로 저장</button>
+    </div>
+
+    <div class="card">
+      <h1 style="margin:0 0 6px;">${escapeHtml(my.name)} 맞춤개선 리포트 <span class="badge grade-${escapeHtml(data.grade || 'B')}">${escapeHtml(data.grade || '-')}</span></h1>
+      <p style="font-size:13px;color:#475569;margin:2px 0;">${compareName ? `비교 대상: ${escapeHtml(compareName)}` : `진단 키워드: ${escapeHtml(data.targetKeyword || '')}`} · 진단일시: ${escapeHtml(String(row.created_at || ''))}</p>
+      <p style="font-size:13px;color:#475569;margin:2px 0;">주소: ${escapeHtml(my.roadAddress || '미등록')}</p>
+    </div>
+
+    <div class="rsection-title">① 매장 생명력 지수</div>
+    <div class="card">
+      ${reportItem('최근소식(2개월)', reportBadge(newsOk ? 'ok' : 'warn', newsOk ? `등록됨(${newsDays}일 전)` : '미등록'), 'news')}
+      ${reportItem('톡톡/스마트콜 연동', reportBadge(sm.hasTalktalk && sm.hasSmartCall ? 'ok' : 'warn', sm.hasTalktalk && sm.hasSmartCall ? '모두 연동됨' : '일부 미연동'), 'talk')}
+      ${reportItem('상세설명 분량', reportBadge((sm.descriptionLength || 0) >= 1000 ? 'ok' : 'warn', `${sm.descriptionLength || 0}자`), 'descLen')}
+    </div>
+
+    <div class="rsection-title">② 등록 정보 누락 감사</div>
+    <div class="card">
+      ${reportItem('찾아오는길 정보', reportBadge(sm.isAccessorMissing ? 'warn' : 'ok', sm.isAccessorMissing ? '누락됨' : '정상 등록'), 'directions')}
+      ${reportItem('편의시설 정보', reportBadge(sm.isConveniencesMissing ? 'warn' : 'ok', sm.isConveniencesMissing ? '누락됨' : '정상 등록'), 'conveniences')}
+      ${reportItem('상세설명 등록', reportBadge(sm.isDescriptionMissing ? 'warn' : 'ok', sm.isDescriptionMissing ? '누락됨' : '정상 등록'), 'descMissing')}
+      ${reportItem('영업시간 등록', reportBadge(sm.isBizHourMissing ? 'warn' : 'ok', sm.isBizHourMissing ? '누락됨' : '정상 등록'), 'bizHour')}
+      ${reportItem('대표(메뉴)사진', reportBadge(sm.isMenuImageMissing ? 'warn' : 'ok', sm.isMenuImageMissing ? '누락됨' : '정상 등록'), 'menuImage')}
+    </div>
+
+    <div class="rsection-title">③ 키워드 세팅</div>
+    <div class="card">
+      ${reportItem('대표키워드 5개', reportBadge(kwdFilled ? 'ok' : 'warn', `${kList.length}/5개`), 'keywordCount')}
+      ${reportItem('키워드-설명 매칭', reportBadge(kwdMatched ? 'ok' : 'warn', kwdMatched ? '전부 매칭' : `${kwdMissing.length}개 미매칭`), 'keywordMatch')}
+    </div>
+
+    <div class="rsection-title">④ ${escapeHtml(compareColLabel)} 대비 지표</div>
+    <div class="card">
+      ${reportItem('영수증(방문자) 리뷰', reportBadge(tierFor('visitorReviewsTotal').cls, `${tierFor('visitorReviewsTotal').label} (내 ${sm.visitorReviewsTotal}건 / ${escapeHtml(compareColLabel)} ${Math.round(Number(stats.visitorReviewsTotal.avg))}건)`), 'visitorReviews')}
+      ${reportItem('블로그/카페 리뷰', reportBadge(tierFor('cafeBlogReviewsTotal').cls, `${tierFor('cafeBlogReviewsTotal').label} (내 ${sm.cafeBlogReviewsTotal}건 / ${escapeHtml(compareColLabel)} ${Math.round(Number(stats.cafeBlogReviewsTotal.avg))}건)`), 'blogReviews')}
+      ${reportItem('키워드 투표수', reportBadge(tierFor('totalVoteCount').cls, `${tierFor('totalVoteCount').label} (내 ${sm.totalVoteCount}표 / ${escapeHtml(compareColLabel)} ${Math.round(Number(stats.totalVoteCount.avg))}표)`), 'voteCount')}
+      ${reportItem('등록 사진 수', reportBadge(tierFor('photoCount').cls, `${tierFor('photoCount').label} (내 ${sm.photoCount}장 / ${escapeHtml(compareColLabel)} ${Math.round(Number(stats.photoCount.avg))}장)`), 'photoCount')}
+      ${reportItem('방문자 평점', reportBadge(tierFor('visitorReviewsScore').cls, `${tierFor('visitorReviewsScore').label} (내 ${sm.visitorReviewsScore ?? '비공개'} / ${escapeHtml(compareColLabel)} ${stats.visitorReviewsScore.avg ?? '-'})`), 'reviewScore')}
+    </div>
+
+    <div class="rcontact">
+      <div style="font-size:13px;opacity:0.8;">이 리포트에 대한 상담이 필요하시면 아래로 연락주세요</div>
+      <div class="phone">010-2490-0555</div>
+      <div style="font-size:12px;opacity:0.7;">조강사 · 카톡 또는 문자로 편하게 문의해주세요</div>
+    </div>
+  </body></html>`;
+
+  return c.html(html);
 });
 
 // 매일 헬스체크 (§6 Phase B): 고정 매장 1건을 스크랩해 네이버 구조 변경/차단을 조기 감지.

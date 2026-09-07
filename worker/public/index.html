@@ -343,7 +343,7 @@
     function requestConsult() {
       const phone = realPhone();
       document.getElementById('ctaPhoneText').innerText = phone;
-      fetch(`/api/lead-click?placeId=${encodeURIComponent(currentPlace?.placeId || '')}&name=${encodeURIComponent(currentPlace?.name || '')}&keyword=${encodeURIComponent(document.getElementById('keywordInput')?.value || '')}`).catch(() => {});
+      fetch(`/api/lead-click?placeId=${encodeURIComponent(currentPlace?.placeId || '')}&name=${encodeURIComponent(currentPlace?.name || '')}&keyword=${encodeURIComponent(document.getElementById('keywordInput')?.value || '')}&shareId=${encodeURIComponent(currentShareId || '')}`).catch(() => {});
       window.location.href = 'tel:' + phone.replace(/-/g, '');
     }
 
