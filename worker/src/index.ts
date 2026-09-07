@@ -1,11 +1,15 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { scrapeFullPlaceMetrics, getOrganicRanking } from './scraper';
+import { notify, logDiagnosisToSheet, NotifyEnv } from './notify';
 
-export interface Env {
+export interface Env extends NotifyEnv {
   DB: D1Database;
   CACHE?: KVNamespace; // 미바인딩 시 캐시 없이 동작 (§6 Phase A)
 }
+
+// 매일 헬스체크에 쓰는 고정 매장 (§6 Phase B). wrangler dev 테스트로 실제 동작 확인된 매장.
+const HEALTHCHECK_PLACE_ID = '1785101394';
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -68,6 +72,7 @@ app.get('/api/place', async (c) => {
     return c.json({ success: true, myStore });
   } catch (err: any) {
     console.error('진단 처리 중 오류:', err);
+    c.executionCtx.waitUntil(notify(c.env, `⚠️ [진단 실패] query="${query}"\n${err.message || err}`));
     return c.json({ error: err.message || '매장 정보를 찾을 수 없습니다.' }, 500);
   }
 });
@@ -172,9 +177,28 @@ app.get('/api/gap', async (c) => {
       }
     }
 
+    // 신규 진단 완료 알림 + 콜드콜 리스트 적재 (§8.2-A). 응답 지연 없이 백그라운드 처리.
+    c.executionCtx.waitUntil(Promise.all([
+      notify(c.env, `📊 [신규 진단] ${myStore.name} (${myStore.placeId})\n키워드: ${keyword}\n순위: ${myRank ? `${myRank}위` : `${ranking.length}위 밖`} / 등급: ${grade}\n연락처: ${myStore.phone || '미등록'}`),
+      logDiagnosisToSheet(c.env, {
+        timestamp: new Date().toISOString(),
+        placeName: myStore.name,
+        placeId: myStore.placeId,
+        phone: myStore.phone,
+        category: myStore.category,
+        roadAddress: myStore.roadAddress,
+        targetKeyword: keyword,
+        myRank,
+        grade,
+        visitorReviews: myStore.seoMetrics.visitorReviewsTotal,
+        shareId,
+      }),
+    ]));
+
     return c.json(responsePayload);
   } catch (err: any) {
     console.error('Gap 분석 중 오류:', err);
+    c.executionCtx.waitUntil(notify(c.env, `⚠️ [Gap 분석 실패] placeId="${placeId}" keyword="${keyword}"\n${err.message || err}\n(네이버 구조 변경 또는 차단 가능성 — §7 확인 요망)`));
     return c.json({ error: err.message || 'Gap 분석에 실패했습니다.' }, 500);
   }
 });
@@ -202,4 +226,20 @@ app.get('/api/history', async (c) => {
   }
 });
 
-export default app;
+// 매일 헬스체크 (§6 Phase B): 고정 매장 1건을 스크랩해 네이버 구조 변경/차단을 조기 감지.
+// 성공 시 조용, 실패 시에만 텔레그램 알림 (평소엔 알림 없음이 정상).
+async function runHealthcheck(env: Env) {
+  try {
+    await scrapeFullPlaceMetrics(HEALTHCHECK_PLACE_ID);
+  } catch (err: any) {
+    console.error('헬스체크 실패:', err);
+    await notify(env, `🚨 [헬스체크 실패] 고정 매장(${HEALTHCHECK_PLACE_ID}) 스크랩 불가\n${err.message || err}\n네이버 페이지 구조 변경 또는 IP 차단 가능성 — 즉시 확인 요망`);
+  }
+}
+
+export default {
+  fetch: app.fetch,
+  scheduled: async (_event: ScheduledEvent, env: Env, ctx: ExecutionContext) => {
+    ctx.waitUntil(runHealthcheck(env));
+  },
+};

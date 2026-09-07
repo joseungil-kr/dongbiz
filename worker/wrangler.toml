@@ -18,3 +18,12 @@ database_id = "fb4d0641-f7c9-4060-938a-d3acf3de95e0"
 [[kv_namespaces]]
 binding = "CACHE"
 id = "4063e07d64ba4db4a7e8ff6195e6735b"
+
+# 매일 09:00 KST(00:00 UTC) 헬스체크 (§6 Phase B)
+[triggers]
+crons = ["0 0 * * *"]
+
+# 텔레그램/구글시트 알림 시크릿 (§8.2-A). 값은 git에 올리지 않는다.
+# 배포: npx wrangler secret put TELEGRAM_BOT_TOKEN  (TELEGRAM_CHAT_ID, SHEETS_WEBHOOK_URL도 동일)
+# 로컬: worker/.dev.vars 파일에 TELEGRAM_BOT_TOKEN=... 형태로 작성 (.gitignore 처리됨)
+# 미설정 시 알림 없이 조용히 동작 — 기능에는 영향 없음

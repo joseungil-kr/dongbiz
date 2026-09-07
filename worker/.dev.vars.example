@@ -1,0 +1,11 @@
+# 로컬 wrangler dev용 시크릿. 이 파일을 .dev.vars로 복사한 뒤 값을 채운다.
+# .dev.vars는 .gitignore 처리되어 있으므로 git에 올라가지 않는다.
+
+# 텔레그램 봇 토큰 (BotFather에서 발급, 5분 소요)
+TELEGRAM_BOT_TOKEN=
+
+# 알림 받을 채팅방/유저 ID (봇에게 아무 메시지 보낸 뒤 https://api.telegram.org/bot<TOKEN>/getUpdates 에서 chat.id 확인)
+TELEGRAM_CHAT_ID=
+
+# 구글시트 Apps Script 웹훅 URL (진단 로그 append용, 콜드콜 리스트)
+SHEETS_WEBHOOK_URL=

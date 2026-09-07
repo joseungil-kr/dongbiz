@@ -3,4 +3,5 @@ node_modules/
 .wrangler/
 .env
 .env.local
+.dev.vars
 dist/
