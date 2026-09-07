@@ -18,6 +18,20 @@
       backdrop-filter: blur(16px);
       border: 1px solid rgba(226, 232, 240, 0.8);
     }
+    .report-note {
+      margin: 6px 0 4px;
+      padding: 8px 10px;
+      background: #EFF6FF;
+      border-left: 3px solid #2563EB;
+      border-radius: 0 8px 8px 0;
+      font-size: 11.5px;
+      line-height: 1.55;
+      color: #1E3A5F;
+    }
+    @media print {
+      .no-print { display: none !important; }
+      body { background: #fff; }
+    }
   </style>
 </head>
 <body class="bg-[#F8FAFC] text-slate-900 min-h-screen flex flex-col justify-between">
@@ -333,6 +347,44 @@
 
     // 운영자 본인 테스트용 우회 토큰. URL에 ?bypass=... 로 수동으로만 붙인다 (공개 UI 어디에도 노출 안 함).
     const bypassToken = new URLSearchParams(window.location.search).get('bypass') || '';
+
+    // 맞춤개선 리포트 모드. /admin/:shareId/report 에서만 서버가 이 값을 스크립트로 주입한다
+    // (일반 공개 페이지·공유링크에서는 절대 세팅 안 됨 — 주석은 관리자만 봐야 하므로).
+    const IS_REPORT = typeof window.__REPORT_SHARE_ID__ !== 'undefined';
+
+    // 사용자(조승일)가 직접 첨삭 확정한 항목별 개선 주석. 판정 로직(뱃지·등급)은 이미 있는
+    // 렌더링 함수가 그대로 하고, 리포트 모드일 때 이 문구만 각 항목 아래에 덧붙인다.
+    const REPORT_NOTES = {
+      news: '최근소식은 최소 2개월에 1건, 이상적으로는 월 1건 이상 등록하는 것이 좋습니다. 오래 방치된 매장보다 자주 관리되는 매장에 네이버가 가산점을 부여합니다.',
+      talk: '톡톡·스마트콜 연동은 실제로 존재하는 네이버 가산점 요소입니다. 사용에 특별한 거부감이 없다면 두 기능 모두 켜두는 것을 권장드립니다.',
+      descLen: '상세설명은 상위노출을 원하는 키워드를 포함해 1,000자 이상 작성하는 것이 좋습니다. 친절한 말투와 함께 위치·주차·대표메뉴 등 고객이 궁금해할 정보를 빠짐없이 담아주세요.',
+      directions: '정보가 비어 있으면 고객이 매장을 찾기 어렵고, 네이버 정보 완성도 평가에서도 감점 요인이 됩니다. 지하철역·정류장 등 눈에 띄는 기준점으로 안내문을 등록해주세요.',
+      conveniences: '주차, 포장, 반려동물 동반 등은 실제 방문 결정에 직결되는 정보입니다. 해당하는 항목을 스마트플레이스에서 빠짐없이 체크해주세요.',
+      descMissing: "설명 자체가 없으면 네이버가 매장을 판단할 근거가 없는 것과 같습니다. 위 '상세설명 분량' 기준에 맞춰 새로 작성해주세요.",
+      bizHour: "'영업중' 표시가 뜨지 않아 신뢰도가 떨어지고 실제 방문에도 불리합니다. 브레이크타임·휴무일까지 정확히 등록해주세요.",
+      menuImage: '사진이 없으면 무엇을 파는 곳인지 한눈에 파악하기 어렵습니다. 대표메뉴 위주로 등록하면 클릭률과 예약 전환에 직접 도움이 됩니다.',
+      keywordCount: '대표키워드는 5개를 모두 채워야 상위노출에 유리합니다. 지역명+업종, 지역명+메뉴 조합처럼 실제 검색될 법한 단어로 채워주세요. 키워드의 순서도 중요합니다 — 중요한 키워드를 앞에 배치하는 것이 좋습니다.',
+      keywordMatch: '등록한 키워드가 상세설명 안에 실제로 포함돼야 네이버가 그 키워드를 중요 단어로 인식합니다. 설명 문구에 자연스럽게 녹여주세요. 단, 단순 키워드 나열은 오히려 감점 사유가 됩니다.',
+      visitorReviews: '실제 방문 고객이 남기는 신뢰 지표입니다. 방문 후 리뷰 작성을 유도하는 안내문이나 QR을 매장 내 비치하는 것이 효과적이며, 체험단이나 대가성(음료·할인 이벤트) 리뷰도 무방합니다. 단, 가짜 영수증·타인 영수증·영수증 중복사용은 감점 요인이 됩니다.',
+      blogReviews: '검색 노출 자체를 늘려주는 효과가 있습니다. 단골 고객에게 소소한 서비스와 함께 후기 작성을 요청해보세요.',
+      voteCount: '리뷰 작성 시 고객이 고르는 항목으로, 매장 강점을 네이버에 직접 알리는 지표입니다. 리뷰 요청 시 관련 키워드도 함께 눌러달라고 안내해보세요.',
+      photoCount: '사진이 많을수록 신뢰도와 체류시간이 올라갑니다. 메뉴·내부·외관·주차 등 다양한 각도로 꾸준히 추가해주세요.',
+      reviewScore: '평점은 신규 고객이 방문을 결정하는 가장 큰 기준입니다. 낮은 평점 리뷰엔 정중히 답글을 남겨 관리 중임을 보여주는 것이 좋습니다.',
+    };
+
+    function reportNoteHtml(key) {
+      return REPORT_NOTES[key] ? `<div class="report-note">${REPORT_NOTES[key]}</div>` : '';
+    }
+
+    // 실제 데이터 바로 아래에 주석을 붙인다 — el의 행(li 또는 flex 컨테이너) 뒤에 삽입.
+    function addReportNote(elId, key) {
+      if (!IS_REPORT) return;
+      const el = document.getElementById(elId);
+      if (!el) return;
+      const anchor = el.closest('li') || el.closest('div.flex') || el;
+      if (anchor.nextElementSibling && anchor.nextElementSibling.classList.contains('report-note')) return;
+      anchor.insertAdjacentHTML('afterend', reportNoteHtml(key));
+    }
     const bypassQS = bypassToken ? `&bypass=${encodeURIComponent(bypassToken)}` : '';
 
     // 스팸 스크래퍼 방지: 전화번호를 뒤집어 저장해뒀다가 클릭 시에만 복원한다.
@@ -463,9 +515,9 @@
     document.getElementById('storeInput').addEventListener('keypress', (e) => { if (e.key === 'Enter') runDiagnose(); });
     document.getElementById('keywordInput').addEventListener('keypress', (e) => { if (e.key === 'Enter') runGap(); });
 
-    // 공유 링크 복원 (?shareId=)
+    // 공유 링크 복원 (?shareId= 또는 리포트 모드의 __REPORT_SHARE_ID__)
     window.addEventListener('DOMContentLoaded', async () => {
-      const shareId = new URLSearchParams(window.location.search).get('shareId');
+      const shareId = window.__REPORT_SHARE_ID__ || new URLSearchParams(window.location.search).get('shareId');
       if (!shareId) return;
       try {
         const res = await fetch(`/api/history?shareId=${shareId}`);
@@ -481,10 +533,34 @@
         renderGap(data);
         document.getElementById('step2Result').classList.remove('hidden');
         document.getElementById('liveStatus').innerText = `[${currentPlace.name}] 진단 리포트 (저장됨)`;
+        if (IS_REPORT) applyReportMode();
       } catch (err) {
         console.error('공유된 히스토리 로드 실패:', err);
       }
     });
+
+    // 리포트 모드 전용 화면 조정: 입력폼·공유버튼 등 관리자 문서에 불필요한 요소는 숨기고,
+    // 연락처는 클릭 없이 바로 노출(관리자 본인이 이미 보고 있는 문서이므로 난독화 불필요),
+    // 인쇄→PDF 버튼을 추가한다.
+    function applyReportMode() {
+      document.querySelector('header')?.classList.add('hidden');
+      document.getElementById('step2Input')?.classList.add('hidden');
+      document.querySelectorAll('[onclick="shareCurrentPage()"]').forEach(el => el.classList.add('hidden'));
+
+      const ctaBtn = document.getElementById('ctaCallBtn');
+      if (ctaBtn) {
+        document.getElementById('ctaPhoneText').innerText = realPhone();
+        ctaBtn.removeAttribute('onclick');
+        ctaBtn.style.cursor = 'default';
+      }
+
+      const printBtn = document.createElement('button');
+      printBtn.textContent = '🖨️ 인쇄 / PDF로 저장';
+      printBtn.className = 'no-print';
+      printBtn.style.cssText = 'position:fixed;top:16px;right:16px;z-index:50;background:#2563EB;color:#fff;font-weight:700;font-size:13px;padding:12px 20px;border:none;border-radius:12px;box-shadow:0 4px 12px rgba(0,0,0,0.2);cursor:pointer;';
+      printBtn.onclick = () => window.print();
+      document.body.appendChild(printBtn);
+    }
 
     // 업종 기반 키워드 추천 칩 (하드코딩 업종 분기 없음 — 카테고리 텍스트 그대로 조합만)
     function renderKeywordChips(my) {
@@ -592,6 +668,20 @@
       guiNewsEl.innerText = isNewsRecent;
       guiNewsEl.className = 'font-bold text-[12px] ' + (isNewsRecent.startsWith('✅') ? 'text-emerald-600' : 'text-rose-500');
 
+      // 리포트 모드: 실제 데이터 행 바로 아래에 개선 주석을 붙인다
+      addReportNote('guiAuditTime', 'bizHour');
+      addReportNote('guiAuditMenu', 'menuImage');
+      addReportNote('guiAuditDir', 'directions');
+      addReportNote('guiAuditAmen', 'conveniences');
+      addReportNote('guiAuditDesc', 'descMissing');
+      addReportNote('guiScore', 'reviewScore');
+      // 대표키워드 5개 채움 + 설명 매칭은 guiRepKwdAudit 하나가 두 케이스를 같이 판정하므로 주석도 함께 붙인다
+      if (IS_REPORT) {
+        const kwdRow = kwdAuditEl.closest('li');
+        if (kwdRow && !(kwdRow.nextElementSibling && kwdRow.nextElementSibling.classList.contains('report-note'))) {
+          kwdRow.insertAdjacentHTML('afterend', reportNoteHtml('keywordCount') + reportNoteHtml('keywordMatch'));
+        }
+      }
     }
 
     function drawRadarChart(my, stats, compareLabel) {
@@ -667,6 +757,13 @@
 
     // 지표별 "상위 업체 대비 내 위치" 카드. §2 확정: 절망 유발 절대값 대신 부족분 + 채울 방법.
     // "확인불가"로 방치하지 않고, 10위 값이 없을 땐 상위 평균 기준으로라도 5단계 등급을 매긴다.
+    const BOUNDARY_NOTE_KEYS = {
+      '영수증(방문자) 리뷰': 'visitorReviews',
+      '블로그/카페 리뷰': 'blogReviews',
+      '키워드 투표수': 'voteCount',
+      '등록 사진 수': 'photoCount',
+    };
+
     function boundaryCard(label, unit, myVal, avgVal, boundaryVal, tooltip, compareName) {
       const has = boundaryVal !== null && boundaryVal !== undefined;
       const denom = has ? boundaryVal : avgVal;
@@ -689,6 +786,7 @@
           </div>
           <div class="grid ${compareName ? 'grid-cols-2' : 'grid-cols-3'} gap-2 text-center text-[11px]">${compareCols}</div>
           ${!has && !compareName ? '<p class="text-[10px] text-slate-400 mt-1.5">검색결과가 10곳 미만이라 상위 평균 기준으로 등급을 매겼습니다.</p>' : ''}
+          ${IS_REPORT && BOUNDARY_NOTE_KEYS[label] ? reportNoteHtml(BOUNDARY_NOTE_KEYS[label]) : ''}
         </div>`;
       return { html, label, isDeficient: tier.label === '개선필요' || tier.label === '위험' || tier.label === '약점' };
     }
@@ -821,6 +919,10 @@
       missingRow('defiAuditDir', my.seoMetrics.isAccessorMissing);
       missingRow('defiAuditAmen', my.seoMetrics.isConveniencesMissing);
       missingRow('defiAuditDesc', my.seoMetrics.isDescriptionMissing);
+      // 찾아오는길/편의시설/상세설명 누락 주석은 SECTION 7(guiAuditDir 등)에 이미 붙였으므로 중복 방지 차원에서 여기선 생략
+      addReportNote('defiNews', 'news');
+      addReportNote('defiCall', 'talk');
+      addReportNote('defiDesc', 'descLen');
 
       // 타이틀은 항상 '매장 생명력 지수' 고정 — 개별 항목(예: 톡톡/스마트콜 모두 연동됨)이 정상인데도
       // 종합 상태(경고 등)가 타이틀에 섞여 그 항목까지 문제로 보이는 걸 막는다. 상태는 별도 배지로만.

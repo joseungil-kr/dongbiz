@@ -5,6 +5,7 @@ compatibility_date = "2024-03-01"
 # 정적 프론트엔드 (public/index.html). /api/* 외 요청은 여기서 자동으로 서빙됨.
 [assets]
 directory = "./public"
+binding = "ASSETS"
 
 # D1 Database Bindings
 # 실행 전 필요: npx wrangler d1 create dongbiz-db  (Cloudflare 로그인 필요)
