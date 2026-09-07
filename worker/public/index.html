@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>동네비즈 (dongbiz.com) - 상위노출 Gap 실시간 진단</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHdpZHRoPSc2NCcgaGVpZ2h0PSc2NCc+PHJlY3Qgd2lkdGg9JzY0JyBoZWlnaHQ9JzY0JyByeD0nMTYnIGZpbGw9JyMyNTYzRUInLz48dGV4dCB4PSczMicgeT0nNDUnIGZvbnQtZmFtaWx5PSdBcmlhbCwgc2Fucy1zZXJpZicgZm9udC1zaXplPSczMicgZm9udC13ZWlnaHQ9JzkwMCcgZmlsbD0nd2hpdGUnIHRleHQtYW5jaG9yPSdtaWRkbGUnPuuPmTwvdGV4dD48L3N2Zz4=" />
   <meta property="og:type" content="website">
   <meta property="og:title" content="동네비즈 - 네이버 플레이스 상위노출 Gap 진단">
   <meta property="og:description" content="전화번호 하나로 우리 매장의 상위노출 현주소를 진단합니다. 상위 10개 업체와 실시간 비교.">
@@ -37,10 +38,10 @@
 <body class="bg-[#F8FAFC] text-slate-900 min-h-screen flex flex-col justify-between">
   <!-- 상단 네비게이션 -->
   <header class="w-full max-w-6xl mx-auto px-6 py-6 flex justify-between items-center">
-    <div class="flex items-center gap-2">
+    <a href="/" class="flex items-center gap-2">
       <div class="w-9 h-9 rounded-xl bg-blue-600 flex items-center justify-center text-white font-black text-lg shadow-md shadow-blue-500/20">동</div>
-      <span class="text-xl font-bold tracking-tight text-slate-900">동네비즈 <span class="text-xs text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full font-semibold ml-1">dongbiz</span></span>
-    </div>
+      <span class="text-xl font-bold tracking-tight text-slate-900">동네비즈</span>
+    </a>
     <div class="flex items-center gap-2">
       <button onclick="shareCurrentPage()" title="카톡이나 문자로 이 페이지를 공유하실 수 있습니다" class="text-sm font-bold text-slate-700 hover:text-blue-600 px-4 py-2.5 rounded-xl border border-slate-200 hover:border-blue-200 transition flex items-center gap-2">
         <i class="fa-solid fa-link text-sm"></i> 공유하기
@@ -51,13 +52,8 @@
 
   <!-- 메인 히어로 섹션 -->
   <main class="w-full max-w-5xl mx-auto px-6 py-12 flex flex-col items-center text-center">
-    <div class="inline-flex items-center gap-2 bg-blue-50 border border-blue-200/60 px-4 py-1.5 rounded-full mb-6">
-      <span class="flex h-2 w-2 rounded-full bg-blue-600 animate-pulse"></span>
-      <span class="text-xs font-bold text-blue-700">네이버 플레이스 상위노출 Gap 실시간 진단</span>
-    </div>
-
     <h1 class="text-3xl md:text-5xl font-black tracking-tight leading-[1.2] mb-5 text-slate-950">
-      상호, 전화번호만 넣으면,<br />
+      상호나 전화번호만 넣으면,<br />
       <span class="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 via-indigo-600 to-teal-500">우리 매장의 상위노출 현주소</span>를 진단
     </h1>
 
@@ -91,6 +87,17 @@
         <span class="flex items-center gap-1.5"><i class="fa-solid fa-chart-pie text-blue-500"></i> 실시간 Gap 리포트</span>
       </div>
     </div>
+
+    <details class="w-full max-w-2xl text-left mb-8 -mt-4 bg-white/60 border border-slate-200 rounded-2xl px-5 py-3">
+      <summary class="cursor-pointer text-xs font-bold text-slate-500 hover:text-blue-600">무엇을 입력해야 할지 모르겠다면? (클릭해서 펼치기)</summary>
+      <div class="mt-3 space-y-3 text-xs text-slate-600 leading-relaxed">
+        <p><b class="text-slate-800">상호 입력방법</b> : 본인의 상호 또는 검색 시 유일하게 한 업체만 나오는 상호를 넣어주세요. '강남 스타벅스'를 입력하면 맨 위의 업체가 진단 대상이 됩니다. '강남역 스타벅스 DT점'처럼 정확한 명칭을 넣는 것이 좋습니다.</p>
+        <p><b class="text-slate-800">전화번호 입력방법</b> : 네이버 스마트콜을 사용 중이면 0507로 시작하는 스마트콜 번호를 넣어주세요.</p>
+        <p><b class="text-slate-800">지도공유주소</b> : 내 플레이스의 공유 버튼을 클릭하면 나오는 주소입니다. 복사하기를 눌러서 검색창에 넣어주세요.</p>
+        <p><b class="text-slate-800">플레이스 고유숫자</b> : 내 플레이스를 클릭했을 때 주소창에 https://map.naver.com/p/entry/place/1234567890... 과 같은 숫자가 나옵니다. 이 숫자가 플레이스 고유숫자입니다.</p>
+        <p class="text-slate-500">위 4가지 중 하나만 알고 있어도 내 업체를 진단할 수 있습니다.</p>
+      </div>
+    </details>
 
     <!-- [1단계 결과] 내 매장 상세 지표 -->
     <div id="step1Result" class="hidden w-full max-w-4xl bg-white border border-slate-200 rounded-3xl p-6 md:p-8 shadow-2xl text-left transition-all mb-8">
@@ -335,8 +342,9 @@
   </main>
 
   <!-- 푸터 -->
-  <footer class="w-full border-t border-slate-200 py-6 text-center text-xs text-slate-500">
-    © 2026 동네비즈 (dongbiz.com). 네이버와 무관한 독립 서비스입니다. | 초개인화 소상공인 마케팅 자동화 엔진
+  <footer class="w-full border-t border-slate-200 py-6 text-center text-xs text-slate-500 space-y-1">
+    <p>© 2026 동네비즈 (dongbiz.com). 네이버와 무관한 독립 서비스입니다. | 초개인화 소상공인 마케팅 자동화 엔진</p>
+    <p>상호 : 인터피아드 · 사업자등록번호 : 124-35-56796 · 문의 : interpiad@gmail.com</p>
   </footer>
 
   <script>
