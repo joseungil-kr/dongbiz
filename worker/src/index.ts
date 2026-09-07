@@ -34,7 +34,7 @@ function generateShareId() {
 // 실제로 두 번 겪은 문제: 코드는 배포됐는데 KV에 남은 예전(버그) 값이 TTL(최대 24h) 동안 계속
 // 서빙되어 "고쳤다는데 왜 아직도 이래?"가 재발했다. 버전을 올리면 이전 키가 자동으로 무효화되어
 // 수동으로 wrangler kv key delete 할 필요가 없다.
-const CACHE_VERSION = 'v4';
+const CACHE_VERSION = 'v5';
 
 // KV 캐시 래퍼. CACHE 바인딩이 없으면 매번 새로 조회한다 (기능은 동작, 속도/원가만 손해).
 async function cached<T>(env: Env, key: string, ttlSeconds: number, fetcher: () => Promise<T>): Promise<T> {
@@ -62,6 +62,83 @@ async function upsertPlace(db: D1Database | undefined, store: any) {
   } catch (dbErr) {
     console.error('DB Insert Error (places):', dbErr);
   }
+}
+
+type SnapshotEntry = { id: string; name: string | null; rank: number | null; s: any };
+
+// 순위 스냅샷 배치 기록. /api/gap(source='user')과 cron 자동수집(source='cron') 둘 다 이걸 쓴다.
+async function insertRankSnapshotRows(
+  db: D1Database | undefined,
+  keyword: string,
+  entries: SnapshotEntry[],
+  source: 'user' | 'cron'
+) {
+  if (!db || entries.length === 0) return;
+  try {
+    const stmts = entries.map(({ id, name, rank, s }) => db.prepare(`
+      INSERT INTO rank_snapshots (
+        id, keyword, place_id, place_name, rank,
+        visitor_reviews, blog_reviews, vote_count, photo_count, review_score,
+        review_medias_total, coupon_count, has_booking, has_smart_order, has_review_penalty,
+        is_new_opening, is_good_store, is_open_now, is_biz_hour_missing, description_length,
+        name_contains_keyword, category_matches_keyword, distance_from_me_km, source
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(
+      crypto.randomUUID(), keyword, id, name, rank,
+      s.seoMetrics.visitorReviewsTotal ?? null, s.seoMetrics.cafeBlogReviewsTotal ?? null,
+      s.seoMetrics.totalVoteCount ?? null, s.seoMetrics.photoCount ?? null, s.seoMetrics.visitorReviewsScore ?? null,
+      s.seoMetrics.reviewMediasTotal ?? null, s.seoMetrics.couponCount ?? null,
+      s.seoMetrics.hasNaverBooking ? 1 : 0, s.seoMetrics.hasSmartOrder ? 1 : 0, s.seoMetrics.hasReviewPenalty ? 1 : 0,
+      s.seoMetrics.isNewOpening ? 1 : 0, s.seoMetrics.isGoodStore ? 1 : 0, s.seoMetrics.isOpenNow ? 1 : 0,
+      s.seoMetrics.isBizHourMissing ? 1 : 0, s.seoMetrics.descriptionLength ?? null,
+      s.rankFactors?.nameContainsKeyword ? 1 : 0, s.rankFactors?.categoryMatchesKeyword ? 1 : 0,
+      s.rankFactors?.distanceFromMeKm ?? null, source
+    ));
+    await db.batch(stmts);
+  } catch (err) {
+    console.error('rank_snapshots 기록 실패:', err);
+  }
+}
+
+// /api/gap 전용: myStore + 경쟁사를 SnapshotEntry로 변환해서 기록.
+async function logRankSnapshots(
+  db: D1Database | undefined,
+  keyword: string,
+  ranking: string[],
+  myStore: any,
+  myRank: number | null,
+  competitors: any[],
+  source: 'user' | 'cron' = 'user'
+) {
+  const entries: SnapshotEntry[] = [
+    { id: myStore.placeId, name: myStore.name, rank: myRank, s: myStore },
+    ...competitors.map((c: any) => {
+      const idx = ranking.indexOf(c.placeId);
+      return { id: c.placeId, name: c.name, rank: idx >= 0 ? idx + 1 : null, s: c };
+    }),
+  ];
+  await insertRankSnapshotRows(db, keyword, entries, source);
+}
+
+// 두 좌표 간 거리(km). 상위노출 영향 지표 중 하나로 알려진 "거리" — 별도 수집 없이 이미
+// 갖고 있는 좌표만으로 파생 계산 가능 (질문4 B그룹).
+function haversineKm(x1: any, y1: any, x2: any, y2: any): number | null {
+  const lon1 = Number(x1), lat1 = Number(y1), lon2 = Number(x2), lat2 = Number(y2);
+  if ([lon1, lat1, lon2, lat2].some(v => isNaN(v))) return null;
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+  return Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)) * 100) / 100;
+}
+
+// 키워드 토큰이 상호명/카테고리에 포함되는지 (질문4 B그룹 — 상호명 키워드 포함 여부는
+// 상위노출에 유리하다는 게 정설. 이미 수집 중인 name/category만으로 파생 계산).
+function keywordMatch(keyword: string, name: string | null, category: string | null) {
+  const tokens = keyword.split(/\s+/).filter(t => t.length >= 2);
+  const nameHit = tokens.some(t => (name || '').includes(t));
+  const categoryHit = tokens.some(t => (category || '').includes(t));
+  return { nameContainsKeyword: nameHit, categoryMatchesKeyword: categoryHit };
 }
 
 // 지표별 평균/중앙값 계산 (§7.6 평균 왜곡 방어)
@@ -127,6 +204,19 @@ app.get('/api/gap', async (c) => {
     const competitors = await Promise.all(
       top10Ids.map(id => cached(c.env, `place:${id}`, PLACE_TTL, () => scrapeFullPlaceMetrics(id)))
     );
+
+    // 상위노출 영향 지표(질문4 B그룹) 파생 계산: 거리·키워드 포함 여부는 추가 요청 없이
+    // 이미 수집한 좌표/상호명/카테고리만으로 계산 가능. myStore·경쟁사 전부에 부착.
+    (myStore as any).rankFactors = {
+      ...keywordMatch(keyword, myStore.name, myStore.category),
+      distanceFromMeKm: 0,
+    };
+    for (const comp of competitors) {
+      (comp as any).rankFactors = {
+        ...keywordMatch(keyword, comp.name, comp.category),
+        distanceFromMeKm: haversineKm(myStore.coordinates?.x, myStore.coordinates?.y, comp.coordinates?.x, comp.coordinates?.y),
+      };
+    }
 
     // 10위 업체 = 1페이지 진입선. 본인이 10위면 11위를 진입선으로 사용.
     const boundaryId = ranking[9] && ranking[9] !== placeId ? ranking[9] : ranking[10];
@@ -211,6 +301,7 @@ app.get('/api/gap', async (c) => {
         visitorReviews: myStore.seoMetrics.visitorReviewsTotal,
         shareId,
       }),
+      logRankSnapshots(c.env.DB, keyword, ranking, myStore, myRank, competitors, 'user'),
     ]));
 
     return c.json(responsePayload);
@@ -340,11 +431,150 @@ app.get('/admin', async (c) => {
 
   return c.html(`<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><title>동네비즈 관리자 - 진단 리스트</title><style>${ADMIN_STYLE}</style></head>
 <body>
-  <h1>진단 리스트 (최신 ${(results as any[]).length}건)</h1>
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+    <h1 style="margin:0;">진단 리스트 (최신 ${(results as any[]).length}건)</h1>
+    <a href="/admin/analytics" style="font-size:13px;font-weight:700;">📈 상위노출 지표 분석 →</a>
+  </div>
   <table>
     <thead><tr><th>일시</th><th>매장</th><th>키워드</th><th>내 순위</th><th>등급</th><th>리뷰(내/평균)</th><th></th></tr></thead>
     <tbody>${rows || '<tr><td colspan="7">아직 진단 기록이 없습니다.</td></tr>'}</tbody>
   </table>
+</body></html>`);
+});
+
+// 관리자: 상위노출 지표 분석 — 키워드 목록. §질문2 리버스엔지니어링 대시보드 1단계(개요).
+app.get('/admin/analytics', async (c) => {
+  const db = c.env.DB;
+  if (!db) return c.text('DB 미설정', 500);
+
+  const { results } = await db.prepare(`
+    SELECT keyword, COUNT(*) as snapshot_count, COUNT(DISTINCT place_id) as place_count,
+           MIN(collected_at) as first_seen, MAX(collected_at) as last_seen,
+           SUM(CASE WHEN source='cron' THEN 1 ELSE 0 END) as cron_count
+    FROM rank_snapshots
+    GROUP BY keyword
+    ORDER BY last_seen DESC
+  `).all();
+
+  const rows = (results as any[]).map(r => `
+    <tr>
+      <td><b>${escapeHtml(r.keyword)}</b></td>
+      <td>${r.snapshot_count}건 (업체 ${r.place_count}개)</td>
+      <td>${escapeHtml(r.first_seen)} ~ ${escapeHtml(r.last_seen)}</td>
+      <td>${r.cron_count > 0 ? `✅ ${r.cron_count}건` : '<span style="color:#94A3B8">아직 없음</span>'}</td>
+      <td><a href="/admin/analytics/${encodeURIComponent(r.keyword)}">순위 추이 보기 →</a></td>
+    </tr>`).join('');
+
+  return c.html(`<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><title>동네비즈 관리자 - 지표 분석</title><style>${ADMIN_STYLE}</style></head>
+<body>
+  <a class="back" href="/admin">&larr; 진단 리스트로</a>
+  <h1>상위노출 지표 분석 — 키워드별 관측 현황</h1>
+  <p style="font-size:13px;color:#64748B;margin:-8px 0 16px;">키워드는 사용자가 한 번 검색하면 매일 자동으로 재수집된다(cron, 최대 ${CRON_KEYWORD_BATCH_LIMIT}개/일 배치 제한). "cron" 열이 0이면 아직 최근 검색된 키워드가 아니라는 뜻.</p>
+  <table>
+    <thead><tr><th>키워드</th><th>스냅샷</th><th>관측 기간</th><th>자동수집</th><th></th></tr></thead>
+    <tbody>${rows || '<tr><td colspan="5">아직 수집된 데이터가 없습니다.</td></tr>'}</tbody>
+  </table>
+</body></html>`);
+});
+
+// 관리자: 키워드 1개의 순위 추이 + 순위변동 이벤트(지표 델타). 리버스엔지니어링의 핵심 화면.
+app.get('/admin/analytics/:keyword', async (c) => {
+  const db = c.env.DB;
+  if (!db) return c.text('DB 미설정', 500);
+
+  const keyword = decodeURIComponent(c.req.param('keyword'));
+  const { results } = await db.prepare(`
+    SELECT * FROM rank_snapshots WHERE keyword = ? ORDER BY collected_at ASC
+  `).bind(keyword).all();
+
+  const snapshots = results as any[];
+  if (snapshots.length === 0) {
+    return c.html(`<!DOCTYPE html><html><body style="font-family:sans-serif;padding:24px;"><a href="/admin/analytics">&larr; 목록으로</a><p>데이터가 없습니다.</p></body></html>`, 404);
+  }
+
+  // place_id별로 그룹화
+  const byPlace = new Map<string, any[]>();
+  for (const s of snapshots) {
+    if (!byPlace.has(s.place_id)) byPlace.set(s.place_id, []);
+    byPlace.get(s.place_id)!.push(s);
+  }
+
+  // Chart.js용 순위 추이 데이터 (순위는 낮을수록 좋으므로 y축 반전)
+  const placeNames = [...byPlace.keys()].map(id => byPlace.get(id)![0].place_name || id);
+  const timestamps = [...new Set(snapshots.map(s => s.collected_at))].sort();
+  const datasets = [...byPlace.entries()].map(([id, rows], i) => {
+    const byTime = new Map(rows.map(r => [r.collected_at, r.rank]));
+    const hue = (i * 67) % 360;
+    return {
+      label: rows[0].place_name || id,
+      data: timestamps.map(t => byTime.get(t) ?? null),
+      borderColor: `hsl(${hue}, 65%, 45%)`,
+      backgroundColor: `hsl(${hue}, 65%, 45%)`,
+      spanGaps: true,
+      tension: 0.2,
+    };
+  });
+
+  // 순위변동 이벤트: 같은 업체의 연속된 두 스냅샷 사이 순위가 바뀐 구간마다, 그 사이 지표 델타를 함께 표시.
+  const METRIC_LABELS: Record<string, string> = {
+    visitor_reviews: '방문자리뷰', blog_reviews: '블로그리뷰', vote_count: '투표수',
+    photo_count: '사진수', review_medias_total: '사진첨부리뷰', coupon_count: '쿠폰수',
+  };
+  const events: string[] = [];
+  for (const [id, rows] of byPlace) {
+    for (let i = 1; i < rows.length; i++) {
+      const prev = rows[i - 1], cur = rows[i];
+      if (prev.rank === cur.rank) continue;
+      const deltas = Object.entries(METRIC_LABELS)
+        .map(([col, label]) => {
+          const d = (cur[col] ?? 0) - (prev[col] ?? 0);
+          return d !== 0 ? `${label} ${d > 0 ? '+' : ''}${d}` : null;
+        })
+        .filter(Boolean)
+        .join(', ');
+      const rankTxt = `${prev.rank ?? '순위밖'} → ${cur.rank ?? '순위밖'}`;
+      const arrow = (prev.rank ?? 999) > (cur.rank ?? 999) ? '📈' : '📉';
+      events.push(`
+        <tr>
+          <td>${escapeHtml(cur.collected_at)}</td>
+          <td><b>${escapeHtml(cur.place_name || id)}</b></td>
+          <td>${arrow} ${rankTxt}</td>
+          <td>${deltas ? escapeHtml(deltas) : '<span style="color:#94A3B8">변동 없음(외부 요인 추정)</span>'}</td>
+        </tr>`);
+    }
+  }
+  events.reverse(); // 최신순
+
+  return c.html(`<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><title>${escapeHtml(keyword)} - 순위 추이</title><style>${ADMIN_STYLE}</style>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script></head>
+<body>
+  <a class="back" href="/admin/analytics">&larr; 키워드 목록으로</a>
+  <h1>'${escapeHtml(keyword)}' 순위 추이</h1>
+  <p style="font-size:13px;color:#64748B;margin:-8px 0 16px;">스냅샷 ${snapshots.length}건 · 업체 ${byPlace.size}곳 · ${escapeHtml(timestamps[0])} ~ ${escapeHtml(timestamps[timestamps.length - 1])}</p>
+
+  <div class="card">
+    <canvas id="rankChart" height="90"></canvas>
+  </div>
+
+  <h2 style="font-size:15px;">순위 변동 이벤트 (그 사이 지표가 얼마나 움직였는지)</h2>
+  <table>
+    <thead><tr><th>일시</th><th>업체</th><th>순위 변동</th><th>지표 변화</th></tr></thead>
+    <tbody>${events.join('') || '<tr><td colspan="4">아직 순위 변동이 관측되지 않았습니다(스냅샷이 더 쌓이면 나타남).</td></tr>'}</tbody>
+  </table>
+
+  <script>
+    new Chart(document.getElementById('rankChart'), {
+      type: 'line',
+      data: {
+        labels: ${JSON.stringify(timestamps)},
+        datasets: ${JSON.stringify(datasets)}
+      },
+      options: {
+        scales: { y: { reverse: true, title: { display: true, text: '순위 (낮을수록 상위)' }, ticks: { stepSize: 1 } } },
+        plugins: { legend: { position: 'bottom' } }
+      }
+    });
+  </script>
 </body></html>`);
 });
 
@@ -399,9 +629,53 @@ async function runHealthcheck(env: Env) {
   }
 }
 
+// 자동 시계열 수집 (질문2·Phase D): 사용자가 검색해줘야만 스냅샷이 쌓이던 걸,
+// 한 번이라도 검색된 키워드는 매일 자동으로 재수집하게 한다. 그래야 "순위가 바뀔 때
+// 어떤 지표가 움직였는가"를 나중에 물어볼 수 있는 시계열이 저절로 쌓인다.
+// 키워드당 검색 1회 + 업체 최대 10회 = 최대 11 subrequest이므로, 한 번의 cron 실행에서
+// 처리할 키워드 수를 하드 제한해 Worker subrequest 한도(50)를 넘지 않게 한다.
+const CRON_KEYWORD_BATCH_LIMIT = 4;
+
+async function collectKeywordSnapshot(env: Env, keyword: string) {
+  try {
+    const ranking = await getOrganicRanking(keyword, 14);
+    if (ranking.length === 0) return;
+    const topIds = ranking.slice(0, 10);
+    const stores = await Promise.all(topIds.map(id => scrapeFullPlaceMetrics(id)));
+    stores.forEach((s: any) => {
+      s.rankFactors = { ...keywordMatch(keyword, s.name, s.category), distanceFromMeKm: null };
+    });
+    const entries: SnapshotEntry[] = stores.map((s: any, i: number) => ({ id: s.placeId, name: s.name, rank: i + 1, s }));
+    await insertRankSnapshotRows(env.DB, keyword, entries, 'cron');
+  } catch (err) {
+    console.error(`키워드 자동수집 실패("${keyword}"):`, err);
+  }
+}
+
+async function runDailyKeywordCollection(env: Env) {
+  const db = env.DB;
+  if (!db) return;
+  try {
+    const { results } = await db.prepare(`
+      SELECT keyword, MAX(collected_at) as last_seen
+      FROM rank_snapshots
+      GROUP BY keyword
+      ORDER BY last_seen DESC
+      LIMIT ?
+    `).bind(CRON_KEYWORD_BATCH_LIMIT).all();
+    const keywords = (results as any[]).map(r => r.keyword);
+    for (const kw of keywords) {
+      await collectKeywordSnapshot(env, kw);
+    }
+  } catch (err) {
+    console.error('일일 키워드 자동수집 조회 실패:', err);
+  }
+}
+
 export default {
   fetch: app.fetch,
   scheduled: async (_event: ScheduledEvent, env: Env, ctx: ExecutionContext) => {
     ctx.waitUntil(runHealthcheck(env));
+    ctx.waitUntil(runDailyKeywordCollection(env));
   },
 };

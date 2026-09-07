@@ -153,6 +153,14 @@ export async function scrapeFullPlaceMetrics(queryOrId: string, includeFeed = fa
   // §7.8: base.missingInfo.isBizHourMissing도 구버전 businessHours(항상 null)만 보고 판정하는 것으로
   // 추정됨. 실제 등록 여부는 ROOT_QUERY.placeDetail.newBusinessHours 배열로 직접 판별한다.
   let isBizHourMissing: boolean | null = null;
+  let isOpenNow: boolean | null = null;
+  // §질문4 A: 상위노출 영향 지표로 알려진 추가 필드들. 전부 pd(ROOT_QUERY.placeDetail) 하위에서 실측 확인됨.
+  let hasReviewPenalty = false;
+  let isNewOpening = false;
+  let hasNaverBooking = false;
+  let hasSmartOrder = false;
+  let couponCount = 0;
+  let reviewMediasTotal = 0;
 
   const rootQueryKey = keys.find(k => k === 'ROOT_QUERY');
   if (rootQueryKey) {
@@ -194,7 +202,17 @@ export async function scrapeFullPlaceMetrics(queryOrId: string, includeFeed = fa
       const hours = pd.newBusinessHours || pd.businessHours;
       if (Array.isArray(hours)) {
         isBizHourMissing = hours.length === 0;
+        if (hours.length > 0 && hours[0]?.businessStatusDescription?.status) {
+          isOpenNow = hours[0].businessStatusDescription.status === '영업 중';
+        }
       }
+
+      hasReviewPenalty = Boolean(pd.visitorReviewPenalty);
+      isNewOpening = Boolean(pd.newOpening);
+      hasNaverBooking = Boolean(pd.naverBooking);
+      hasSmartOrder = Boolean(pd.naverBooking?.hasSmartOrder);
+      couponCount = pd.hasCoupon?.count || 0;
+      reviewMediasTotal = pd.visitorReviewMediasTotal || 0;
     }
   }
 
@@ -256,6 +274,15 @@ export async function scrapeFullPlaceMetrics(queryOrId: string, includeFeed = fa
       menuCount: menus.length,
       totalVoteCount: reviewStats?.analysis?.votedKeyword?.totalCount || 0,
       descriptionLength: (rootDesc || base.description || '').length,
+      // 상위노출 영향 지표로 알려진 추가 필드 (질문4 A그룹, pd 하위에서 실측 확인)
+      hasReviewPenalty, // 리뷰 어뷰징 패널티 — 있으면 순위 강등 정설
+      isNewOpening, // 신규오픈 부스팅 슬롯 대상 여부 (§7.13 '새로 오픈했어요' 캐러셀과 연결됨)
+      hasNaverBooking, // 예약 연동 — 가산점 정설
+      hasSmartOrder, // 네이버 주문(스마트오더) 연동
+      couponCount, // 발행 쿠폰 수 — 노출 슬롯 우대
+      reviewMediasTotal, // 사진 첨부 리뷰 수 (텍스트만 있는 리뷰보다 가중치 높다는 게 정설)
+      isGoodStore: base.isGoodStore ?? null, // 네이버 "우수업체" 자체 판정 플래그
+      isOpenNow, // 현재 영업중 여부 (newBusinessHours의 businessStatusDescription.status)
       // B3/§7.8: newBusinessHours 실측값 우선, 못 구하면 네이버 missingInfo 플래그로 폴백
       isBizHourMissing: isBizHourMissing ?? missingInfo.isBizHourMissing ?? null,
       isMenuImageMissing: missingInfo.isMenuImageMissing ?? null,

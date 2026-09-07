@@ -37,18 +37,41 @@ CREATE TABLE IF NOT EXISTS search_histories (
     FOREIGN KEY(place_id) REFERENCES places(id)
 );
 
--- 4. 데일리 랭킹 트래킹 (SaaS 유료 회원을 위한 매일 자동 수집 — Phase D)
-CREATE TABLE IF NOT EXISTS daily_ranks (
-    id TEXT PRIMARY KEY,             -- UUID
+-- 4. 순위 스냅샷 (리버스 엔지니어링용 시계열 원자료).
+-- 사용자가 /api/gap을 호출할 때마다 그 시점의 키워드-업체-순위-전지표 조합을 한 행씩 남긴다.
+-- Phase D의 daily_ranks 스텁(순위+리뷰수만)을 대체 — 처음부터 전지표를 평탄화해서 쌓아야
+-- "순위가 바뀔 때 어떤 지표가 움직였는가"를 나중에 SQL 한 줄로 물어볼 수 있다.
+-- place_id에 FK를 걸지 않는다 — 경쟁사는 places 테이블에 upsert하지 않으므로(§B9 교훈:
+-- FK 제약은 두 진입점이 서로 다른 upsert 타이밍을 가질 때 조용히 깨진다) 여기서는 단순 TEXT로 둔다.
+CREATE TABLE IF NOT EXISTS rank_snapshots (
+    id TEXT PRIMARY KEY,                    -- UUID
+    keyword TEXT NOT NULL,
     place_id TEXT NOT NULL,
-    target_keyword TEXT NOT NULL,
-    rank INTEGER,                    -- 오가닉 순위 (1~14 등)
-    total_reviews INTEGER,           -- 리뷰 수 변동 추적용
-    tracked_date DATE DEFAULT CURRENT_DATE, -- 측정 일자
-    FOREIGN KEY(place_id) REFERENCES places(id)
+    place_name TEXT,
+    rank INTEGER,                           -- 1~14, 순위 밖이면 NULL
+    visitor_reviews INTEGER,
+    blog_reviews INTEGER,
+    vote_count INTEGER,
+    photo_count INTEGER,
+    review_score REAL,
+    review_medias_total INTEGER,            -- 사진 첨부 리뷰 수
+    coupon_count INTEGER,
+    has_booking BOOLEAN,
+    has_smart_order BOOLEAN,
+    has_review_penalty BOOLEAN,
+    is_new_opening BOOLEAN,
+    is_good_store BOOLEAN,
+    is_open_now BOOLEAN,
+    is_biz_hour_missing BOOLEAN,
+    description_length INTEGER,
+    name_contains_keyword BOOLEAN,
+    category_matches_keyword BOOLEAN,
+    distance_from_me_km REAL,               -- 스냅샷을 유발한 내 매장 기준 거리(참고용)
+    source TEXT DEFAULT 'user',             -- 'user'(사용자 진단) | 'cron'(자동 재수집)
+    collected_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
 -- 인덱스 생성
 CREATE INDEX IF NOT EXISTS idx_search_histories_place ON search_histories(place_id);
-CREATE INDEX IF NOT EXISTS idx_daily_ranks_place_keyword ON daily_ranks(place_id, target_keyword);
-CREATE INDEX IF NOT EXISTS idx_daily_ranks_date ON daily_ranks(tracked_date);
+CREATE INDEX IF NOT EXISTS idx_rank_snapshots_keyword_place ON rank_snapshots(keyword, place_id);
+CREATE INDEX IF NOT EXISTS idx_rank_snapshots_collected ON rank_snapshots(collected_at);
