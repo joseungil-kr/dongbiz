@@ -480,6 +480,31 @@ app.get('/admin/analytics', async (c) => {
 </body></html>`);
 });
 
+// 관리자: cron 작업 수동 트리거. 배포판엔 로컬 dev의 /__scheduled 같은 게 없어서,
+// "다음 정기 실행까지 안 기다리고 지금 바로 씨앗 심고 싶다" 같은 경우에 쓴다.
+// 고정 키워드는 원래 크론과 동일하게 앞/뒤 4개씩 나눠서 호출해야 한다 — 8개를 한 번에
+// 부르면 이것도 똑같이 subrequest 한도(50)를 넘는다.
+app.get('/admin/cron/run/:job', async (c) => {
+  const job = c.req.param('job');
+  if (job === 'fixed-a') {
+    await runFixedKeywordCollection(c.env, FIXED_RESEARCH_KEYWORDS.slice(0, 4));
+    return c.text(`완료: 고정 키워드 앞 4개(${FIXED_RESEARCH_KEYWORDS.slice(0, 4).map(k => k.keyword).join(', ')}) 수집됨.`);
+  }
+  if (job === 'fixed-b') {
+    await runFixedKeywordCollection(c.env, FIXED_RESEARCH_KEYWORDS.slice(4));
+    return c.text(`완료: 고정 키워드 뒤 4개(${FIXED_RESEARCH_KEYWORDS.slice(4).map(k => k.keyword).join(', ')}) 수집됨.`);
+  }
+  if (job === 'user-driven') {
+    await runDailyKeywordCollection(c.env);
+    return c.text('완료: 사용자 검색 키워드 자동 재수집 실행됨.');
+  }
+  if (job === 'healthcheck') {
+    await runHealthcheck(c.env);
+    return c.text('완료: 헬스체크 실행됨(실패 시에만 텔레그램 옴).');
+  }
+  return c.text('알 수 없는 job. fixed-a | fixed-b | user-driven | healthcheck 중 하나.', 400);
+});
+
 // 관리자: 리서치 고정 키워드 시장 통계 — 업체 식별 없이 상위 10곳 평균/중앙값/비율만.
 // medical(성형외과 등)은 의료광고법상 랭킹 로직이 다를 수 있어 표를 분리한다.
 app.get('/admin/analytics/market', async (c) => {
@@ -680,10 +705,11 @@ async function runHealthcheck(env: Env) {
 // 자동 시계열 수집 (질문2·Phase D): 사용자가 검색해줘야만 스냅샷이 쌓이던 걸,
 // 한 번이라도 검색된 키워드는 매일 자동으로 재수집하게 한다. 그래야 "순위가 바뀔 때
 // 어떤 지표가 움직였는가"를 나중에 물어볼 수 있는 시계열이 저절로 쌓인다.
-// 키워드당 검색 1회 + 업체 최대 10회 = 최대 11 subrequest. 한 번의 cron 실행에서 처리할
-// 키워드 수를 제한해 Worker subrequest 한도(50)를 넘지 않게 한다(실측으론 오가닉 결과가
-// 10개 미만인 키워드가 많아 평균은 이보다 낮지만, 최악의 경우를 기준으로 여유를 둔다).
-const CRON_KEYWORD_BATCH_LIMIT = 6;
+// ⚠️ 키워드 여러 개가 "같은 Worker 호출 안에서" 순차 누적된다는 걸 실측으로 확인했다
+// (수동 트리거 중 "Too many subrequests" 실제로 발생 — 미용실 키워드처럼 오가닉 10곳이
+// 꽉 찬 게 섞이면 4개만 돌려도 한도(50)를 넘음, D1 쓰기도 subrequest로 잡힌다). 키워드당
+// 검색 1회 + 업체 최대 10회 + D1 기록 1회 = 최대 12로 보고, 넉넉하게 3개로 제한한다.
+const CRON_KEYWORD_BATCH_LIMIT = 3;
 
 // 리서치용 고정 키워드(사용자 지정) — 경쟁이 치열해 순위 변동이 잦은 유명 키워드를 매일
 // 고정으로 관측한다. 특정 업체를 추적할 필요는 없다고 판단해 개별 지표 대신 상위 10곳의
@@ -716,14 +742,16 @@ async function collectKeywordSnapshot(env: Env, keyword: string) {
   }
 }
 
-// 리서치용 고정 키워드 수집: 특정 업체 식별 없이 상위 10곳의 평균/중앙값/비율만 한 행 기록.
+// 리서치용 고정 키워드 수집: 특정 업체 식별 없이 상위권의 평균/중앙값/비율만 한 행 기록.
+// 4개씩 한 Worker 호출에서 순차 처리하므로(§CRON_KEYWORD_BATCH_LIMIT 주석 참조) 10곳
+// 전부 긁으면 한도를 넘길 수 있어 7곳으로 낮췄다 — 집계 통계 용도라 정밀도 손실은 적다.
 async function collectKeywordAggregateStats(env: Env, keyword: string, category: 'general' | 'medical') {
   const db = env.DB;
   if (!db) return;
   try {
     const ranking = await getOrganicRanking(keyword, 14);
     if (ranking.length === 0) return;
-    const topIds = ranking.slice(0, 10);
+    const topIds = ranking.slice(0, 7);
     const stores = await Promise.all(topIds.map(id => scrapeFullPlaceMetrics(id)));
     if (stores.length === 0) return;
 
