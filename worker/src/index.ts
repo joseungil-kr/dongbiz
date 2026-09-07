@@ -11,8 +11,8 @@ export interface Env extends NotifyEnv {
   ADMIN_PASS?: string;
 }
 
-// 매일 헬스체크에 쓰는 고정 매장 (§6 Phase B). wrangler dev 테스트로 실제 동작 확인된 매장.
-const HEALTHCHECK_PLACE_ID = '1785101394';
+// 매일 헬스체크에 쓰는 고정 매장 (§6 Phase B). 백세보리밥 닭한마리 - 사용자 지정 테스트 매장.
+const HEALTHCHECK_PLACE_ID = '2058645213';
 
 const app = new Hono<{ Bindings: Env }>();
 
