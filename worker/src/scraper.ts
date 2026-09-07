@@ -44,7 +44,9 @@ export async function getOrganicRanking(keyword: string, limit = 14): Promise<st
   }
 }
 
-export async function scrapeFullPlaceMetrics(queryOrId: string): Promise<any> {
+// includeFeed: 소식(/feed 탭) 조회 여부. 요청 1회가 늘어나므로 실제로 화면에 표시할
+// 내 매장 조회 시에만 true로 켠다. 경쟁사 스크랩(최대 10~14회)에는 굳이 켜지 않는다.
+export async function scrapeFullPlaceMetrics(queryOrId: string, includeFeed = false): Promise<any> {
   // 1단계: 플레이스 ID 만능 식별
   let placeId = queryOrId.toString().trim();
 
@@ -188,12 +190,31 @@ export async function scrapeFullPlaceMetrics(queryOrId: string): Promise<any> {
     }
   }
 
-  // 소식 (Biznews) 체크
-  const newsKeys = keys.filter(k => k.startsWith('BiznewsItem:') || k.startsWith('NewsItem:'));
-  if (newsKeys.length > 0) {
-    const firstNews = state[newsKeys[0]];
-    if (firstNews && (firstNews.createdTs || firstNews.createDate || firstNews.date)) {
-      recentNews = firstNews.createdTs || firstNews.createDate || firstNews.date;
+  // §7.11: 소식(새소식) — 'BiznewsItem:'/'NewsItem:' 키는 네이버 데이터에 존재하지 않는 이름이었다
+  // (검증 없이 작성된 스펙 오류로 추정, 실사용 리포트로 발견). 실제 데이터는 /home 탭에도 없고
+  // 별도 /feed 탭에만 있으며, 키 접두사는 'Feed:{placeId}_{feedId}', 날짜는 createdString(YYYYMMDD).
+  if (includeFeed) {
+    try {
+      const feedRes = await fetch(`https://m.place.naver.com/place/${placeId}/feed`, {
+        headers: { 'User-Agent': UA_MOBILE, 'Accept': 'text/html,application/xhtml+xml' }
+      });
+      const feedHtml = await feedRes.text();
+      const feedApolloMatch = feedHtml.match(/window\.__APOLLO_STATE__\s*=\s*(\{[\s\S]*?\});/);
+      if (feedApolloMatch) {
+        const feedState = JSON.parse(feedApolloMatch[1]);
+        const feedItems = Object.keys(feedState)
+          .filter(k => k.startsWith('Feed:'))
+          .map(k => feedState[k])
+          // type 'FEED' = 매장이 직접 올린 소식/이벤트. 'BLOG' 등은 블로그 언급이라 제외.
+          .filter((f: any) => f.type === 'FEED' && f.createdString)
+          .sort((a: any, b: any) => Number(b.createdString) - Number(a.createdString));
+        if (feedItems.length > 0) {
+          const cs = feedItems[0].createdString; // YYYYMMDD
+          recentNews = `${cs.slice(0, 4)}-${cs.slice(4, 6)}-${cs.slice(6, 8)}`;
+        }
+      }
+    } catch (err) {
+      console.error('소식(feed) 조회 에러:', err);
     }
   }
 

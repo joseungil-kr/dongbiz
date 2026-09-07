@@ -330,6 +330,10 @@
 
     // 공통: 버튼에 로딩 텍스트 순환 연출을 걸고 비동기 작업 실행
     async function withLoading(btn, texts, task) {
+      // 재진입 방지: 이미 진행 중이면 무시. (Enter키는 버튼 disabled 여부와 무관하게 다시
+      // 호출되므로, 이 가드가 없으면 공용 loadingInterval이 덮어써져 먼저 시작된 인터벌이
+      // 영원히 안 멎는 버그가 났었다.)
+      if (btn.disabled) return;
       const originalText = btn.innerHTML;
       btn.disabled = true;
       let idx = 0;

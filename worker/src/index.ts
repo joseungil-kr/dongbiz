@@ -34,7 +34,7 @@ function generateShareId() {
 // 실제로 두 번 겪은 문제: 코드는 배포됐는데 KV에 남은 예전(버그) 값이 TTL(최대 24h) 동안 계속
 // 서빙되어 "고쳤다는데 왜 아직도 이래?"가 재발했다. 버전을 올리면 이전 키가 자동으로 무효화되어
 // 수동으로 wrangler kv key delete 할 필요가 없다.
-const CACHE_VERSION = 'v2';
+const CACHE_VERSION = 'v3';
 
 // KV 캐시 래퍼. CACHE 바인딩이 없으면 매번 새로 조회한다 (기능은 동작, 속도/원가만 손해).
 async function cached<T>(env: Env, key: string, ttlSeconds: number, fetcher: () => Promise<T>): Promise<T> {
@@ -84,7 +84,7 @@ app.get('/api/place', async (c) => {
   }
 
   try {
-    const myStore = await cached(c.env, `place:${query}`, PLACE_TTL, () => scrapeFullPlaceMetrics(query));
+    const myStore = await cached(c.env, `place:${query}`, PLACE_TTL, () => scrapeFullPlaceMetrics(query, true));
     await upsertPlace(c.env.DB, myStore);
 
     return c.json({ success: true, myStore });
@@ -105,7 +105,7 @@ app.get('/api/gap', async (c) => {
 
   try {
     // 내 매장 (1단계에서 이미 캐시됐다면 재스크랩 없음)
-    const myStore = await cached(c.env, `place:${placeId}`, PLACE_TTL, () => scrapeFullPlaceMetrics(placeId));
+    const myStore = await cached(c.env, `place:${placeId}`, PLACE_TTL, () => scrapeFullPlaceMetrics(placeId, true));
 
     // 오가닉 1~14위 (키워드 단위 캐시)
     const ranking = await cached(c.env, `rank:${keyword}`, KEYWORD_TTL, () => getOrganicRanking(keyword, 14));
