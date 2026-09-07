@@ -31,7 +31,7 @@
       <button onclick="shareCurrentPage()" class="text-xs font-semibold text-slate-600 hover:text-blue-600 px-3 py-2 rounded-xl border border-slate-200 hover:border-blue-200 transition flex items-center gap-1.5">
         <i class="fa-solid fa-link text-[11px]"></i> 공유하기
       </button>
-      <button class="text-sm font-semibold bg-slate-900 text-white px-4 py-2 rounded-xl hover:bg-slate-800 transition">대행 파트너 문의</button>
+      <button class="hidden text-sm font-semibold bg-slate-900 text-white px-4 py-2 rounded-xl hover:bg-slate-800 transition">대행 파트너 문의</button>
     </div>
   </header>
 
@@ -43,7 +43,7 @@
     </div>
 
     <h1 class="text-3xl md:text-5xl font-black tracking-tight leading-[1.2] mb-5 text-slate-950">
-      전화번호 하나만 넣으면,<br />
+      상호, 전화번호만 넣으면,<br />
       <span class="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 via-indigo-600 to-teal-500">우리 매장의 상위노출 현주소</span>를 진단
     </h1>
 
@@ -160,12 +160,6 @@
             </ul>
           </div>
         </div>
-
-        <!-- 원천 데이터 풀 리포트 (Raw Data) -->
-        <div class="mt-8">
-          <h3 class="text-sm font-bold text-slate-800 mb-2">⬇️ 원천 데이터 풀 리포트 (Raw Data)</h3>
-          <pre id="rawDataDisplay" class="bg-slate-800 text-slate-300 p-4 rounded-xl text-[11px] overflow-x-auto whitespace-pre-wrap leading-relaxed shadow-inner border border-slate-700"></pre>
-        </div>
       </div>
     </div>
 
@@ -274,14 +268,26 @@
                   <span class="text-xs text-slate-600">상세설명 분량</span>
                   <span id="defiDesc" class="text-[11px] font-bold"></span>
                 </div>
+                <div class="flex justify-between items-center bg-white/60 p-2 rounded-lg">
+                  <span class="text-xs text-slate-600">찾아오는길 정보 누락 여부</span>
+                  <span id="defiAuditDir" class="text-[11px] font-bold"></span>
+                </div>
+                <div class="flex justify-between items-center bg-white/60 p-2 rounded-lg">
+                  <span class="text-xs text-slate-600">편의시설 누락 여부</span>
+                  <span id="defiAuditAmen" class="text-[11px] font-bold"></span>
+                </div>
+                <div class="flex justify-between items-center bg-white/60 p-2 rounded-lg">
+                  <span class="text-xs text-slate-600">상세설명 누락 여부</span>
+                  <span id="defiAuditDesc" class="text-[11px] font-bold"></span>
+                </div>
               </div>
             </div>
           </div>
         </div>
       </div>
 
-      <!-- 리드 제네레이션 (보류 — §8.3, UI 자리만 유지, 동작 정지) -->
-      <div class="mt-8 pt-8 border-t border-slate-200">
+      <!-- 리드 제네레이션 (보류 — §8.3, 숨김 처리) -->
+      <div class="hidden mt-8 pt-8 border-t border-slate-200">
         <div class="bg-blue-50/50 rounded-2xl p-6 border border-blue-100 flex flex-col md:flex-row items-center justify-between gap-6">
           <div class="text-left flex-1">
             <h3 class="text-lg font-black text-slate-900 mb-1">진단 리포트 PDF & 알림톡 무료 받기</h3>
@@ -347,7 +353,8 @@
       try {
         await task();
       } catch (err) {
-        alert(err.message + '\n(올바른 입력인지 확인해주세요)');
+        // 검색 한도 초과처럼 입력 문제가 아닌 에러는 "올바른 입력인지 확인해주세요" 안 붙임
+        alert(err.message + (err.message.includes('한도') ? '' : '\n(올바른 입력인지 확인해주세요)'));
       } finally {
         clearInterval(loadingInterval);
         btn.innerHTML = originalText;
@@ -535,81 +542,6 @@
       guiNewsEl.innerText = isNewsRecent;
       guiNewsEl.className = 'font-bold text-[12px] ' + (isNewsRecent.startsWith('✅') ? 'text-emerald-600' : 'text-rose-500');
 
-      const auditLine = (label, missing) => `${label}:`.padEnd(0) + (missing === null || missing === undefined ? '확인불가' : (missing ? '⚠️ 누락됨 (SEO 감점 요인!)' : '정상 등록 (양호)'));
-
-      document.getElementById('rawDataDisplay').innerHTML = `================================================================================
-📊 [네이버 스마트플레이스 전수 원천 데이터 풀 리포트 (Full Raw Specification)]
-• 수집 대상 고유 ID: ${my.placeId}
-• 플레이스 URL: ${my.placeUrl}
-================================================================================
-
---------------------------------------------------------------------------------
-[SECTION 1. 매장 기본 식별 & 인프라 정보 (Identity & Location)]
---------------------------------------------------------------------------------
-• 상호명 (name):                 ${my.name}
-• 카테고리 (category):           ${my.category}
-• 도로명 주소 (roadAddress):     ${my.roadAddress || '미등록'}
-• 찾아오는 길 (directions):      ${my.directions || '미등록'}
-• 일반 전화번호 (phone):         ${my.phone || '미등록'}
-• 스마트콜 여부:                 ${my.seoMetrics.hasSmartCall ? '연동됨' : '미연동'}
-• 지도 좌표 X (경도 lon):        ${my.coordinates?.x || '확인불가'}
-• 지도 좌표 Y (위도 lat):        ${my.coordinates?.y || '확인불가'}
-• 네이버 톡톡 연동:              ${my.seoMetrics.hasTalktalk ? '연동됨' : '미연동'}
-• 매장새소식 (최근 2개월):        ${isNewsRecent}
-• 대표 키워드 (keywordList):     ${(my.keywordList && my.keywordList.length > 0) ? my.keywordList.join(', ') : '미등록'}
-
-• 상세설명 (description):
-<div style="max-height: 120px; overflow-y: auto; background: rgba(0,0,0,0.3); padding: 8px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1); margin-top: 4px; white-space: pre-wrap;">${my.description || '미등록'}</div>
-
---------------------------------------------------------------------------------
-[SECTION 2. 상위노출 랭킹 알고리즘 정량 지표 (SEO & Algorithm Scores)]
---------------------------------------------------------------------------------
-• 방문자(영수증) 총 리뷰수:       ${my.seoMetrics.visitorReviewsTotal}건
-• 블로그 & 카페 총 리뷰수:        ${my.seoMetrics.cafeBlogReviewsTotal}건
-• 방문자 평점 스코어:             ${my.seoMetrics.visitorReviewsScore || '비공개'} / 5.0
-• 정성 텍스트 리뷰 수:            ${my.seoMetrics.textReviewsTotal}건
-• 키워드 리뷰 총 투표 참여수:     ${my.seoMetrics.totalVoteCount}표
-• 스마트콜(0507) 연동 가산점:     ${my.seoMetrics.hasSmartCall ? '가산점 획득 (연동됨)' : '미연동 (감점/보류)'}
-• 네이버 톡톡(실시간) 연동 가산점: ${my.seoMetrics.hasTalktalk ? '가산점 획득 (연동됨)' : '미연동 (감점/보류)'}
-• 대표 사진 등록 수:              ${my.seoMetrics.photoCount}장
-• 메뉴 및 상품 등록 수:           ${my.seoMetrics.menuCount}개
-• 설명 분량:                     ${my.seoMetrics.descriptionLength || 0} / 2,000자
-
---------------------------------------------------------------------------------
-[SECTION 3. 소비자 키워드 리뷰 전수 데이터 (Voted Keywords Full List)]
---------------------------------------------------------------------------------
-${(my.topRepKeywords && my.topRepKeywords.length > 0)
-  ? `총 ${my.topRepKeywords.length}개 소비자 평가 키워드 전수 득표 내역:\n` + my.topRepKeywords.map((k, i) => `   ${(i + 1).toString().padStart(2, ' ')}. [${k.keyword}] - ${k.count}표 (코드: ${k.code})`).join('\n')
-  : '키워드 투표 데이터가 없습니다.'}
-
---------------------------------------------------------------------------------
-[SECTION 4. 등록 메뉴 & 가격 & 설명 전수 리스트 (Menu Catalog)]
---------------------------------------------------------------------------------
-${(my.menus && my.menus.length > 0)
-  ? `총 ${my.menus.length}개 등록 메뉴 전수 데이터:\n` + my.menus.map((m, i) => `   ${(i + 1).toString().padStart(2, ' ')}. ${m.isRecommend ? '⭐ [대표추천] ' : ''}${m.name} : ${m.price ? m.price.toLocaleString() + '원' : '가격문의'}` + (m.description ? `\n       설명: "${m.description}"` : '')).join('\n')
-  : '등록된 메뉴가 없습니다.'}
-
---------------------------------------------------------------------------------
-[SECTION 5. 편의시설 및 결제 수단 (Amenities & Payments)]
---------------------------------------------------------------------------------
-• 제공 편의시설: ${my.conveniences ? my.conveniences.join(' | ') : '정보 없음'}
-• 지원 결제수단: ${my.paymentMethods ? my.paymentMethods.join(' | ') : '정보 없음'}
-
---------------------------------------------------------------------------------
-[SECTION 6. 등록 대표 이미지 갤러리 메타데이터 (Media Assets)]
---------------------------------------------------------------------------------
-미니홈피 갤러리용 샘플 사진 (최대 5장 미리보기, 전체 등록 사진 수는 SECTION 2의 '대표 사진 등록 수' 참고):
-${(my.samplePhotos || []).map((p, i) => `   ${(i + 1).toString().padStart(2, ' ')}. URL: ${p}`).join('\n')}
-
---------------------------------------------------------------------------------
-[SECTION 7. 매장 누락 정보 감사 진단 (Missing Info Audit - 네이버 제공 실측 플래그)]
---------------------------------------------------------------------------------
-• ${auditLine('영업시간 정보 누락 여부', my.seoMetrics.isBizHourMissing)}
-• ${auditLine('메뉴 사진 누락 여부', my.seoMetrics.isMenuImageMissing)}
-• ${auditLine('찾아오는길 정보 누락 여부', my.seoMetrics.isAccessorMissing)}
-• ${auditLine('편의시설 누락 여부', my.seoMetrics.isConveniencesMissing)}
-• ${auditLine('상세설명 누락 여부', my.seoMetrics.isDescriptionMissing)}
-================================================================================`;
     }
 
     function drawRadarChart(my, stats) {
@@ -775,7 +707,7 @@ ${(my.samplePhotos || []).map((p, i) => `   ${(i + 1).toString().padStart(2, ' '
 
       // 생명력 지수: 최근소식(2개월) + 톡톡/스마트콜 연동 + 상세설명 분량, 3항목 각 최대 1점(총 3점)
       let freshScore = 0;
-      let newsText = '❌ 없음 (감점)';
+      let newsText = '❌ 없음';
       if (my.recentNewsDate) {
         const days = Math.floor((Date.now() - new Date(my.recentNewsDate).getTime()) / 86400000);
         if (days <= 60) { newsText = `✅ 등록됨 (${days}일 전)`; freshScore += 1; }
@@ -798,6 +730,21 @@ ${(my.samplePhotos || []).map((p, i) => `   ${(i + 1).toString().padStart(2, ' '
         defiDescEl.innerText = `⚠️ 부족합니다 (${descLen}자) - 상세설명에 충분한 정보를 입력해 주세요.`;
         defiDescEl.className = 'text-[11px] font-bold text-rose-500';
       }
+
+      // 누락정보 감사 3종(SECTION 7과 동일 판정, 생명력 지수 카드에도 노출) — 정보 표시만, 점수엔 미반영
+      const missingRow = (elId, missing) => {
+        const el = document.getElementById(elId);
+        if (missing === null || missing === undefined) {
+          el.innerText = '확인불가'; el.className = 'text-[11px] font-bold text-slate-400';
+        } else if (missing) {
+          el.innerText = '⚠️ 누락됨'; el.className = 'text-[11px] font-bold text-rose-500';
+        } else {
+          el.innerText = '정상 등록 (양호)'; el.className = 'text-[11px] font-bold text-emerald-600';
+        }
+      };
+      missingRow('defiAuditDir', my.seoMetrics.isAccessorMissing);
+      missingRow('defiAuditAmen', my.seoMetrics.isConveniencesMissing);
+      missingRow('defiAuditDesc', my.seoMetrics.isDescriptionMissing);
 
       // 타이틀은 항상 '매장 생명력 지수' 고정 — 개별 항목(예: 톡톡/스마트콜 모두 연동됨)이 정상인데도
       // 종합 상태(경고 등)가 타이틀에 섞여 그 항목까지 문제로 보이는 걸 막는다. 상태는 별도 배지로만.

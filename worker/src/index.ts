@@ -47,6 +47,21 @@ async function cached<T>(env: Env, key: string, ttlSeconds: number, fetcher: () 
   return fresh;
 }
 
+// 1인당 1일 Gap 분석 제한. 매장 조회(/api/place)는 1회면 끝나지만 그 다음 키워드
+// 입력창은 같은 매장으로 몇 번이든 다시 돌릴 수 있어서, 경쟁사 스크랩 비용이 큰
+// /api/gap만 제한한다. 계정/로그인이 없어 CF-Connecting-IP로 사람을 구분한다
+// (Cloudflare 엣지가 붙이는 값이라 클라이언트가 위조 불가).
+const DAILY_GAP_LIMIT = 3;
+async function checkDailyGapLimit(env: Env, ip: string): Promise<boolean> {
+  if (!env.CACHE) return true; // 캐시 미바인딩 시 제한 없이 통과(§6 패턴과 일관: 기능은 항상 동작)
+  const today = new Date().toISOString().slice(0, 10); // UTC 기준 날짜 — 정확한 KST 자정 기준은 아니지만 남용 방지 목적엔 충분
+  const key = `gaplimit:${today}:${ip}`;
+  const count = Number(await env.CACHE.get(key)) || 0;
+  if (count >= DAILY_GAP_LIMIT) return false;
+  await env.CACHE.put(key, String(count + 1), { expirationTtl: 60 * 60 * 25 });
+  return true;
+}
+
 const PLACE_TTL = 60 * 60 * 24; // 24h
 const KEYWORD_TTL = 60 * 60 * 6; // 6h
 
@@ -178,6 +193,12 @@ app.get('/api/gap', async (c) => {
   const keyword = c.req.query('keyword');
   if (!placeId || !keyword) {
     return c.json({ error: 'placeId와 keyword가 필요합니다.' }, 400);
+  }
+
+  const clientIp = c.req.header('CF-Connecting-IP') || 'unknown';
+  const withinLimit = await checkDailyGapLimit(c.env, clientIp);
+  if (!withinLimit) {
+    return c.json({ error: `하루 검색 한도(${DAILY_GAP_LIMIT}건)를 초과했습니다. 내일 다시 시도해주세요.` }, 429);
   }
 
   try {
