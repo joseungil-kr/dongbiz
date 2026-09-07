@@ -790,14 +790,16 @@ async function runDailyKeywordCollection(env: Env) {
   }
 }
 
-// 고정 키워드 8개(§키워드당 최대 11 subrequest)를 하루 한 번에 다 돌리면 88개로 Worker
-// subrequest 한도(50)를 넘는다. 그래서 cron 트리거 3개로 나눠서 시간대별로 분산한다:
-//   00:00 UTC — 헬스체크 + 고정 키워드 앞 4개
-//   06:00 UTC — 사용자 검색 키워드 자동수집 (CRON_KEYWORD_BATCH_LIMIT개)
-//   12:00 UTC — 고정 키워드 뒤 4개
+// 고정 키워드 8개(키워드당 최대 11 subrequest)를 하루 한 번에 다 돌리면 88개로 Worker
+// subrequest 한도(50)를 넘는다. 그래서 cron 트리거 3개로 나눠서 시간대별로 분산한다.
+// 네이버 순위는 매일 10~12시(KST) 사이에 변동되므로 셋 다 그 이후로 잡는다 — 12시 전에
+// 돌리면 어제 순위를 또 재는 꼴이 된다. wrangler.toml의 [triggers] crons와 반드시 맞출 것.
+//   04:00 UTC(13:00 KST) — 헬스체크 + 고정 키워드 앞 4개
+//   08:00 UTC(17:00 KST) — 사용자 검색 키워드 자동수집 (CRON_KEYWORD_BATCH_LIMIT개)
+//   12:00 UTC(21:00 KST) — 고정 키워드 뒤 4개
 const CRON_TIMES = {
-  HEALTHCHECK_AND_FIXED_A: '0 0 * * *',
-  USER_DRIVEN: '0 6 * * *',
+  HEALTHCHECK_AND_FIXED_A: '0 4 * * *',
+  USER_DRIVEN: '0 8 * * *',
   FIXED_B: '0 12 * * *',
 };
 
