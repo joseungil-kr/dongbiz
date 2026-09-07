@@ -36,7 +36,7 @@ function generateShareId() {
 // 실제로 두 번 겪은 문제: 코드는 배포됐는데 KV에 남은 예전(버그) 값이 TTL(최대 24h) 동안 계속
 // 서빙되어 "고쳤다는데 왜 아직도 이래?"가 재발했다. 버전을 올리면 이전 키가 자동으로 무효화되어
 // 수동으로 wrangler kv key delete 할 필요가 없다.
-const CACHE_VERSION = 'v5';
+const CACHE_VERSION = 'v8'; // v8: getOrganicRanking()이 href 스캔 대신 PlaceListBusinesses.items JSON을 우선 사용 (순위 뒤섞임 버그 수정, §7.15)
 
 // KV 캐시 래퍼. CACHE 바인딩이 없으면 매번 새로 조회한다 (기능은 동작, 속도/원가만 손해).
 async function cached<T>(env: Env, key: string, ttlSeconds: number, fetcher: () => Promise<T>): Promise<T> {

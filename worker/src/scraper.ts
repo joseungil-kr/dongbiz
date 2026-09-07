@@ -21,10 +21,34 @@ export async function getOrganicRanking(keyword: string, limit = 14): Promise<st
     });
     const html = await res.text();
 
+    // §7.14→실사용 버그로 확정(2026-09-08): <a href> DOM 순서는 실제 순위와 다를 수 있다
+    // (1위 업체가 4위로 잘못 집계된 실제 사례 확인, href 스캔은 순서가 뒤섞이고 무관한
+    // 업체가 섞여 들어오기까지 함). 검색 API 응답이 그대로 박힌 ROOT_QUERY의
+    // PlaceListBusinesses.items 배열이 진짜 순위 그대로이므로 이걸 최우선으로 쓴다.
+    // (광고/'새로 오픈했어요' 캐러셀은 이 배열과 별개의 구조라 애초에 안 섞여 있었음 —
+    // 실측으로 nop_res doc-id와 겹치는 항목 0건 확인.)
+    // §7.15 잔여 한계(2026-09-08, 이 파싱 방식과 무관): 지역명이 없는 업종 키워드(예:
+    // "인형병원")는 이 items 배열 자체가 요청자 IP의 지역(GeoIP)에 따라 다르게 옴이 실측
+    // 확인됨 — 같은 키워드를 안산 IP에서 조회하면 안산 업체가 1위, Cloudflare Worker의
+    // 데이터센터 IP에서 조회하면 다른 순서로 옴(URL에 x/y 좌표를 실어도 안 바뀜, 쿠키/서버
+    // 사이드 GeoIP 기반으로 추정). "안산맛집"처럼 지역명이 박힌 키워드는 이 영향이 훨씬
+    // 적을 것으로 추정(미검증). 완전한 해결책 없음 — 사용자에게는 "가능하면 지역명을 포함한
+    // 키워드로 진단하라"고 안내하는 게 현재로선 최선.
+    const anchorIdx = html.indexOf('"__typename":"PlaceListBusinesses"');
+    if (anchorIdx !== -1) {
+      const itemsKeyIdx = html.indexOf('"items":[', anchorIdx);
+      if (itemsKeyIdx !== -1) {
+        const start = itemsKeyIdx + '"items":['.length;
+        const end = html.indexOf(']', start);
+        const itemsBlock = html.slice(start, end);
+        const ids = [...itemsBlock.matchAll(/PlaceListBusinessesItem:(\d+)/g)].map(m => m[1]);
+        if (ids.length > 0) return ids.slice(0, limit);
+      }
+    }
+
+    // 폴백: 위 JSON 구조를 못 찾았을 때만(네이버 구조 변경 대비) 기존 href 스캔 방식 사용.
     // §7.13: '새로 오픈했어요' 캐러셀(최근 3개월 이내 개업 홍보 카드, 오가닉 순위 아님)에
-    // 포함된 업체는 data-nop_res-doc-id="{placeId}" 속성으로 명확히 표시된다. 이 캐러셀이
-    // 순위 리스트 중간에 끼어들면서 절반 이상이 홍보 카드로 오염되는 사례가 실사용에서 확인됨
-    // (14개 중 9개가 이 캐러셀이었던 사례 있음). 반드시 제외할 것.
+    // 포함된 업체는 data-nop_res-doc-id="{placeId}" 속성으로 명확히 표시된다.
     const nopIds = new Set([...html.matchAll(/data-nop_res-doc-id="(\d+)"/g)].map(m => m[1]));
 
     const regex = /href="(https?:\/\/map\.naver\.com\/p\/(?:search\/[^/]+\/place|entry\/place)\/(\d+)[^"]*)"[^>]*>([\s\S]*?)<\/a>/gi;
