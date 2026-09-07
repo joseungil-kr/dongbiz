@@ -53,10 +53,24 @@ async function cached<T>(env: Env, key: string, ttlSeconds: number, fetcher: () 
 // 입력창은 같은 매장으로 몇 번이든 다시 돌릴 수 있어서, 경쟁사 스크랩 비용이 큰
 // /api/gap만 제한한다. 계정/로그인이 없어 CF-Connecting-IP로 사람을 구분한다
 // (Cloudflare 엣지가 붙이는 값이라 클라이언트가 위조 불가).
+// D1 CURRENT_TIMESTAMP·new Date() 등 이 파일 전반은 UTC로 다룬다 — 표시·날짜경계 판단이
+// 필요한 곳에서만 이 함수로 KST(UTC+9)로 변환한다. KST 자정(=UTC 15:00)에 날짜가 넘어간다.
+function toKST(d: Date = new Date()): Date {
+  return new Date(d.getTime() + 9 * 60 * 60 * 1000);
+}
+
+// UTC 문자열('YYYY-MM-DD HH:MM:SS', D1 CURRENT_TIMESTAMP 형식)을 KST 표시용으로 변환.
+function fmtKST(utcStr: string | null | undefined): string {
+  if (!utcStr) return '';
+  const d = new Date(utcStr.replace(' ', 'T') + (utcStr.endsWith('Z') ? '' : 'Z'));
+  if (isNaN(d.getTime())) return utcStr;
+  return toKST(d).toISOString().slice(0, 19).replace('T', ' ') + ' KST';
+}
+
 const DAILY_GAP_LIMIT = 3;
 async function checkDailyGapLimit(env: Env, ip: string): Promise<boolean> {
   if (!env.CACHE) return true; // 캐시 미바인딩 시 제한 없이 통과(§6 패턴과 일관: 기능은 항상 동작)
-  const today = new Date().toISOString().slice(0, 10); // UTC 기준 날짜 — 정확한 KST 자정 기준은 아니지만 남용 방지 목적엔 충분
+  const today = toKST().toISOString().slice(0, 10); // KST 자정(24:00) 기준 날짜 경계
   const key = `gaplimit:${today}:${ip}`;
   const count = Number(await env.CACHE.get(key)) || 0;
   if (count >= DAILY_GAP_LIMIT) return false;
@@ -495,7 +509,7 @@ app.get('/admin', async (c) => {
 
   const rows = (results as any[]).map(r => `
     <tr>
-      <td>${escapeHtml(r.created_at || '')}</td>
+      <td>${escapeHtml(fmtKST(r.created_at))}</td>
       <td><b>${escapeHtml(r.name || r.place_id)}</b><br><span style="color:#94A3B8">${escapeHtml(r.category || '')}</span></td>
       <td>${escapeHtml(r.target_keyword)}</td>
       <td>${r.my_rank ? r.my_rank + '위' : '순위밖'}</td>
@@ -541,7 +555,7 @@ app.get('/admin/analytics', async (c) => {
     <tr>
       <td><b>${escapeHtml(r.keyword)}</b></td>
       <td>${r.snapshot_count}건 (업체 ${r.place_count}개)</td>
-      <td>${escapeHtml(r.first_seen)} ~ ${escapeHtml(r.last_seen)}</td>
+      <td>${escapeHtml(fmtKST(r.first_seen))} ~ ${escapeHtml(fmtKST(r.last_seen))}</td>
       <td>${r.cron_count > 0 ? `✅ ${r.cron_count}건` : '<span style="color:#94A3B8">아직 없음</span>'}</td>
       <td><a href="/admin/analytics/${encodeURIComponent(r.keyword)}">순위 추이 보기 →</a></td>
     </tr>`).join('');
@@ -610,7 +624,7 @@ app.get('/admin/analytics/market', async (c) => {
       <td>${r.avg_review_score ?? '-'}</td>
       <td>${Math.round((r.booking_rate ?? 0) * 100)}%</td>
       <td>${Math.round((r.new_opening_rate ?? 0) * 100)}%</td>
-      <td style="color:#94A3B8;font-size:11px;">${escapeHtml(r.collected_at)}</td>
+      <td style="color:#94A3B8;font-size:11px;">${escapeHtml(fmtKST(r.collected_at))}</td>
     </tr>`).join('');
 
   const general = (results as any[]).filter(r => r.category !== 'medical');
@@ -690,7 +704,7 @@ app.get('/admin/analytics/:keyword', async (c) => {
       const arrow = (prev.rank ?? 999) > (cur.rank ?? 999) ? '📈' : '📉';
       events.push(`
         <tr>
-          <td>${escapeHtml(cur.collected_at)}</td>
+          <td>${escapeHtml(fmtKST(cur.collected_at))}</td>
           <td><b>${escapeHtml(cur.place_name || id)}</b></td>
           <td>${arrow} ${rankTxt}</td>
           <td>${deltas ? escapeHtml(deltas) : '<span style="color:#94A3B8">변동 없음(외부 요인 추정)</span>'}</td>
@@ -704,7 +718,7 @@ app.get('/admin/analytics/:keyword', async (c) => {
 <body>
   <a class="back" href="/admin/analytics">&larr; 키워드 목록으로</a>
   <h1>'${escapeHtml(keyword)}' 순위 추이</h1>
-  <p style="font-size:13px;color:#64748B;margin:-8px 0 16px;">스냅샷 ${snapshots.length}건 · 업체 ${byPlace.size}곳 · ${escapeHtml(timestamps[0])} ~ ${escapeHtml(timestamps[timestamps.length - 1])}</p>
+  <p style="font-size:13px;color:#64748B;margin:-8px 0 16px;">스냅샷 ${snapshots.length}건 · 업체 ${byPlace.size}곳 · ${escapeHtml(fmtKST(timestamps[0]))} ~ ${escapeHtml(fmtKST(timestamps[timestamps.length - 1]))}</p>
 
   <div class="card">
     <canvas id="rankChart" height="90"></canvas>
@@ -720,7 +734,7 @@ app.get('/admin/analytics/:keyword', async (c) => {
     new Chart(document.getElementById('rankChart'), {
       type: 'line',
       data: {
-        labels: ${JSON.stringify(timestamps)},
+        labels: ${JSON.stringify(timestamps.map(fmtKST))},
         datasets: ${JSON.stringify(datasets)}
       },
       options: {
@@ -756,7 +770,7 @@ app.get('/admin/:shareId', async (c) => {
   <a class="back" href="/admin">&larr; 목록으로</a>
   <div class="card">
     <h1 style="margin:0 0 8px;">${escapeHtml(my.name)} <span class="badge grade-${escapeHtml(data.grade || 'B')}">${escapeHtml(data.grade || '-')}</span></h1>
-    <p style="font-size:13px;color:#475569;margin:4px 0;">키워드: <b>${escapeHtml(data.targetKeyword)}</b> · 순위: <b>${data.myRank ? data.myRank + '위' : '순위밖(' + data.rankSearched + '위 밖)'}</b> · 진단일시: ${escapeHtml(String(row.created_at || ''))}</p>
+    <p style="font-size:13px;color:#475569;margin:4px 0;">키워드: <b>${escapeHtml(data.targetKeyword)}</b> · 순위: <b>${data.myRank ? data.myRank + '위' : '순위밖(' + data.rankSearched + '위 밖)'}</b> · 진단일시: ${escapeHtml(fmtKST(String(row.created_at || '')))}</p>
     <p style="font-size:13px;color:#475569;margin:4px 0;">연락처: <b>${escapeHtml(my.phone || '미등록')}</b> · 주소: ${escapeHtml(my.roadAddress || '미등록')}</p>
     <p style="font-size:13px;margin:8px 0 0;"><a href="/share/${escapeHtml(shareId)}" target="_blank">공유 링크(고객용)</a> · <a href="/?shareId=${escapeHtml(shareId)}" target="_blank">실제 앱 화면으로 보기</a></p>
   </div>
