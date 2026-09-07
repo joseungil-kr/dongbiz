@@ -9,6 +9,7 @@ export interface Env extends NotifyEnv {
   CACHE?: KVNamespace; // 미바인딩 시 캐시 없이 동작 (§6 Phase A)
   ADMIN_USER?: string;
   ADMIN_PASS?: string;
+  RATE_LIMIT_BYPASS_TOKEN?: string; // 운영자 본인 테스트용 — 공개 UI엔 절대 안 넣고 URL에 수동으로만 붙인다
 }
 
 // 매일 헬스체크에 쓰는 고정 매장 (§6 Phase B). 백세보리밥 닭한마리 - 사용자 지정 테스트 매장.
@@ -187,64 +188,88 @@ app.get('/api/place', async (c) => {
   }
 });
 
-// [2·3단계] 키워드 기반 Gap 분석 — 사용자가 직접 입력한 키워드로 상위 14위 수집
+// [2·3단계] 키워드 기반 Gap 분석 — 사용자가 직접 입력한 키워드로 상위 14위 수집.
+// competitorId가 있으면(키워드 대신/추가로) 순위 자동수집을 건너뛰고 그 업체 1곳과 바로 비교한다
+// (경쟁사 직접 지목, §2 3단계 확정). 만능 리졸버(scrapeFullPlaceMetrics)를 그대로 재사용하므로
+// 상호명/전화번호/naver.me 링크 뭘 넣어도 동작한다.
 app.get('/api/gap', async (c) => {
   const placeId = c.req.query('placeId');
   const keyword = c.req.query('keyword');
-  if (!placeId || !keyword) {
-    return c.json({ error: 'placeId와 keyword가 필요합니다.' }, 400);
+  const competitorQuery = c.req.query('competitorId');
+  if (!placeId || (!keyword && !competitorQuery)) {
+    return c.json({ error: 'placeId와 keyword(또는 competitorId)가 필요합니다.' }, 400);
   }
 
-  const clientIp = c.req.header('CF-Connecting-IP') || 'unknown';
-  const withinLimit = await checkDailyGapLimit(c.env, clientIp);
-  if (!withinLimit) {
-    return c.json({ error: `하루 검색 한도(${DAILY_GAP_LIMIT}건)를 초과했습니다. 내일 다시 시도해주세요.` }, 429);
+  const bypassed = !!c.env.RATE_LIMIT_BYPASS_TOKEN && c.req.query('bypass') === c.env.RATE_LIMIT_BYPASS_TOKEN;
+  if (!bypassed) {
+    const clientIp = c.req.header('CF-Connecting-IP') || 'unknown';
+    const withinLimit = await checkDailyGapLimit(c.env, clientIp);
+    if (!withinLimit) {
+      return c.json({ error: `하루 검색 한도(${DAILY_GAP_LIMIT}건)를 초과했습니다. 내일 다시 시도해주세요.` }, 429);
+    }
   }
 
   try {
     // 내 매장 (1단계에서 이미 캐시됐다면 재스크랩 없음)
     const myStore = await cached(c.env, `place:${placeId}`, PLACE_TTL, () => scrapeFullPlaceMetrics(placeId, true));
 
-    // 오가닉 1~14위 (키워드 단위 캐시)
-    const ranking = await cached(c.env, `rank:${keyword}`, KEYWORD_TTL, () => getOrganicRanking(keyword, 14));
+    let ranking: string[];
+    let myRank: number | null;
+    let competitors: any[];
+    let boundaryStore: any;
+    let displayLabel: string; // targetKeyword 자리에 들어가는 표시용 문자열 (raw_data·화면 제목 등에 재사용)
 
-    if (!ranking || ranking.length === 0) {
-      return c.json({ error: `"${keyword}" 키워드의 검색 결과를 찾을 수 없습니다.` }, 404);
+    if (competitorQuery) {
+      // 경쟁사 직접 지목 모드: 순위 자동수집 없이 지목한 업체 1곳만 비교
+      const competitor = await cached(c.env, `place:${competitorQuery}`, PLACE_TTL, () => scrapeFullPlaceMetrics(competitorQuery));
+      if (competitor.placeId === placeId) {
+        return c.json({ error: '내 매장과 같은 곳입니다. 다른 업체를 입력해주세요.' }, 400);
+      }
+      ranking = [placeId, competitor.placeId];
+      myRank = null; // 자동순위 개념이 없는 모드
+      competitors = [competitor];
+      boundaryStore = competitor; // "진입선" = 지목한 그 업체의 실측값
+      displayLabel = `'${competitor.name}'와 직접 비교`;
+    } else {
+      // 오가닉 1~14위 (키워드 단위 캐시)
+      ranking = await cached(c.env, `rank:${keyword}`, KEYWORD_TTL, () => getOrganicRanking(keyword!, 14));
+      if (!ranking || ranking.length === 0) {
+        return c.json({ error: `"${keyword}" 키워드의 검색 결과를 찾을 수 없습니다.` }, 404);
+      }
+
+      const myRankIndex = ranking.indexOf(placeId);
+      myRank = myRankIndex >= 0 ? myRankIndex + 1 : null;
+
+      const top10Ids = ranking.slice(0, 10).filter(id => id !== placeId);
+      if (top10Ids.length === 0) {
+        return c.json({ error: '비교할 경쟁사가 없습니다.' }, 404);
+      }
+      competitors = await Promise.all(
+        top10Ids.map(id => cached(c.env, `place:${id}`, PLACE_TTL, () => scrapeFullPlaceMetrics(id)))
+      );
+
+      // 10위 업체 = 1페이지 진입선. 본인이 10위면 11위를 진입선으로 사용.
+      const boundaryId = ranking[9] && ranking[9] !== placeId ? ranking[9] : ranking[10];
+      boundaryStore = boundaryId
+        ? (competitors.find(s => s.placeId === boundaryId)
+          || await cached(c.env, `place:${boundaryId}`, PLACE_TTL, () => scrapeFullPlaceMetrics(boundaryId)))
+        : null;
+      displayLabel = keyword!;
     }
-
-    // 내 순위: 1~14위 또는 14위 밖(null)
-    const myRankIndex = ranking.indexOf(placeId);
-    const myRank = myRankIndex >= 0 ? myRankIndex + 1 : null;
-
-    // 상위 10위 중 본인 제외 → 비교 모수
-    const top10Ids = ranking.slice(0, 10).filter(id => id !== placeId);
-    if (top10Ids.length === 0) {
-      return c.json({ error: '비교할 경쟁사가 없습니다.' }, 404);
-    }
-
-    const competitors = await Promise.all(
-      top10Ids.map(id => cached(c.env, `place:${id}`, PLACE_TTL, () => scrapeFullPlaceMetrics(id)))
-    );
 
     // 상위노출 영향 지표(질문4 B그룹) 파생 계산: 거리·키워드 포함 여부는 추가 요청 없이
     // 이미 수집한 좌표/상호명/카테고리만으로 계산 가능. myStore·경쟁사 전부에 부착.
+    // 경쟁사 직접 지목 모드는 검색 키워드가 없으므로 키워드 매칭은 항상 false로 둔다.
     (myStore as any).rankFactors = {
-      ...keywordMatch(keyword, myStore.name, myStore.category),
+      ...(competitorQuery ? { nameContainsKeyword: false, categoryMatchesKeyword: false } : keywordMatch(keyword!, myStore.name, myStore.category)),
       distanceFromMeKm: 0,
     };
     for (const comp of competitors) {
       (comp as any).rankFactors = {
-        ...keywordMatch(keyword, comp.name, comp.category),
+        ...(competitorQuery ? { nameContainsKeyword: false, categoryMatchesKeyword: false } : keywordMatch(keyword!, comp.name, comp.category)),
         distanceFromMeKm: haversineKm(myStore.coordinates?.x, myStore.coordinates?.y, comp.coordinates?.x, comp.coordinates?.y),
       };
     }
-
-    // 10위 업체 = 1페이지 진입선. 본인이 10위면 11위를 진입선으로 사용.
-    const boundaryId = ranking[9] && ranking[9] !== placeId ? ranking[9] : ranking[10];
-    const boundaryStore = boundaryId
-      ? (competitors.find(s => s.placeId === boundaryId)
-        || await cached(c.env, `place:${boundaryId}`, PLACE_TTL, () => scrapeFullPlaceMetrics(boundaryId)))
-      : null;
 
     const metricKeys: Array<[string, boolean]> = [
       ['visitorReviewsTotal', false],
@@ -274,10 +299,11 @@ app.get('/api/gap', async (c) => {
     const responsePayload = {
       success: true,
       shareId,
-      targetKeyword: keyword,
+      targetKeyword: displayLabel,
+      isDirectCompare: !!competitorQuery, // 경쟁사 직접 지목 모드 여부 — 프론트가 "상위 N개" 문구 대신 1:1 비교 문구를 쓰도록 분기
       myStore,
       myRank,
-      rankSearched: ranking.length,
+      rankSearched: competitorQuery ? 1 : ranking.length,
       top10Competitors: competitors,
       stats,
       grade,
@@ -292,7 +318,7 @@ app.get('/api/gap', async (c) => {
         `).bind(
           shareId,
           myStore.placeId,
-          keyword,
+          displayLabel,
           myRank,
           stats.visitorReviewsTotal.avg,
           stats.visitorReviewsTotal.median,
@@ -307,8 +333,8 @@ app.get('/api/gap', async (c) => {
     }
 
     // 신규 진단 완료 알림 + 콜드콜 리스트 적재 (§8.2-A). 응답 지연 없이 백그라운드 처리.
-    c.executionCtx.waitUntil(Promise.all([
-      notify(c.env, `📊 [신규 진단] ${myStore.name} (${myStore.placeId})\n키워드: ${keyword}\n순위: ${myRank ? `${myRank}위` : `${ranking.length}위 밖`} / 등급: ${grade}\n연락처: ${myStore.phone || '미등록'}`),
+    const bgTasks: Promise<any>[] = [
+      notify(c.env, `📊 [신규 진단] ${myStore.name} (${myStore.placeId})\n${competitorQuery ? '비교 대상' : '키워드'}: ${displayLabel}\n${competitorQuery ? '1:1 직접비교' : (myRank ? `순위: ${myRank}위` : `순위: ${ranking.length}위 밖`)} / 등급: ${grade}\n연락처: ${myStore.phone || '미등록'}`),
       logDiagnosisToSheet(c.env, {
         timestamp: new Date().toISOString(),
         placeName: myStore.name,
@@ -316,19 +342,23 @@ app.get('/api/gap', async (c) => {
         phone: myStore.phone,
         category: myStore.category,
         roadAddress: myStore.roadAddress,
-        targetKeyword: keyword,
+        targetKeyword: displayLabel,
         myRank,
         grade,
         visitorReviews: myStore.seoMetrics.visitorReviewsTotal,
         shareId,
       }),
-      logRankSnapshots(c.env.DB, keyword, ranking, myStore, myRank, competitors, 'user'),
-    ]));
+    ];
+    // 경쟁사 직접 지목 모드는 진짜 오가닉 순위가 아니라 rank_snapshots(§9 리버스엔지니어링 시계열)에는 안 남긴다.
+    if (!competitorQuery) {
+      bgTasks.push(logRankSnapshots(c.env.DB, displayLabel, ranking, myStore, myRank, competitors, 'user'));
+    }
+    c.executionCtx.waitUntil(Promise.all(bgTasks));
 
     return c.json(responsePayload);
   } catch (err: any) {
     console.error('Gap 분석 중 오류:', err);
-    c.executionCtx.waitUntil(notify(c.env, `⚠️ [Gap 분석 실패] placeId="${placeId}" keyword="${keyword}"\n${err.message || err}\n(네이버 구조 변경 또는 차단 가능성 — §7 확인 요망)`));
+    c.executionCtx.waitUntil(notify(c.env, `⚠️ [Gap 분석 실패] placeId="${placeId}" keyword="${keyword || competitorQuery}"\n${err.message || err}\n(네이버 구조 변경 또는 차단 가능성 — §7 확인 요망)`));
     return c.json({ error: err.message || 'Gap 분석에 실패했습니다.' }, 500);
   }
 });
@@ -354,6 +384,26 @@ app.get('/api/history', async (c) => {
     console.error('히스토리 조회 중 오류:', err);
     return c.json({ error: '서버 오류가 발생했습니다.' }, 500);
   }
+});
+
+// 상담 문의 CTA 클릭 로그. 실제 연락은 카톡/문자로 사이트 밖에서 이뤄지므로(§9.9) 우리 쪽엔
+// 아무 기록도 안 남는데, 이 한 줄이 "관심 보인 사람이 있었다"는 유일한 신호다.
+// 응답은 항상 200 — 이 호출이 실패해도 사용자 흐름(전화 걸기)을 막으면 안 된다.
+app.get('/api/lead-click', async (c) => {
+  const placeId = c.req.query('placeId') || '';
+  const name = c.req.query('name') || '이름 미상';
+  const keyword = c.req.query('keyword') || '';
+  c.executionCtx.waitUntil(Promise.all([
+    notify(c.env, `📞 [상담 CTA 클릭] ${name} (${placeId})${keyword ? `\n키워드: ${keyword}` : ''}\n카톡/문자로 연락할 가능성 있음 — 응답 준비.`),
+    logDiagnosisToSheet(c.env, {
+      type: 'lead_click',
+      timestamp: new Date().toISOString(),
+      placeName: name,
+      placeId,
+      targetKeyword: keyword,
+    }),
+  ]));
+  return c.json({ success: true });
 });
 
 function escapeHtml(s: string): string {

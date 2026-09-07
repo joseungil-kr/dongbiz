@@ -176,6 +176,19 @@
         </button>
       </div>
       <div id="keywordChips" class="mt-3 flex flex-wrap gap-2 text-left"></div>
+
+      <div class="mt-4 pt-4 border-t border-slate-100">
+        <button type="button" onclick="document.getElementById('compareRow').classList.toggle('hidden')" class="text-xs font-semibold text-slate-500 hover:text-blue-600 transition">
+          <i class="fa-solid fa-people-arrows text-[11px]"></i> 특정 경쟁사와 1:1로 바로 비교하기
+        </button>
+        <div id="compareRow" class="hidden mt-3 flex flex-col sm:flex-row gap-3">
+          <input type="text" id="competitorInput" placeholder="경쟁사 전화번호, 상호 또는 플레이스 URL"
+            class="flex-1 px-4 py-3 rounded-xl border border-slate-200 bg-white text-sm font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600 transition" />
+          <button id="compareBtn" onclick="runCompare()" class="w-full sm:w-auto px-6 py-3 bg-slate-700 hover:bg-slate-800 text-white font-bold text-sm rounded-xl shadow transition transform active:scale-95">
+            1:1 비교
+          </button>
+        </div>
+      </div>
     </div>
 
     <!-- [2·3단계 결과] Gap 분석 -->
@@ -286,19 +299,15 @@
         </div>
       </div>
 
-      <!-- 리드 제네레이션 (보류 — §8.3, 숨김 처리) -->
-      <div class="hidden mt-8 pt-8 border-t border-slate-200">
-        <div class="bg-blue-50/50 rounded-2xl p-6 border border-blue-100 flex flex-col md:flex-row items-center justify-between gap-6">
-          <div class="text-left flex-1">
-            <h3 class="text-lg font-black text-slate-900 mb-1">진단 리포트 PDF & 알림톡 무료 받기</h3>
-            <p class="text-sm text-slate-600">지금 보신 상세 분석 결과와 맞춤형 해결책을 휴대폰으로 보내드립니다.</p>
-          </div>
-          <div class="flex-1 w-full flex gap-2">
-            <input type="text" placeholder="휴대폰 번호 (- 제외)" class="flex-1 px-4 py-3 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-600" />
-            <button onclick="alert('알림톡 발송 기능은 연동 준비 중입니다.')" class="bg-slate-900 hover:bg-slate-800 text-white font-bold text-sm px-6 py-3 rounded-xl transition whitespace-nowrap">
-              결과 받기
-            </button>
-          </div>
+      <!-- 상담 유도 CTA: 결핍 진단 다음, PDF 리포트를 미끼로 카톡/문자 문의를 받는다 (Phase C 확정) -->
+      <div class="mt-8 pt-8 border-t border-slate-200">
+        <div class="bg-blue-50/50 rounded-2xl p-6 border border-blue-100 text-center">
+          <h3 class="text-lg font-black text-slate-900 mb-1">내 매장 맞춤 개선 리포트, 무료로 받아보세요</h3>
+          <p class="text-sm text-slate-600 mb-4">아래 연락처로 카톡이나 문자 주시면, 방금 보신 분석을 바탕으로 실제 개선점을 정리한 <b>PDF 리포트</b>를 보내드립니다.</p>
+          <button id="ctaCallBtn" onclick="requestConsult()" class="inline-flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white font-bold text-base px-8 py-4 rounded-2xl shadow-lg transition transform active:scale-95">
+            <i class="fa-solid fa-comment-dots"></i> <span id="ctaPhoneText">연락처 보기</span>
+          </button>
+          <p class="text-xs text-slate-400 mt-3">조강사 · 카톡 또는 문자로 편하게 문의해주세요</p>
         </div>
       </div>
 
@@ -321,6 +330,22 @@
     let currentShareId = null;
     let loadingInterval = null;
     let radarChartInstance = null;
+
+    // 운영자 본인 테스트용 우회 토큰. URL에 ?bypass=... 로 수동으로만 붙인다 (공개 UI 어디에도 노출 안 함).
+    const bypassToken = new URLSearchParams(window.location.search).get('bypass') || '';
+    const bypassQS = bypassToken ? `&bypass=${encodeURIComponent(bypassToken)}` : '';
+
+    // 스팸 스크래퍼 방지: 전화번호를 뒤집어 저장해뒀다가 클릭 시에만 복원한다.
+    const OBS_PHONE_REV = '5550-0942-010';
+    function realPhone() { return OBS_PHONE_REV.split('').reverse().join(''); }
+
+    // 상담 CTA 클릭: 번호 노출 + 조용히 로그만 남기고(§9.9) tel: 링크로 이동
+    function requestConsult() {
+      const phone = realPhone();
+      document.getElementById('ctaPhoneText').innerText = phone;
+      fetch(`/api/lead-click?placeId=${encodeURIComponent(currentPlace?.placeId || '')}&name=${encodeURIComponent(currentPlace?.name || '')}&keyword=${encodeURIComponent(document.getElementById('keywordInput')?.value || '')}`).catch(() => {});
+      window.location.href = 'tel:' + phone.replace(/-/g, '');
+    }
 
     // 공유하기: shareId가 있으면 크롤러용 OG 페이지(/share/:id)를, 없으면 홈 주소를 복사한다.
     async function shareCurrentPage() {
@@ -396,9 +421,33 @@
       const texts = ['경쟁사 스코어 대조 중...', '1페이지 순위 확인 중...', '진입선 계산 중...'];
 
       await withLoading(btn, texts, async () => {
-        const res = await fetch(`/api/gap?placeId=${encodeURIComponent(currentPlace.placeId)}&keyword=${encodeURIComponent(keyword)}`);
+        const res = await fetch(`/api/gap?placeId=${encodeURIComponent(currentPlace.placeId)}&keyword=${encodeURIComponent(keyword)}${bypassQS}`);
         const data = await res.json();
         if (!res.ok || data.error) throw new Error(data.error || 'Gap 분석에 실패했습니다.');
+
+        renderGap(data);
+        document.getElementById('step2Result').classList.remove('hidden');
+        document.getElementById('step2Result').scrollIntoView({ behavior: 'smooth' });
+        if (data.shareId) {
+          currentShareId = data.shareId;
+          window.history.pushState({}, '', `?shareId=${data.shareId}`);
+        }
+      });
+    }
+
+    // [경쟁사 직접 지목] 키워드 없이 특정 업체와 1:1 비교
+    async function runCompare() {
+      if (!currentPlace) return;
+      const competitor = document.getElementById('competitorInput').value.trim();
+      if (!competitor) { alert('비교할 경쟁사의 전화번호, 상호 또는 URL을 입력해주세요.'); return; }
+
+      const btn = document.getElementById('compareBtn');
+      const texts = ['경쟁사 정보 수집 중...', '지표 대조 중...'];
+
+      await withLoading(btn, texts, async () => {
+        const res = await fetch(`/api/gap?placeId=${encodeURIComponent(currentPlace.placeId)}&competitorId=${encodeURIComponent(competitor)}${bypassQS}`);
+        const data = await res.json();
+        if (!res.ok || data.error) throw new Error(data.error || '비교에 실패했습니다.');
 
         renderGap(data);
         document.getElementById('step2Result').classList.remove('hidden');
@@ -638,15 +687,22 @@
       const stats = data.stats;
       const foundCount = Math.min(data.rankSearched || 0, 10); // 네이버 위젯이 실제로 노출한 오가닉 업체 수 (10 미만일 수 있음)
 
-      document.getElementById('gapTitle').innerText = `📊 '${data.targetKeyword}' 기준 상위 ${foundCount}개 업체 Gap 분석`;
+      document.getElementById('gapTitle').innerText = data.isDirectCompare
+        ? `📊 ${data.targetKeyword} Gap 분석`
+        : `📊 '${data.targetKeyword}' 기준 상위 ${foundCount}개 업체 Gap 분석`;
       const boundaryTitle = document.getElementById('boundaryTitle');
-      boundaryTitle.innerHTML = `<i class="fa-solid fa-flag-checkered text-blue-600"></i> 상위 ${foundCount}개 업체 대비 내 위치`;
-      if (foundCount < 10) {
+      boundaryTitle.innerHTML = data.isDirectCompare
+        ? `<i class="fa-solid fa-flag-checkered text-blue-600"></i> 경쟁사 대비 내 위치`
+        : `<i class="fa-solid fa-flag-checkered text-blue-600"></i> 상위 ${foundCount}개 업체 대비 내 위치`;
+      if (!data.isDirectCompare && foundCount < 10) {
         boundaryTitle.innerHTML += ` <span class="text-xs font-normal text-slate-400">(네이버 검색 결과가 ${foundCount}곳뿐이라 10개 미만입니다)</span>`;
       }
 
       const rankBadge = document.getElementById('rankBadge');
-      if (data.myRank) {
+      if (data.isDirectCompare) {
+        rankBadge.className = 'text-sm font-bold px-4 py-2 rounded-full bg-slate-100 text-slate-600';
+        rankBadge.innerText = '1:1 직접비교';
+      } else if (data.myRank) {
         rankBadge.className = 'text-sm font-bold px-4 py-2 rounded-full ' + (data.myRank <= 10 ? 'bg-blue-50 text-blue-700' : 'bg-amber-50 text-amber-700');
         rankBadge.innerText = `현재 ${data.myRank}위`;
       } else {
