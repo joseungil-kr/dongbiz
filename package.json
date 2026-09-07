@@ -1,6 +1,0 @@
-{
-  "dependencies": {
-    "better-sqlite3": "^13.0.3",
-    "uuid": "^14.0.2"
-  }
-}

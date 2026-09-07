@@ -1,4 +1,5 @@
 -- Cloudflare D1 Database Schema for DongBiz
+-- 적용: npx wrangler d1 execute dongbiz-db --file=./schema.sql
 
 -- 1. 유저 테이블 (SaaS 구독 관리)
 CREATE TABLE IF NOT EXISTS users (
@@ -20,12 +21,14 @@ CREATE TABLE IF NOT EXISTS places (
 
 -- 3. 검색 히스토리 및 진단 기록 (고유 공유 링크용)
 CREATE TABLE IF NOT EXISTS search_histories (
-    share_id TEXT PRIMARY KEY,       -- 고유 링크용 ID (예: 짧은 UUID 또는 나노 ID)
+    share_id TEXT PRIMARY KEY,       -- 고유 링크용 ID
     user_id TEXT,                    -- 검색한 유저 (익명일 경우 NULL 허용)
     place_id TEXT NOT NULL,          -- 대상 플레이스
-    target_keyword TEXT NOT NULL,    -- 진단 키워드 (예: '안산 스카이차')
-    my_rank INTEGER,                 -- 당시 내 순위
-    top10_avg_reviews INTEGER,       -- 상위 10개 업체 평균 리뷰
+    target_keyword TEXT NOT NULL,    -- 진단 키워드 (사용자 직접 입력)
+    my_rank INTEGER,                 -- 당시 내 순위 (1~14, 14위 밖이면 NULL)
+    top10_avg_reviews INTEGER,       -- 상위 10개 업체(본인 제외) 방문자 리뷰 평균
+    top10_median_reviews INTEGER,    -- 상위 10개 업체(본인 제외) 방문자 리뷰 중앙값 (§7.6 평균 왜곡 방어)
+    rank_boundary_reviews INTEGER,   -- 10위 업체(1페이지 진입선) 방문자 리뷰 수
     my_reviews INTEGER,              -- 내 리뷰 수
     grade_reviews TEXT,              -- A, B, C 등급
     raw_data JSON,                   -- 스크래핑 당시 전체 JSON 스냅샷 (프론트엔드 복원용)
@@ -34,12 +37,12 @@ CREATE TABLE IF NOT EXISTS search_histories (
     FOREIGN KEY(place_id) REFERENCES places(id)
 );
 
--- 4. 데일리 랭킹 트래킹 (SaaS 유료 회원을 위한 매일 자동 수집)
+-- 4. 데일리 랭킹 트래킹 (SaaS 유료 회원을 위한 매일 자동 수집 — Phase D)
 CREATE TABLE IF NOT EXISTS daily_ranks (
     id TEXT PRIMARY KEY,             -- UUID
     place_id TEXT NOT NULL,
     target_keyword TEXT NOT NULL,
-    rank INTEGER,                    -- 유기적 순위 (1~14 등)
+    rank INTEGER,                    -- 오가닉 순위 (1~14 등)
     total_reviews INTEGER,           -- 리뷰 수 변동 추적용
     tracked_date DATE DEFAULT CURRENT_DATE, -- 측정 일자
     FOREIGN KEY(place_id) REFERENCES places(id)

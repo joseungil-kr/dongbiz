@@ -1,31 +1,47 @@
 /**
- * 네이버 스마트플레이스 전수 지표 스크래퍼 완성본 (Rank & SEO Metrics Extractor)
+ * 네이버 스마트플레이스 전수 지표 스크래퍼 (Rank & SEO Metrics Extractor)
  * Cloudflare Worker 환경용 (Fetch API 호환)
+ *
+ * 기술 함정은 작업지시서.md §7 참조. 여기서 수정한 실수를 반복하지 말 것.
  */
 
-export async function getTopRankerPlace(keyword: string): Promise<string | null> {
+const UA_DESKTOP = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
+const UA_MOBILE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148';
+
+/**
+ * 키워드 검색 시 오가닉 순위 1~limit위 placeId 목록을 순위 순서대로 반환.
+ * §7.4 동일 업체가 상단 카드 + 하단 피드에 중복 노출되므로 Set으로 제거.
+ * §7.5 '광고' 텍스트 매칭은 리뷰 본문 오탐을 유발하므로 제외, ico_ad/sp_ad 클래스만 신뢰.
+ */
+export async function getOrganicRanking(keyword: string, limit = 14): Promise<string[]> {
   try {
     const searchUrl = `https://search.naver.com/search.naver?where=nexearch&sm=top_hty&fbm=0&ie=utf8&query=${encodeURIComponent(keyword)}`;
     const res = await fetch(searchUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
-      }
+      headers: { 'User-Agent': UA_DESKTOP }
     });
     const html = await res.text();
     const regex = /href="(https?:\/\/map\.naver\.com\/p\/(?:search\/[^/]+\/place|entry\/place)\/(\d+)[^"]*)"[^>]*>([\s\S]*?)<\/a>/gi;
+
+    const seen = new Set<string>();
+    const ranking: string[] = [];
     let match;
     while ((match = regex.exec(html)) !== null) {
+      if (ranking.length >= limit) break;
       const id = match[2];
+      if (seen.has(id)) continue;
+
       const surrounding = html.slice(Math.max(0, match.index - 300), match.index + 300);
-      const isAd = surrounding.includes('ico_ad') || surrounding.includes('광고') || surrounding.includes('sp_ad');
-      if (!isAd) {
-        return id; // 첫 번째 오가닉 1위
-      }
+      const isAd = surrounding.includes('ico_ad') || surrounding.includes('sp_ad');
+      if (isAd) continue;
+
+      seen.add(id);
+      ranking.push(id);
     }
+    return ranking;
   } catch (err) {
-    console.error('1위 추출 에러:', err);
+    console.error('오가닉 순위 추출 에러:', err);
+    return [];
   }
-  return null;
 }
 
 export async function scrapeFullPlaceMetrics(queryOrId: string): Promise<any> {
@@ -57,12 +73,12 @@ export async function scrapeFullPlaceMetrics(queryOrId: string): Promise<any> {
     const searchUrl = `https://search.naver.com/search.naver?where=nexearch&sm=top_hty&fbm=0&ie=utf8&query=${encodeURIComponent(placeId)}`;
     const searchRes = await fetch(searchUrl, {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        'User-Agent': UA_DESKTOP,
         'Accept': 'text/html,application/xhtml+xml',
       }
     });
     const searchHtml = await searchRes.text();
-    const match = searchHtml.match(/https?:\/\/map\.naver\.com\/p\/(?:search\/[^/]+\/place|entry\/place)\/(\d+)/i) || 
+    const match = searchHtml.match(/https?:\/\/map\.naver\.com\/p\/(?:search\/[^/]+\/place|entry\/place)\/(\d+)/i) ||
                   searchHtml.match(/https?:\/\/map\.naver\.com\/v5\/entry\/place\/(\d+)/i) ||
                   searchHtml.match(/data-cid="(\d+)"/i) ||
                   searchHtml.match(/place\/(\d+)/i);
@@ -76,7 +92,7 @@ export async function scrapeFullPlaceMetrics(queryOrId: string): Promise<any> {
   const homeUrl = `https://m.place.naver.com/place/${placeId}/home`;
   const res = await fetch(homeUrl, {
     headers: {
-      'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148',
+      'User-Agent': UA_MOBILE,
       'Accept': 'text/html,application/xhtml+xml',
     }
   });
@@ -116,7 +132,7 @@ export async function scrapeFullPlaceMetrics(queryOrId: string): Promise<any> {
   const photoKeys = keys.filter(k => k.startsWith(`PlaceDetailTopPhotoItem:${placeId}`));
   const samplePhotos = photoKeys.map(k => state[k]?.thumbnailUrl).filter(Boolean);
 
-  // ROOT_QUERY에서 keywordList, description, 이미지 총 개수, 소식 추출
+  // ROOT_QUERY에서 keywordList, description, 이미지 총 개수, 소식 추출 (§7.1 __ref 포인터 해석)
   let keywordList: string[] = [];
   let rootDesc = '';
   let topPhotosTotal = photoKeys.length;
@@ -129,7 +145,7 @@ export async function scrapeFullPlaceMetrics(queryOrId: string): Promise<any> {
     if (pdKey && rootQuery[pdKey]) {
       const pd = rootQuery[pdKey];
       rootDesc = pd.description || '';
-      
+
       if (pd.topPhotos) {
         if (pd.topPhotos.__ref) {
           topPhotosTotal = state[pd.topPhotos.__ref]?.total || photoKeys.length;
@@ -152,7 +168,7 @@ export async function scrapeFullPlaceMetrics(queryOrId: string): Promise<any> {
       }
     }
   }
-  
+
   // 소식 (Biznews) 체크
   const newsKeys = keys.filter(k => k.startsWith('BiznewsItem:') || k.startsWith('NewsItem:'));
   if (newsKeys.length > 0) {
@@ -162,15 +178,18 @@ export async function scrapeFullPlaceMetrics(queryOrId: string): Promise<any> {
     }
   }
 
+  // 네이버가 직접 제공하는 누락정보 감사 플래그 (추측 대신 실제 필드 사용)
+  const missingInfo = base.missingInfo || {};
+
   return {
     placeId: placeId,
     placeUrl: `https://map.naver.com/p/entry/place/${placeId}`,
     name: base.name || null,
     category: base.category || null,
-    phone: base.phone || null,
+    phone: base.phone || base.virtualPhone || null, // B2: 스마트콜 전용 매장 폴백
     roadAddress: base.roadAddress || null,
     address: base.address || null,
-    directions: base.directions || null,
+    directions: base.road || null, // B1: base.directions는 존재하지 않는 필드였음
     coordinates: {
       x: base.coordinate?.x || null,
       y: base.coordinate?.y || null,
@@ -188,6 +207,12 @@ export async function scrapeFullPlaceMetrics(queryOrId: string): Promise<any> {
       photoCount: topPhotosTotal,
       menuCount: menus.length,
       totalVoteCount: reviewStats?.analysis?.votedKeyword?.totalCount || 0,
+      // B3: 추측(menuCount>0 등) 대신 네이버가 실제로 내려주는 누락정보 플래그를 그대로 사용
+      isBizHourMissing: missingInfo.isBizHourMissing ?? null,
+      isMenuImageMissing: missingInfo.isMenuImageMissing ?? null,
+      isAccessorMissing: missingInfo.isAccessorMissing ?? null,
+      isDescriptionMissing: missingInfo.isDescriptionMissing ?? null,
+      isConveniencesMissing: missingInfo.isConveniencesMissing ?? null,
     },
     topRepKeywords: topKeywords,
     menus: menus,

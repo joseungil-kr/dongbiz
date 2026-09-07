@@ -2,8 +2,21 @@ name = "dongbiz-worker"
 main = "src/index.ts"
 compatibility_date = "2024-03-01"
 
+# 정적 프론트엔드 (public/index.html). /api/* 외 요청은 여기서 자동으로 서빙됨.
+[assets]
+directory = "./public"
+
 # D1 Database Bindings
+# 실행 전 필요: npx wrangler d1 create dongbiz-db  (Cloudflare 로그인 필요)
+# 결과로 나온 database_id를 아래에 채울 것. 스키마 적용: npx wrangler d1 execute dongbiz-db --file=./schema.sql
 [[d1_databases]]
 binding = "DB"
 database_name = "dongbiz-db"
 database_id = "your-d1-db-id"
+
+# KV Cache Bindings (§3.4 캐시 정책: placeId 24h, keyword 6h)
+# 실행 전 필요: npx wrangler kv namespace create CACHE  (Cloudflare 로그인 필요)
+# 결과로 나온 id를 아래에 채울 것. 바인딩 전에도 코드는 캐시 없이 정상 동작함.
+[[kv_namespaces]]
+binding = "CACHE"
+id = "your-kv-namespace-id"
