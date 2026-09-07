@@ -468,12 +468,60 @@ app.get('/admin/analytics', async (c) => {
   return c.html(`<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><title>동네비즈 관리자 - 지표 분석</title><style>${ADMIN_STYLE}</style></head>
 <body>
   <a class="back" href="/admin">&larr; 진단 리스트로</a>
-  <h1>상위노출 지표 분석 — 키워드별 관측 현황</h1>
-  <p style="font-size:13px;color:#64748B;margin:-8px 0 16px;">키워드는 사용자가 한 번 검색하면 매일 자동으로 재수집된다(cron, 최대 ${CRON_KEYWORD_BATCH_LIMIT}개/일 배치 제한). "cron" 열이 0이면 아직 최근 검색된 키워드가 아니라는 뜻.</p>
+  <div style="display:flex;justify-content:space-between;align-items:center;">
+    <h1 style="margin:0;">상위노출 지표 분석 — 키워드별 관측 현황</h1>
+    <a href="/admin/analytics/market" style="font-size:13px;font-weight:700;">🏙️ 리서치 키워드 시장 통계 →</a>
+  </div>
+  <p style="font-size:13px;color:#64748B;margin:8px 0 16px;">여기는 사용자가 직접 진단한 업체별 순위 추이. 키워드는 한 번 검색하면 매일 자동으로 재수집된다(cron, 최대 ${CRON_KEYWORD_BATCH_LIMIT}개/일). 강남맛집 등 고정 리서치 키워드 8개는 이 목록에 안 나오고 위 "시장 통계"에 별도로 쌓인다(업체 식별 없이 평균/중앙값만).</p>
   <table>
     <thead><tr><th>키워드</th><th>스냅샷</th><th>관측 기간</th><th>자동수집</th><th></th></tr></thead>
     <tbody>${rows || '<tr><td colspan="5">아직 수집된 데이터가 없습니다.</td></tr>'}</tbody>
   </table>
+</body></html>`);
+});
+
+// 관리자: 리서치 고정 키워드 시장 통계 — 업체 식별 없이 상위 10곳 평균/중앙값/비율만.
+// medical(성형외과 등)은 의료광고법상 랭킹 로직이 다를 수 있어 표를 분리한다.
+app.get('/admin/analytics/market', async (c) => {
+  const db = c.env.DB;
+  if (!db) return c.text('DB 미설정', 500);
+
+  const { results } = await db.prepare(`
+    SELECT k.* FROM keyword_rank_stats k
+    INNER JOIN (SELECT keyword, MAX(collected_at) as max_c FROM keyword_rank_stats GROUP BY keyword) m
+      ON k.keyword = m.keyword AND k.collected_at = m.max_c
+    ORDER BY k.category, k.keyword
+  `).all();
+
+  const rowsFor = (rows: any[]) => rows.map(r => `
+    <tr>
+      <td><b>${escapeHtml(r.keyword)}</b></td>
+      <td>${r.organic_count}곳</td>
+      <td>${r.avg_visitor_reviews} / ${r.median_visitor_reviews}</td>
+      <td>${r.avg_blog_reviews} / ${r.median_blog_reviews}</td>
+      <td>${r.avg_vote_count}</td>
+      <td>${r.avg_photo_count}</td>
+      <td>${r.avg_review_score ?? '-'}</td>
+      <td>${Math.round((r.booking_rate ?? 0) * 100)}%</td>
+      <td>${Math.round((r.new_opening_rate ?? 0) * 100)}%</td>
+      <td style="color:#94A3B8;font-size:11px;">${escapeHtml(r.collected_at)}</td>
+    </tr>`).join('');
+
+  const general = (results as any[]).filter(r => r.category !== 'medical');
+  const medical = (results as any[]).filter(r => r.category === 'medical');
+  const thead = `<thead><tr><th>키워드</th><th>오가닉수</th><th>방문자리뷰(평균/중앙)</th><th>블로그리뷰(평균/중앙)</th><th>투표수(평균)</th><th>사진수(평균)</th><th>평점(평균)</th><th>예약연동율</th><th>신규오픈율</th><th>최근수집</th></tr></thead>`;
+
+  return c.html(`<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><title>동네비즈 관리자 - 리서치 시장 통계</title><style>${ADMIN_STYLE}</style></head>
+<body>
+  <a class="back" href="/admin/analytics">&larr; 지표 분석으로</a>
+  <h1>리서치 고정 키워드 — 시장 통계</h1>
+  <p style="font-size:13px;color:#64748B;margin:-8px 0 16px;">경쟁이 치열해 순위 변동이 잦은 유명 키워드를 매일 고정 관측한다. 업체 식별 없이 상위 10곳의 평균/중앙값/비율만 남긴다.</p>
+
+  <h2 style="font-size:15px;">일반 업종</h2>
+  <table>${thead}<tbody>${rowsFor(general) || '<tr><td colspan="10">아직 수집된 데이터가 없습니다. cron이 하루 한 번 자동 수집합니다.</td></tr>'}</tbody></table>
+
+  <h2 style="font-size:15px;margin-top:24px;">⚕️ 의료 업종 (분석 시 반드시 분리 — 의료광고법상 랭킹 로직이 다를 수 있음)</h2>
+  <table>${thead}<tbody>${rowsFor(medical) || '<tr><td colspan="10">아직 수집된 데이터가 없습니다.</td></tr>'}</tbody></table>
 </body></html>`);
 });
 
@@ -632,9 +680,25 @@ async function runHealthcheck(env: Env) {
 // 자동 시계열 수집 (질문2·Phase D): 사용자가 검색해줘야만 스냅샷이 쌓이던 걸,
 // 한 번이라도 검색된 키워드는 매일 자동으로 재수집하게 한다. 그래야 "순위가 바뀔 때
 // 어떤 지표가 움직였는가"를 나중에 물어볼 수 있는 시계열이 저절로 쌓인다.
-// 키워드당 검색 1회 + 업체 최대 10회 = 최대 11 subrequest이므로, 한 번의 cron 실행에서
-// 처리할 키워드 수를 하드 제한해 Worker subrequest 한도(50)를 넘지 않게 한다.
-const CRON_KEYWORD_BATCH_LIMIT = 4;
+// 키워드당 검색 1회 + 업체 최대 10회 = 최대 11 subrequest. 한 번의 cron 실행에서 처리할
+// 키워드 수를 제한해 Worker subrequest 한도(50)를 넘지 않게 한다(실측으론 오가닉 결과가
+// 10개 미만인 키워드가 많아 평균은 이보다 낮지만, 최악의 경우를 기준으로 여유를 둔다).
+const CRON_KEYWORD_BATCH_LIMIT = 6;
+
+// 리서치용 고정 키워드(사용자 지정) — 경쟁이 치열해 순위 변동이 잦은 유명 키워드를 매일
+// 고정으로 관측한다. 특정 업체를 추적할 필요는 없다고 판단해 개별 지표 대신 상위 10곳의
+// 평균/중앙값/비율만 keyword_rank_stats에 한 행으로 남긴다.
+// medical은 의료광고법상 네이버 랭킹 로직이 다를 수 있어 일반 분석에서 반드시 분리할 것.
+const FIXED_RESEARCH_KEYWORDS: Array<{ keyword: string; category: 'general' | 'medical' }> = [
+  { keyword: '강남맛집', category: 'general' },
+  { keyword: '명동맛집', category: 'general' },
+  { keyword: '부산맛집', category: 'general' },
+  { keyword: '해운대맛집', category: 'general' },
+  { keyword: '제주도맛집', category: 'general' },
+  { keyword: '강남미용실', category: 'general' },
+  { keyword: '홍대미용실', category: 'general' },
+  { keyword: '강남성형외과', category: 'medical' },
+];
 
 async function collectKeywordSnapshot(env: Env, keyword: string) {
   try {
@@ -652,18 +716,72 @@ async function collectKeywordSnapshot(env: Env, keyword: string) {
   }
 }
 
+// 리서치용 고정 키워드 수집: 특정 업체 식별 없이 상위 10곳의 평균/중앙값/비율만 한 행 기록.
+async function collectKeywordAggregateStats(env: Env, keyword: string, category: 'general' | 'medical') {
+  const db = env.DB;
+  if (!db) return;
+  try {
+    const ranking = await getOrganicRanking(keyword, 14);
+    if (ranking.length === 0) return;
+    const topIds = ranking.slice(0, 10);
+    const stores = await Promise.all(topIds.map(id => scrapeFullPlaceMetrics(id)));
+    if (stores.length === 0) return;
+
+    const metricKeys: Array<[string, boolean]> = [
+      ['visitorReviewsTotal', false], ['cafeBlogReviewsTotal', false],
+      ['totalVoteCount', false], ['photoCount', false], ['visitorReviewsScore', true],
+    ];
+    const stats: Record<string, { avg: number; median: number }> = {};
+    for (const [key, isScore] of metricKeys) stats[key] = calcStats(stores, key, isScore);
+
+    const avgOf = (key: string) => {
+      const vals = stores.map((s: any) => Number(s.seoMetrics[key]) || 0);
+      return Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 100) / 100;
+    };
+    const rateOf = (key: string) => Math.round((stores.filter((s: any) => s.seoMetrics[key]).length / stores.length) * 100) / 100;
+
+    await db.prepare(`
+      INSERT INTO keyword_rank_stats (
+        id, keyword, category, organic_count,
+        avg_visitor_reviews, median_visitor_reviews, avg_blog_reviews, median_blog_reviews,
+        avg_vote_count, median_vote_count, avg_photo_count, median_photo_count,
+        avg_review_score, median_review_score, avg_review_medias_total, avg_coupon_count,
+        booking_rate, smart_order_rate, review_penalty_rate, new_opening_rate
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(
+      crypto.randomUUID(), keyword, category, stores.length,
+      stats.visitorReviewsTotal.avg, stats.visitorReviewsTotal.median,
+      stats.cafeBlogReviewsTotal.avg, stats.cafeBlogReviewsTotal.median,
+      stats.totalVoteCount.avg, stats.totalVoteCount.median,
+      stats.photoCount.avg, stats.photoCount.median,
+      stats.visitorReviewsScore.avg, stats.visitorReviewsScore.median,
+      avgOf('reviewMediasTotal'), avgOf('couponCount'),
+      rateOf('hasNaverBooking'), rateOf('hasSmartOrder'), rateOf('hasReviewPenalty'), rateOf('isNewOpening')
+    ).run();
+  } catch (err) {
+    console.error(`고정 키워드 통계 수집 실패("${keyword}"):`, err);
+  }
+}
+
+async function runFixedKeywordCollection(env: Env, list: typeof FIXED_RESEARCH_KEYWORDS) {
+  for (const { keyword, category } of list) {
+    await collectKeywordAggregateStats(env, keyword, category);
+  }
+}
+
 async function runDailyKeywordCollection(env: Env) {
   const db = env.DB;
   if (!db) return;
   try {
+    const fixedSet = new Set(FIXED_RESEARCH_KEYWORDS.map(f => f.keyword));
     const { results } = await db.prepare(`
       SELECT keyword, MAX(collected_at) as last_seen
       FROM rank_snapshots
       GROUP BY keyword
       ORDER BY last_seen DESC
       LIMIT ?
-    `).bind(CRON_KEYWORD_BATCH_LIMIT).all();
-    const keywords = (results as any[]).map(r => r.keyword);
+    `).bind(CRON_KEYWORD_BATCH_LIMIT + FIXED_RESEARCH_KEYWORDS.length).all();
+    const keywords = (results as any[]).map(r => r.keyword).filter(k => !fixedSet.has(k)).slice(0, CRON_KEYWORD_BATCH_LIMIT);
     for (const kw of keywords) {
       await collectKeywordSnapshot(env, kw);
     }
@@ -672,10 +790,27 @@ async function runDailyKeywordCollection(env: Env) {
   }
 }
 
+// 고정 키워드 8개(§키워드당 최대 11 subrequest)를 하루 한 번에 다 돌리면 88개로 Worker
+// subrequest 한도(50)를 넘는다. 그래서 cron 트리거 3개로 나눠서 시간대별로 분산한다:
+//   00:00 UTC — 헬스체크 + 고정 키워드 앞 4개
+//   06:00 UTC — 사용자 검색 키워드 자동수집 (CRON_KEYWORD_BATCH_LIMIT개)
+//   12:00 UTC — 고정 키워드 뒤 4개
+const CRON_TIMES = {
+  HEALTHCHECK_AND_FIXED_A: '0 0 * * *',
+  USER_DRIVEN: '0 6 * * *',
+  FIXED_B: '0 12 * * *',
+};
+
 export default {
   fetch: app.fetch,
-  scheduled: async (_event: ScheduledEvent, env: Env, ctx: ExecutionContext) => {
-    ctx.waitUntil(runHealthcheck(env));
-    ctx.waitUntil(runDailyKeywordCollection(env));
+  scheduled: async (event: ScheduledEvent, env: Env, ctx: ExecutionContext) => {
+    if (event.cron === CRON_TIMES.HEALTHCHECK_AND_FIXED_A) {
+      ctx.waitUntil(runHealthcheck(env));
+      ctx.waitUntil(runFixedKeywordCollection(env, FIXED_RESEARCH_KEYWORDS.slice(0, 4)));
+    } else if (event.cron === CRON_TIMES.FIXED_B) {
+      ctx.waitUntil(runFixedKeywordCollection(env, FIXED_RESEARCH_KEYWORDS.slice(4)));
+    } else {
+      ctx.waitUntil(runDailyKeywordCollection(env));
+    }
   },
 };

@@ -71,7 +71,33 @@ CREATE TABLE IF NOT EXISTS rank_snapshots (
     collected_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 5. 리서치용 고정 키워드 시장 통계 (특정 업체 식별 없이 순위 통계만).
+-- 강남맛집류 8개 고정 키워드를 매일 자동 수집하되, 개별 업체 지표는 저장하지 않고
+-- 그 시점 상위 10곳의 평균/중앙값/비율만 한 행으로 남긴다. rank_snapshots(업체별 세부)보다
+-- 훨씬 가볍고, "이 시장이 전반적으로 얼마나 경쟁적인가"를 보는 용도.
+-- category='medical'(성형외과 등)은 의료광고법상 랭킹 로직이 다를 수 있어 일반 분석에서 분리한다.
+CREATE TABLE IF NOT EXISTS keyword_rank_stats (
+    id TEXT PRIMARY KEY,
+    keyword TEXT NOT NULL,
+    category TEXT NOT NULL DEFAULT 'general', -- 'general' | 'medical'
+    organic_count INTEGER,           -- 실제 발견된 오가닉 업체 수
+    avg_visitor_reviews REAL, median_visitor_reviews REAL,
+    avg_blog_reviews REAL, median_blog_reviews REAL,
+    avg_vote_count REAL, median_vote_count REAL,
+    avg_photo_count REAL, median_photo_count REAL,
+    avg_review_score REAL, median_review_score REAL,
+    avg_review_medias_total REAL,
+    avg_coupon_count REAL,
+    booking_rate REAL,               -- 예약연동 업체 비율 (0~1)
+    smart_order_rate REAL,
+    review_penalty_rate REAL,
+    new_opening_rate REAL,
+    collected_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
 -- 인덱스 생성
 CREATE INDEX IF NOT EXISTS idx_search_histories_place ON search_histories(place_id);
 CREATE INDEX IF NOT EXISTS idx_rank_snapshots_keyword_place ON rank_snapshots(keyword, place_id);
 CREATE INDEX IF NOT EXISTS idx_rank_snapshots_collected ON rank_snapshots(collected_at);
+CREATE INDEX IF NOT EXISTS idx_keyword_rank_stats_keyword ON keyword_rank_stats(keyword);
+CREATE INDEX IF NOT EXISTS idx_keyword_rank_stats_collected ON keyword_rank_stats(collected_at);

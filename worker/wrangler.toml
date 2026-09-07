@@ -19,9 +19,12 @@ database_id = "fb4d0641-f7c9-4060-938a-d3acf3de95e0"
 binding = "CACHE"
 id = "4063e07d64ba4db4a7e8ff6195e6735b"
 
-# 매일 09:00 KST(00:00 UTC) 헬스체크 (§6 Phase B)
+# 크론 3개로 분산 (§9.4 참조 — 고정 키워드 8개를 한 번에 돌리면 subrequest 한도 초과):
+#   00:00 UTC(09:00 KST) — 헬스체크 + 고정 리서치 키워드 앞 4개
+#   06:00 UTC(15:00 KST) — 사용자 검색 키워드 자동 재수집
+#   12:00 UTC(21:00 KST) — 고정 리서치 키워드 뒤 4개
 [triggers]
-crons = ["0 0 * * *"]
+crons = ["0 0 * * *", "0 6 * * *", "0 12 * * *"]
 
 # 텔레그램/구글시트 알림 시크릿 (§8.2-A). 값은 git에 올리지 않는다.
 # 배포: npx wrangler secret put TELEGRAM_BOT_TOKEN  (TELEGRAM_CHAT_ID, SHEETS_WEBHOOK_URL도 동일)
