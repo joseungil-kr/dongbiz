@@ -500,8 +500,14 @@ app.get('/admin', async (c) => {
       <td><a href="/admin/${escapeHtml(r.share_id)}">상세보기</a> · <a href="/share/${escapeHtml(r.share_id)}" target="_blank">공유링크</a></td>
     </tr>`).join('');
 
+  const bypassUrl = c.env.RATE_LIMIT_BYPASS_TOKEN ? `/?bypass=${c.env.RATE_LIMIT_BYPASS_TOKEN}` : null;
+
   return c.html(`<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><title>동네비즈 관리자 - 진단 리스트</title><style>${ADMIN_STYLE}</style></head>
 <body>
+  ${bypassUrl ? `<div style="background:#0F172A;color:#fff;padding:10px 14px;border-radius:10px;margin-bottom:16px;font-size:13px;display:flex;justify-content:space-between;align-items:center;gap:12px;">
+    <span>🔓 일일 검색한도 우회 링크 (본인 테스트용, 외부 공유 금지)</span>
+    <a href="${bypassUrl}" style="color:#93C5FD;font-weight:700;" target="_blank">${escapeHtml(bypassUrl)}</a>
+  </div>` : ''}
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
     <h1 style="margin:0;">진단 리스트 (최신 ${(results as any[]).length}건)</h1>
     <a href="/admin/analytics" style="font-size:13px;font-weight:700;">📈 상위노출 지표 분석 →</a>

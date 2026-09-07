@@ -203,7 +203,7 @@
       <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
         <!-- 방사형 차트 -->
         <div class="bg-slate-50 rounded-2xl p-5 border border-slate-200/80">
-          <h4 class="text-xs font-bold text-slate-600 mb-3">내 매장 vs 상위 10개 평균</h4>
+          <h4 id="radarPanelTitle" class="text-xs font-bold text-slate-600 mb-3">내 매장 vs 상위 10개 평균</h4>
           <div class="w-full bg-white rounded-xl border border-slate-200/60 p-2 flex justify-center mb-3" style="height: 250px;">
             <canvas id="radarChart"></canvas>
           </div>
@@ -594,7 +594,7 @@
 
     }
 
-    function drawRadarChart(my, stats) {
+    function drawRadarChart(my, stats, compareLabel) {
       const ctx = document.getElementById('radarChart').getContext('2d');
       if (radarChartInstance) radarChartInstance.destroy();
 
@@ -621,7 +621,7 @@
               borderWidth: 2
             },
             {
-              label: '상위 10개 평균',
+              label: compareLabel || '상위 10개 평균',
               data: [
                 (stats.visitorReviewsTotal.avg / maxVisitor) * 100,
                 (stats.cafeBlogReviewsTotal.avg / maxBlog) * 100,
@@ -659,24 +659,29 @@
 
     // 지표별 "상위 업체 대비 내 위치" 카드. §2 확정: 절망 유발 절대값 대신 부족분 + 채울 방법.
     // "확인불가"로 방치하지 않고, 10위 값이 없을 땐 상위 평균 기준으로라도 5단계 등급을 매긴다.
-    function boundaryCard(label, unit, myVal, avgVal, boundaryVal, tooltip) {
+    function boundaryCard(label, unit, myVal, avgVal, boundaryVal, tooltip, compareName) {
       const has = boundaryVal !== null && boundaryVal !== undefined;
       const denom = has ? boundaryVal : avgVal;
       const ratio = myVal / Math.max(denom, 0.01);
       const tier = gradeTier(ratio);
       const cleared = has && myVal >= boundaryVal;
+      // 1:1 직접비교 땐 경쟁사가 1곳뿐이라 "상위평균"과 "진입선"이 항상 같은 값 — 열 하나로 합쳐서 보여준다.
+      const compareCols = compareName
+        ? `
+          <div><span class="block text-slate-400">내 매장</span><span class="font-black text-slate-900">${Number(myVal).toLocaleString()}${unit}</span></div>
+          <div><span class="block text-slate-400">${compareName}</span><span class="font-black text-blue-600">${Number(avgVal).toLocaleString()}${unit}</span></div>`
+        : `
+          <div><span class="block text-slate-400">내 매장</span><span class="font-black text-slate-900">${Number(myVal).toLocaleString()}${unit}</span></div>
+          <div><span class="block text-slate-400">상위 평균</span><span class="font-black text-slate-500">${Math.round(Number(avgVal)).toLocaleString()}${unit}</span></div>
+          <div><span class="block text-slate-400">10위(진입선)</span><span class="font-black text-blue-600">${has ? Number(boundaryVal).toLocaleString() + unit : '데이터 부족'}</span></div>`;
       const html = `
         <div class="bg-white rounded-2xl p-4 border ${cleared ? 'border-emerald-200' : 'border-slate-200'} shadow-sm">
           <div class="flex justify-between items-center mb-2">
             <span class="text-xs font-bold text-slate-700">${label} <i class="fa-regular fa-circle-question text-slate-300 text-[10px]" title="${tooltip}"></i></span>
             <span class="text-[11px] font-bold px-2 py-0.5 rounded-lg ${tier.badge}">${tier.label}</span>
           </div>
-          <div class="grid grid-cols-3 gap-2 text-center text-[11px]">
-            <div><span class="block text-slate-400">내 매장</span><span class="font-black text-slate-900">${Number(myVal).toLocaleString()}${unit}</span></div>
-            <div><span class="block text-slate-400">상위 평균</span><span class="font-black text-slate-500">${Math.round(Number(avgVal)).toLocaleString()}${unit}</span></div>
-            <div><span class="block text-slate-400">10위(진입선)</span><span class="font-black text-blue-600">${has ? Number(boundaryVal).toLocaleString() + unit : '데이터 부족'}</span></div>
-          </div>
-          ${!has ? '<p class="text-[10px] text-slate-400 mt-1.5">검색결과가 10곳 미만이라 상위 평균 기준으로 등급을 매겼습니다.</p>' : ''}
+          <div class="grid ${compareName ? 'grid-cols-2' : 'grid-cols-3'} gap-2 text-center text-[11px]">${compareCols}</div>
+          ${!has && !compareName ? '<p class="text-[10px] text-slate-400 mt-1.5">검색결과가 10곳 미만이라 상위 평균 기준으로 등급을 매겼습니다.</p>' : ''}
         </div>`;
       return { html, label, isDeficient: tier.label === '개선필요' || tier.label === '위험' };
     }
@@ -715,17 +720,20 @@
       gradeBadge.className = 'text-lg font-black px-4 py-2 rounded-full ' + (gradeColors[data.grade] || gradeColors.B);
       gradeBadge.innerText = `${data.grade}등급`;
 
-      drawRadarChart(my, stats);
+      // 1:1 직접비교 땐 "상위 10개 평균" 대신 그 경쟁사 이름 자체를 비교축으로 쓴다.
+      const compareName = data.isDirectCompare ? (data.top10Competitors[0]?.name || '경쟁사') : null;
+      document.getElementById('radarPanelTitle').innerText = compareName ? `내 매장 vs ${compareName}` : '내 매장 vs 상위 10개 평균';
+      drawRadarChart(my, stats, compareName);
 
       const boundaryResults = [
         boundaryCard('영수증(방문자) 리뷰', '건', my.seoMetrics.visitorReviewsTotal, stats.visitorReviewsTotal.avg, stats.visitorReviewsTotal.boundary,
-          '네이버가 집계하는 방문자 리뷰(영수증+예약) 총합입니다. 후기 글 없이 별점만 남긴 경우도 포함돼 실제 앱에서 보는 리뷰 개수와 다를 수 있습니다.'),
+          '네이버가 집계하는 방문자 리뷰(영수증+예약) 총합입니다. 후기 글 없이 별점만 남긴 경우도 포함돼 실제 앱에서 보는 리뷰 개수와 다를 수 있습니다.', compareName),
         boundaryCard('블로그/카페 리뷰', '건', my.seoMetrics.cafeBlogReviewsTotal, stats.cafeBlogReviewsTotal.avg, stats.cafeBlogReviewsTotal.boundary,
-          '네이버 검색에 노출된 블로그·카페 후기 글 수입니다. 검색 노출 기준 집계라 실제 작성된 후기 수와 차이가 날 수 있습니다.'),
+          '네이버 검색에 노출된 블로그·카페 후기 글 수입니다. 검색 노출 기준 집계라 실제 작성된 후기 수와 차이가 날 수 있습니다.', compareName),
         boundaryCard('키워드 투표수', '표', my.seoMetrics.totalVoteCount, stats.totalVoteCount.avg, stats.totalVoteCount.boundary,
-          '리뷰 작성 시 선택한 키워드 투표의 누적 참여 횟수입니다. 리뷰 1건당 여러 키워드를 고를 수 있어 리뷰 수보다 클 수 있습니다.'),
+          '리뷰 작성 시 선택한 키워드 투표의 누적 참여 횟수입니다. 리뷰 1건당 여러 키워드를 고를 수 있어 리뷰 수보다 클 수 있습니다.', compareName),
         boundaryCard('등록 사진 수', '장', my.seoMetrics.photoCount, stats.photoCount.avg, stats.photoCount.boundary,
-          '네이버가 집계하는 대표 사진 총 개수입니다. 실제 업로드한 사진 수와 약간 차이가 날 수 있습니다.'),
+          '네이버가 집계하는 대표 사진 총 개수입니다. 실제 업로드한 사진 수와 약간 차이가 날 수 있습니다.', compareName),
       ];
       document.getElementById('boundaryCards').innerHTML = boundaryResults.map(r => r.html).join('');
 
