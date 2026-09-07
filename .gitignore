@@ -5,3 +5,8 @@ node_modules/
 .env.local
 .dev.vars
 dist/
+
+# curl 등으로 만드는 임시 테스트 산출물 (루트에 실수로 생기는 경우 방지)
+gap_*.json
+place_*.json
+*_test.json
