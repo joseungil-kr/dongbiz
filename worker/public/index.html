@@ -56,7 +56,7 @@
     <div class="w-full max-w-2xl glass-card p-6 md:p-8 rounded-3xl shadow-xl shadow-slate-200/50 mb-8">
       <div class="flex flex-col sm:flex-row gap-3">
         <div class="flex-1 relative text-left">
-          <label class="block text-xs font-bold text-slate-500 mb-1.5 ml-1">전화번호 / 스마트콜 / 상호명 / 지도 공유주소 (naver.me) / 플레이스 번호</label>
+          <label class="block text-xs font-bold text-slate-500 mb-1.5 ml-1">상호 / 전화번호 / 지도공유주소 / 플레이스번호</label>
           <div class="relative">
             <input type="text" id="storeInput" placeholder="예: 031-407-0103, 0507-1342-1035, https://naver.me/FE3ghnOU, 1785101394 등"
               class="w-full px-4 py-4 rounded-2xl border border-slate-200 bg-white text-base font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600 transition pl-11" />
@@ -122,8 +122,8 @@
               <li class="flex justify-between items-center"><span class="text-slate-500">키워드 투표 참여수 <i class="fa-regular fa-circle-question text-slate-300 text-[10px]" title="방문자가 리뷰 작성 시 선택한 키워드(예: 친절해요, 맛있어요)의 총 투표 참여 횟수입니다."></i></span> <span id="guiVote" class="font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded"></span></li>
               <li class="flex justify-between items-center"><span class="text-slate-500">대표 사진 등록 수 <i class="fa-regular fa-circle-question text-slate-300 text-[10px]" title="플레이스에 등록된 대표 사진의 총 개수입니다."></i></span> <span id="guiPhoto" class="font-bold text-slate-900 bg-slate-100 px-2 py-0.5 rounded"></span></li>
               <li class="flex justify-between items-center"><span class="text-slate-500">메뉴/상품 등록 수 <i class="fa-regular fa-circle-question text-slate-300 text-[10px]" title="등록된 메뉴 또는 판매 상품의 개수입니다."></i></span> <span id="guiMenu" class="font-bold text-slate-900 bg-slate-100 px-2 py-0.5 rounded"></span></li>
-              <li class="flex justify-between items-center pt-2 border-t"><span class="text-slate-500">최근 소식 (1개월) <i class="fa-regular fa-circle-question text-slate-300 text-[10px]" title="최근 1개월 이내 매장 소식(이벤트/공지) 등록 여부입니다. 자주 갱신할수록 네이버 알고리즘 가산점에 유리합니다."></i></span> <span id="guiNews" class="font-bold text-slate-900 text-[12px]"></span></li>
-              <li class="flex justify-between items-center"><span class="text-slate-500">설명 분량 <i class="fa-regular fa-circle-question text-slate-300 text-[10px]" title="매장 상세설명 글자 수입니다. 최대 1,500자까지 등록 가능하며, 등록 키워드를 설명에 포함하면 SEO에 유리합니다."></i></span> <span id="guiDescLen" class="font-bold text-slate-900 bg-slate-100 px-2 py-0.5 rounded"></span></li>
+              <li class="flex justify-between items-center pt-2 border-t"><span class="text-slate-500">최근 소식 (2개월) <i class="fa-regular fa-circle-question text-slate-300 text-[10px]" title="최근 2개월 이내 매장 소식(이벤트/공지) 등록 여부입니다. 자주 갱신할수록 네이버 알고리즘 가산점에 유리합니다."></i></span> <span id="guiNews" class="font-bold text-slate-900 text-[12px]"></span></li>
+              <li class="flex justify-between items-center"><span class="text-slate-500">설명 분량 <i class="fa-regular fa-circle-question text-slate-300 text-[10px]" title="매장 상세설명 글자 수입니다. 최대 2,000자까지 등록 가능하며, 등록 키워드를 설명에 포함하면 SEO에 유리합니다."></i></span> <span id="guiDescLen" class="font-bold text-slate-900 bg-slate-100 px-2 py-0.5 rounded"></span></li>
             </ul>
           </div>
         </div>
@@ -255,19 +255,24 @@
             <div>
               <div class="flex items-center gap-2 mb-2">
                 <i id="defiFreshIcon" class="fa-solid fa-traffic-light text-slate-500"></i>
-                <h4 id="defiFreshTitle" class="font-bold text-slate-900 text-sm">매장 생명력 지수</h4>
+                <h4 class="font-bold text-slate-900 text-sm">매장 생명력 지수</h4>
+                <span id="defiFreshBadge" class="ml-auto text-[11px] font-bold px-2 py-0.5 rounded-full"></span>
               </div>
               <p class="text-[11px] text-slate-600 leading-relaxed mb-3">
-                네이버 알고리즘은 자주 관리되는 매장에 순위 가산점을 부여합니다.
+                네이버 알고리즘은 자주 관리되는 매장에 순위 가산점을 부여합니다. 항목별로 개별 판정되며, 아래 배지는 세 항목을 종합한 결과입니다.
               </p>
               <div class="space-y-2">
                 <div class="flex justify-between items-center bg-white/60 p-2 rounded-lg">
-                  <span class="text-xs text-slate-600">최근 소식 (1개월)</span>
+                  <span class="text-xs text-slate-600">최근 소식 (2개월)</span>
                   <span id="defiNews" class="text-[11px] font-bold"></span>
                 </div>
                 <div class="flex justify-between items-center bg-white/60 p-2 rounded-lg">
                   <span class="text-xs text-slate-600">톡톡/스마트콜 연동</span>
                   <span id="defiCall" class="text-[11px] font-bold"></span>
+                </div>
+                <div class="flex justify-between items-center bg-white/60 p-2 rounded-lg">
+                  <span class="text-xs text-slate-600">상세설명 분량</span>
+                  <span id="defiDesc" class="text-[11px] font-bold"></span>
                 </div>
               </div>
             </div>
@@ -464,7 +469,7 @@
       setVal('guiPhone', my.phone);
 
       const badgeHtml = (isActive) => isActive
-        ? '<span class="text-emerald-600 font-bold bg-emerald-50 px-2 py-0.5 rounded text-[11px]">연동됨(가산점획득)</span>'
+        ? '<span class="text-emerald-600 font-bold bg-emerald-50 px-2 py-0.5 rounded text-[11px]" title="네이버에 등록된 기록 기준입니다. 과거 한 번이라도 등록했다면 지금 실제로 쓰지 않아도 연동됨으로 표시될 수 있습니다.">연동됨(가산점획득) <i class="fa-regular fa-circle-question text-[9px]"></i></span>'
         : '<span class="text-slate-400 text-[11px]">미연동</span>';
       document.getElementById('guiSmart').innerHTML = badgeHtml(my.seoMetrics.hasSmartCall);
       document.getElementById('guiTalk').innerHTML = badgeHtml(my.seoMetrics.hasTalktalk);
@@ -500,7 +505,7 @@
       setVal('guiVote', my.seoMetrics.totalVoteCount + '표');
       setVal('guiPhoto', my.seoMetrics.photoCount + '장');
       setVal('guiMenu', my.seoMetrics.menuCount + '개');
-      setVal('guiDescLen', (my.seoMetrics.descriptionLength || 0) + ' / 1,500자');
+      setVal('guiDescLen', (my.seoMetrics.descriptionLength || 0) + ' / 2,000자');
 
       const ulKwd = document.getElementById('guiTopKwd');
       ulKwd.innerHTML = (my.topRepKeywords && my.topRepKeywords.length > 0)
@@ -517,10 +522,10 @@
       document.getElementById('guiAuditAmen').innerHTML = auditBadge(my.seoMetrics.isConveniencesMissing);
       document.getElementById('guiAuditDesc').innerHTML = auditBadge(my.seoMetrics.isDescriptionMissing);
 
-      let isNewsRecent = '❌ 없음 (최근 1개월 내 미등록)';
+      let isNewsRecent = '❌ 없음 (최근 2개월 내 미등록)';
       if (my.recentNewsDate) {
         const days = Math.floor((Date.now() - new Date(my.recentNewsDate).getTime()) / 86400000);
-        isNewsRecent = days <= 30 ? `✅ 등록됨 (${days}일 전)` : `❌ 오래됨 (${days}일 전 - 최근 1개월 내 미등록)`;
+        isNewsRecent = days <= 60 ? `✅ 등록됨 (${days}일 전)` : `❌ 오래됨 (${days}일 전 - 최근 2개월 내 미등록)`;
       }
       const guiNewsEl = document.getElementById('guiNews');
       guiNewsEl.innerText = isNewsRecent;
@@ -546,7 +551,7 @@
 • 지도 좌표 X (경도 lon):        ${my.coordinates?.x || '확인불가'}
 • 지도 좌표 Y (위도 lat):        ${my.coordinates?.y || '확인불가'}
 • 네이버 톡톡 연동:              ${my.seoMetrics.hasTalktalk ? '연동됨' : '미연동'}
-• 매장새소식 (최근 1개월):        ${isNewsRecent}
+• 매장새소식 (최근 2개월):        ${isNewsRecent}
 • 대표 키워드 (keywordList):     ${(my.keywordList && my.keywordList.length > 0) ? my.keywordList.join(', ') : '미등록'}
 
 • 상세설명 (description):
@@ -564,7 +569,7 @@
 • 네이버 톡톡(실시간) 연동 가산점: ${my.seoMetrics.hasTalktalk ? '가산점 획득 (연동됨)' : '미연동 (감점/보류)'}
 • 대표 사진 등록 수:              ${my.seoMetrics.photoCount}장
 • 메뉴 및 상품 등록 수:           ${my.seoMetrics.menuCount}개
-• 설명 분량:                     ${my.seoMetrics.descriptionLength || 0} / 1,500자
+• 설명 분량:                     ${my.seoMetrics.descriptionLength || 0} / 2,000자
 
 --------------------------------------------------------------------------------
 [SECTION 3. 소비자 키워드 리뷰 전수 데이터 (Voted Keywords Full List)]
@@ -589,7 +594,7 @@ ${(my.menus && my.menus.length > 0)
 --------------------------------------------------------------------------------
 [SECTION 6. 등록 대표 이미지 갤러리 메타데이터 (Media Assets)]
 --------------------------------------------------------------------------------
-총 ${my.samplePhotos ? my.samplePhotos.length : 0}개 상단 대표 사진 목록 (미니홈피 자동 갤러리 이식용):
+미니홈피 갤러리용 샘플 사진 (최대 5장 미리보기, 전체 등록 사진 수는 SECTION 2의 '대표 사진 등록 수' 참고):
 ${(my.samplePhotos || []).map((p, i) => `   ${(i + 1).toString().padStart(2, ' ')}. URL: ${p}`).join('\n')}
 
 --------------------------------------------------------------------------------
@@ -666,9 +671,9 @@ ${(my.samplePhotos || []).map((p, i) => `   ${(i + 1).toString().padStart(2, ' '
       return { label: '위험', badge: 'text-rose-600 bg-rose-50' };
     }
 
-    // 지표별 "상위 10개 업체 대비 내 위치" 카드. §2 확정: 절망 유발 절대값 대신 부족분 + 채울 방법.
+    // 지표별 "상위 업체 대비 내 위치" 카드. §2 확정: 절망 유발 절대값 대신 부족분 + 채울 방법.
     // "확인불가"로 방치하지 않고, 10위 값이 없을 땐 상위 평균 기준으로라도 5단계 등급을 매긴다.
-    function boundaryCard(label, unit, myVal, avgVal, boundaryVal) {
+    function boundaryCard(label, unit, myVal, avgVal, boundaryVal, tooltip) {
       const has = boundaryVal !== null && boundaryVal !== undefined;
       const denom = has ? boundaryVal : avgVal;
       const ratio = myVal / Math.max(denom, 0.01);
@@ -677,12 +682,12 @@ ${(my.samplePhotos || []).map((p, i) => `   ${(i + 1).toString().padStart(2, ' '
       const html = `
         <div class="bg-white rounded-2xl p-4 border ${cleared ? 'border-emerald-200' : 'border-slate-200'} shadow-sm">
           <div class="flex justify-between items-center mb-2">
-            <span class="text-xs font-bold text-slate-700">${label}</span>
+            <span class="text-xs font-bold text-slate-700">${label} <i class="fa-regular fa-circle-question text-slate-300 text-[10px]" title="${tooltip}"></i></span>
             <span class="text-[11px] font-bold px-2 py-0.5 rounded-lg ${tier.badge}">${tier.label}</span>
           </div>
           <div class="grid grid-cols-3 gap-2 text-center text-[11px]">
             <div><span class="block text-slate-400">내 매장</span><span class="font-black text-slate-900">${Number(myVal).toLocaleString()}${unit}</span></div>
-            <div><span class="block text-slate-400">상위 평균</span><span class="font-black text-slate-500">${Number(avgVal).toLocaleString()}${unit}</span></div>
+            <div><span class="block text-slate-400">상위 평균</span><span class="font-black text-slate-500">${Math.round(Number(avgVal)).toLocaleString()}${unit}</span></div>
             <div><span class="block text-slate-400">10위(진입선)</span><span class="font-black text-blue-600">${has ? Number(boundaryVal).toLocaleString() + unit : '데이터 부족'}</span></div>
           </div>
           ${!has ? '<p class="text-[10px] text-slate-400 mt-1.5">검색결과가 10곳 미만이라 상위 평균 기준으로 등급을 매겼습니다.</p>' : ''}
@@ -720,10 +725,14 @@ ${(my.samplePhotos || []).map((p, i) => `   ${(i + 1).toString().padStart(2, ' '
       drawRadarChart(my, stats);
 
       const boundaryResults = [
-        boundaryCard('영수증(방문자) 리뷰', '건', my.seoMetrics.visitorReviewsTotal, stats.visitorReviewsTotal.avg, stats.visitorReviewsTotal.boundary),
-        boundaryCard('블로그/카페 리뷰', '건', my.seoMetrics.cafeBlogReviewsTotal, stats.cafeBlogReviewsTotal.avg, stats.cafeBlogReviewsTotal.boundary),
-        boundaryCard('키워드 투표수', '표', my.seoMetrics.totalVoteCount, stats.totalVoteCount.avg, stats.totalVoteCount.boundary),
-        boundaryCard('등록 사진 수', '장', my.seoMetrics.photoCount, stats.photoCount.avg, stats.photoCount.boundary),
+        boundaryCard('영수증(방문자) 리뷰', '건', my.seoMetrics.visitorReviewsTotal, stats.visitorReviewsTotal.avg, stats.visitorReviewsTotal.boundary,
+          '네이버가 집계하는 방문자 리뷰(영수증+예약) 총합입니다. 후기 글 없이 별점만 남긴 경우도 포함돼 실제 앱에서 보는 리뷰 개수와 다를 수 있습니다.'),
+        boundaryCard('블로그/카페 리뷰', '건', my.seoMetrics.cafeBlogReviewsTotal, stats.cafeBlogReviewsTotal.avg, stats.cafeBlogReviewsTotal.boundary,
+          '네이버 검색에 노출된 블로그·카페 후기 글 수입니다. 검색 노출 기준 집계라 실제 작성된 후기 수와 차이가 날 수 있습니다.'),
+        boundaryCard('키워드 투표수', '표', my.seoMetrics.totalVoteCount, stats.totalVoteCount.avg, stats.totalVoteCount.boundary,
+          '리뷰 작성 시 선택한 키워드 투표의 누적 참여 횟수입니다. 리뷰 1건당 여러 키워드를 고를 수 있어 리뷰 수보다 클 수 있습니다.'),
+        boundaryCard('등록 사진 수', '장', my.seoMetrics.photoCount, stats.photoCount.avg, stats.photoCount.boundary,
+          '네이버가 집계하는 대표 사진 총 개수입니다. 실제 업로드한 사진 수와 약간 차이가 날 수 있습니다.'),
       ];
       document.getElementById('boundaryCards').innerHTML = boundaryResults.map(r => r.html).join('');
 
@@ -760,12 +769,12 @@ ${(my.samplePhotos || []).map((p, i) => `   ${(i + 1).toString().padStart(2, ' '
         document.getElementById('previewImageContainer').style.display = 'none';
       }
 
-      // 생명력 지수
+      // 생명력 지수: 최근소식(2개월) + 톡톡/스마트콜 연동 + 상세설명 분량, 3항목 각 최대 1점(총 3점)
       let freshScore = 0;
       let newsText = '❌ 없음 (감점)';
       if (my.recentNewsDate) {
         const days = Math.floor((Date.now() - new Date(my.recentNewsDate).getTime()) / 86400000);
-        if (days <= 30) { newsText = `✅ 등록됨 (${days}일 전)`; freshScore += 1; }
+        if (days <= 60) { newsText = `✅ 등록됨 (${days}일 전)`; freshScore += 1; }
       }
       document.getElementById('defiNews').innerText = newsText;
 
@@ -775,20 +784,37 @@ ${(my.samplePhotos || []).map((p, i) => `   ${(i + 1).toString().padStart(2, ' '
       document.getElementById('defiCall').innerText = callScore === 2 ? '✅ 모두 연동됨' : (callScore === 1 ? '⚠️ 일부 연동' : '❌ 미연동');
       freshScore += callScore * 0.5;
 
+      const descLen = my.seoMetrics.descriptionLength || 0;
+      const defiDescEl = document.getElementById('defiDesc');
+      if (descLen >= 1000) {
+        defiDescEl.innerText = `✅ 충분함 (${descLen}자)`;
+        defiDescEl.className = 'text-[11px] font-bold text-emerald-600';
+        freshScore += 1;
+      } else {
+        defiDescEl.innerText = `⚠️ 부족합니다 (${descLen}자) - 상세설명에 충분한 정보를 입력해 주세요.`;
+        defiDescEl.className = 'text-[11px] font-bold text-rose-500';
+      }
+
+      // 타이틀은 항상 '매장 생명력 지수' 고정 — 개별 항목(예: 톡톡/스마트콜 모두 연동됨)이 정상인데도
+      // 종합 상태(경고 등)가 타이틀에 섞여 그 항목까지 문제로 보이는 걸 막는다. 상태는 별도 배지로만.
       const freshBg = document.getElementById('defiFreshBg');
-      const freshTitle = document.getElementById('defiFreshTitle');
-      if (freshScore >= 1.5) {
+      const freshBadge = document.getElementById('defiFreshBadge');
+      const freshIcon = document.getElementById('defiFreshIcon');
+      if (freshScore >= 2) {
         freshBg.className = 'bg-emerald-50 rounded-2xl p-5 border border-emerald-200 flex flex-col justify-between transition-colors';
-        freshTitle.innerText = '매장 생명력 지수: 양호 🟢';
-        freshTitle.className = 'font-bold text-emerald-900 text-sm';
-      } else if (freshScore >= 0.5) {
+        freshBadge.className = 'ml-auto text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700';
+        freshBadge.innerText = '양호 🟢';
+        freshIcon.className = 'fa-solid fa-traffic-light text-emerald-500';
+      } else if (freshScore >= 1) {
         freshBg.className = 'bg-amber-50 rounded-2xl p-5 border border-amber-200 flex flex-col justify-between transition-colors';
-        freshTitle.innerText = '매장 생명력 지수: 경고 🟡';
-        freshTitle.className = 'font-bold text-amber-900 text-sm';
+        freshBadge.className = 'ml-auto text-[11px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700';
+        freshBadge.innerText = '경고 🟡';
+        freshIcon.className = 'fa-solid fa-traffic-light text-amber-500';
       } else {
         freshBg.className = 'bg-rose-50 rounded-2xl p-5 border border-rose-200 flex flex-col justify-between transition-colors';
-        freshTitle.innerText = '매장 생명력 지수: 위험 🔴';
-        freshTitle.className = 'font-bold text-rose-900 text-sm';
+        freshBadge.className = 'ml-auto text-[11px] font-bold px-2 py-0.5 rounded-full bg-rose-100 text-rose-700';
+        freshBadge.innerText = '위험 🔴';
+        freshIcon.className = 'fa-solid fa-traffic-light text-rose-500';
       }
     }
   </script>
