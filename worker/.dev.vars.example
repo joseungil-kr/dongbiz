@@ -9,3 +9,7 @@ TELEGRAM_CHAT_ID=
 
 # 구글시트 Apps Script 웹훅 URL (진단 로그 append용, 콜드콜 리스트)
 SHEETS_WEBHOOK_URL=
+
+# 관리자 화면(/admin) Basic Auth
+ADMIN_USER=
+ADMIN_PASS=

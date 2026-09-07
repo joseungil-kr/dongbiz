@@ -1,11 +1,14 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
+import { basicAuth } from 'hono/basic-auth';
 import { scrapeFullPlaceMetrics, getOrganicRanking } from './scraper';
 import { notify, logDiagnosisToSheet, NotifyEnv } from './notify';
 
 export interface Env extends NotifyEnv {
   DB: D1Database;
   CACHE?: KVNamespace; // 미바인딩 시 캐시 없이 동작 (§6 Phase A)
+  ADMIN_USER?: string;
+  ADMIN_PASS?: string;
 }
 
 // 매일 헬스체크에 쓰는 고정 매장 (§6 Phase B). wrangler dev 테스트로 실제 동작 확인된 매장.
@@ -14,6 +17,14 @@ const HEALTHCHECK_PLACE_ID = '1785101394';
 const app = new Hono<{ Bindings: Env }>();
 
 app.use('/api/*', cors());
+
+// 관리자 화면 인증. ADMIN_USER/ADMIN_PASS 시크릿 미설정이면 아예 막는다(구멍 방지).
+app.use('/admin/*', async (c, next) => {
+  if (!c.env.ADMIN_USER || !c.env.ADMIN_PASS) {
+    return c.text('관리자 계정이 설정되지 않았습니다. wrangler secret put ADMIN_USER / ADMIN_PASS', 503);
+  }
+  return basicAuth({ username: c.env.ADMIN_USER, password: c.env.ADMIN_PASS })(c, next);
+});
 
 function generateShareId() {
   return Math.random().toString(36).substring(2, 10);
@@ -275,6 +286,99 @@ ${image ? `<meta property="og:image" content="${escapeHtml(image)}">` : ''}
 </html>`;
 
   return c.html(html);
+});
+
+const ADMIN_STYLE = `
+  body { font-family: -apple-system, 'Pretendard', sans-serif; background: #F8FAFC; color: #0F172A; margin: 0; padding: 24px; }
+  h1 { font-size: 18px; margin: 0 0 16px; }
+  a { color: #2563EB; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+  th, td { padding: 10px 12px; text-align: left; font-size: 13px; border-bottom: 1px solid #E2E8F0; }
+  th { background: #F1F5F9; font-weight: 700; color: #475569; }
+  tr:last-child td { border-bottom: none; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; }
+  .grade-A { background: #ECFDF5; color: #047857; }
+  .grade-B { background: #FFFBEB; color: #B45309; }
+  .grade-C { background: #FEF2F2; color: #B91C1C; }
+  pre { background: #1E293B; color: #CBD5E1; padding: 16px; border-radius: 12px; overflow-x: auto; font-size: 12px; white-space: pre-wrap; word-break: break-all; }
+  .card { background: #fff; border-radius: 12px; padding: 16px 20px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+  .back { display: inline-block; margin-bottom: 16px; font-size: 13px; }
+`;
+
+// 관리자: 진단 리스트 (최신 100건). §6 Phase C 신규 요청 — 관리자 자신이 raw데이터를 검증할 수 있어야 함.
+app.get('/admin', async (c) => {
+  const db = c.env.DB;
+  if (!db) return c.text('DB 미설정', 500);
+
+  const { results } = await db.prepare(`
+    SELECT sh.share_id, sh.place_id, sh.target_keyword, sh.my_rank, sh.grade_reviews, sh.my_reviews,
+           sh.top10_avg_reviews, sh.created_at, p.name, p.category, p.road_address
+    FROM search_histories sh
+    LEFT JOIN places p ON p.id = sh.place_id
+    ORDER BY sh.created_at DESC
+    LIMIT 100
+  `).all();
+
+  const rows = (results as any[]).map(r => `
+    <tr>
+      <td>${escapeHtml(r.created_at || '')}</td>
+      <td><b>${escapeHtml(r.name || r.place_id)}</b><br><span style="color:#94A3B8">${escapeHtml(r.category || '')}</span></td>
+      <td>${escapeHtml(r.target_keyword)}</td>
+      <td>${r.my_rank ? r.my_rank + '위' : '순위밖'}</td>
+      <td><span class="badge grade-${escapeHtml(r.grade_reviews || 'B')}">${escapeHtml(r.grade_reviews || '-')}</span></td>
+      <td>${r.my_reviews ?? '-'} / 평균 ${r.top10_avg_reviews ?? '-'}</td>
+      <td><a href="/admin/${escapeHtml(r.share_id)}">상세보기</a> · <a href="/share/${escapeHtml(r.share_id)}" target="_blank">공유링크</a></td>
+    </tr>`).join('');
+
+  return c.html(`<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><title>동네비즈 관리자 - 진단 리스트</title><style>${ADMIN_STYLE}</style></head>
+<body>
+  <h1>진단 리스트 (최신 ${(results as any[]).length}건)</h1>
+  <table>
+    <thead><tr><th>일시</th><th>매장</th><th>키워드</th><th>내 순위</th><th>등급</th><th>리뷰(내/평균)</th><th></th></tr></thead>
+    <tbody>${rows || '<tr><td colspan="7">아직 진단 기록이 없습니다.</td></tr>'}</tbody>
+  </table>
+</body></html>`);
+});
+
+// 관리자: 진단 1건 상세 — 내 매장 + 경쟁사(top10) raw 데이터 전체를 검증용으로 노출.
+app.get('/admin/:shareId', async (c) => {
+  const db = c.env.DB;
+  if (!db) return c.text('DB 미설정', 500);
+
+  const shareId = c.req.param('shareId');
+  const row = await db.prepare('SELECT raw_data, created_at FROM search_histories WHERE share_id = ?').bind(shareId).first();
+  if (!row) return c.html(`<!DOCTYPE html><html><body style="font-family:sans-serif;padding:24px;"><a href="/admin">&larr; 목록으로</a><p>해당 진단 기록을 찾을 수 없습니다.</p></body></html>`, 404);
+
+  const data = JSON.parse(row.raw_data as string);
+  const my = data.myStore;
+  const competitors = data.top10Competitors || [];
+
+  const competitorBlocks = competitors.map((comp: any, i: number) => `
+    <div class="card">
+      <h3 style="margin:0 0 8px;font-size:14px;">${i + 1}. ${escapeHtml(comp.name || comp.placeId)} <span style="font-weight:400;color:#94A3B8;font-size:12px;">${escapeHtml(comp.placeId)}</span></h3>
+      <pre>${escapeHtml(JSON.stringify(comp, null, 2))}</pre>
+    </div>`).join('');
+
+  return c.html(`<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><title>${escapeHtml(my.name)} - 진단 상세</title><style>${ADMIN_STYLE}</style></head>
+<body>
+  <a class="back" href="/admin">&larr; 목록으로</a>
+  <div class="card">
+    <h1 style="margin:0 0 8px;">${escapeHtml(my.name)} <span class="badge grade-${escapeHtml(data.grade || 'B')}">${escapeHtml(data.grade || '-')}</span></h1>
+    <p style="font-size:13px;color:#475569;margin:4px 0;">키워드: <b>${escapeHtml(data.targetKeyword)}</b> · 순위: <b>${data.myRank ? data.myRank + '위' : '순위밖(' + data.rankSearched + '위 밖)'}</b> · 진단일시: ${escapeHtml(String(row.created_at || ''))}</p>
+    <p style="font-size:13px;color:#475569;margin:4px 0;">연락처: <b>${escapeHtml(my.phone || '미등록')}</b> · 주소: ${escapeHtml(my.roadAddress || '미등록')}</p>
+    <p style="font-size:13px;margin:8px 0 0;"><a href="/share/${escapeHtml(shareId)}" target="_blank">공유 링크(고객용)</a> · <a href="/?shareId=${escapeHtml(shareId)}" target="_blank">실제 앱 화면으로 보기</a></p>
+  </div>
+
+  <h2 style="font-size:15px;">내 매장 원본 데이터 (Raw)</h2>
+  <div class="card"><pre>${escapeHtml(JSON.stringify(my, null, 2))}</pre></div>
+
+  <h2 style="font-size:15px;">경쟁사 원본 데이터 (Top ${competitors.length})</h2>
+  ${competitorBlocks || '<div class="card">경쟁사 데이터가 없습니다.</div>'}
+
+  <h2 style="font-size:15px;">지표별 통계 (avg/median/boundary)</h2>
+  <div class="card"><pre>${escapeHtml(JSON.stringify(data.stats, null, 2))}</pre></div>
+</body></html>`);
 });
 
 // 매일 헬스체크 (§6 Phase B): 고정 매장 1건을 스크랩해 네이버 구조 변경/차단을 조기 감지.
