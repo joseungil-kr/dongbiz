@@ -137,6 +137,12 @@ export async function scrapeFullPlaceMetrics(queryOrId: string): Promise<any> {
   let rootDesc = '';
   let topPhotosTotal = photoKeys.length;
   let recentNews: string | null = null;
+  // §7.8: base.cafeBlogReviewsTotal은 구버전 필드로 항상 0이 나오는 사례 확인됨.
+  // 실제 값은 ROOT_QUERY.placeDetail.fsasReviews.total에 있음. base 값을 기본 폴백으로만 둔다.
+  let cafeBlogReviewsTotal = base.cafeBlogReviewsTotal || 0;
+  // §7.8: base.missingInfo.isBizHourMissing도 구버전 businessHours(항상 null)만 보고 판정하는 것으로
+  // 추정됨. 실제 등록 여부는 ROOT_QUERY.placeDetail.newBusinessHours 배열로 직접 판별한다.
+  let isBizHourMissing: boolean | null = null;
 
   const rootQueryKey = keys.find(k => k === 'ROOT_QUERY');
   if (rootQueryKey) {
@@ -166,6 +172,19 @@ export async function scrapeFullPlaceMetrics(queryOrId: string): Promise<any> {
         const infoObj = typeof infoRef === 'string' ? state[infoRef] : infoRef;
         keywordList = infoObj?.keywordList || [];
       }
+
+      if (pd.fsasReviews) {
+        const fsasRef = pd.fsasReviews.__ref;
+        const fsas = fsasRef ? state[fsasRef] : pd.fsasReviews;
+        if (fsas && typeof fsas.total === 'number') {
+          cafeBlogReviewsTotal = fsas.total;
+        }
+      }
+
+      const hours = pd.newBusinessHours || pd.businessHours;
+      if (Array.isArray(hours)) {
+        isBizHourMissing = hours.length === 0;
+      }
     }
   }
 
@@ -178,7 +197,7 @@ export async function scrapeFullPlaceMetrics(queryOrId: string): Promise<any> {
     }
   }
 
-  // 네이버가 직접 제공하는 누락정보 감사 플래그 (추측 대신 실제 필드 사용)
+  // 네이버가 직접 제공하는 누락정보 감사 플래그. 단, isBizHourMissing은 위에서 실측한 값을 우선한다(§7.8).
   const missingInfo = base.missingInfo || {};
 
   return {
@@ -200,15 +219,16 @@ export async function scrapeFullPlaceMetrics(queryOrId: string): Promise<any> {
     seoMetrics: {
       visitorReviewsTotal: base.visitorReviewsTotal || 0,
       visitorReviewsScore: base.visitorReviewsScore || null,
-      cafeBlogReviewsTotal: base.cafeBlogReviewsTotal || 0,
+      cafeBlogReviewsTotal: cafeBlogReviewsTotal, // §7.8: fsasReviews.total 우선 사용
       textReviewsTotal: base.visitorReviewsTextReviewTotal || 0,
       hasTalktalk: Boolean(base.talktalkUrl),
       hasSmartCall: Boolean(base.virtualPhone),
       photoCount: topPhotosTotal,
       menuCount: menus.length,
       totalVoteCount: reviewStats?.analysis?.votedKeyword?.totalCount || 0,
-      // B3: 추측(menuCount>0 등) 대신 네이버가 실제로 내려주는 누락정보 플래그를 그대로 사용
-      isBizHourMissing: missingInfo.isBizHourMissing ?? null,
+      descriptionLength: (rootDesc || base.description || '').length,
+      // B3/§7.8: newBusinessHours 실측값 우선, 못 구하면 네이버 missingInfo 플래그로 폴백
+      isBizHourMissing: isBizHourMissing ?? missingInfo.isBizHourMissing ?? null,
       isMenuImageMissing: missingInfo.isMenuImageMissing ?? null,
       isAccessorMissing: missingInfo.isAccessorMissing ?? null,
       isDescriptionMissing: missingInfo.isDescriptionMissing ?? null,

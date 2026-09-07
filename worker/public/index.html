@@ -4,6 +4,9 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>동네비즈 (dongbiz.com) - 상위노출 Gap 실시간 진단</title>
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="동네비즈 - 네이버 플레이스 상위노출 Gap 진단">
+  <meta property="og:description" content="전화번호 하나로 우리 매장의 상위노출 현주소를 진단합니다. 상위 10개 업체와 실시간 비교.">
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -24,8 +27,10 @@
       <div class="w-9 h-9 rounded-xl bg-blue-600 flex items-center justify-center text-white font-black text-lg shadow-md shadow-blue-500/20">동</div>
       <span class="text-xl font-bold tracking-tight text-slate-900">동네비즈 <span class="text-xs text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full font-semibold ml-1">dongbiz</span></span>
     </div>
-    <div class="flex items-center gap-4">
-      <a href="#" class="text-sm font-semibold text-slate-600 hover:text-slate-900">상위노출 진단</a>
+    <div class="flex items-center gap-2">
+      <button onclick="shareCurrentPage()" class="text-xs font-semibold text-slate-600 hover:text-blue-600 px-3 py-2 rounded-xl border border-slate-200 hover:border-blue-200 transition flex items-center gap-1.5">
+        <i class="fa-solid fa-link text-[11px]"></i> 공유하기
+      </button>
       <button class="text-sm font-semibold bg-slate-900 text-white px-4 py-2 rounded-xl hover:bg-slate-800 transition">대행 파트너 문의</button>
     </div>
   </header>
@@ -94,7 +99,6 @@
               <li class="flex justify-between"><span class="text-slate-500">상호명</span> <span id="guiName" class="font-bold text-slate-900"></span></li>
               <li class="flex justify-between"><span class="text-slate-500">카테고리</span> <span id="guiCat" class="text-slate-700"></span></li>
               <li class="flex flex-col mt-1"><span class="text-slate-500 mb-0.5 text-xs">도로명 주소</span> <span id="guiRoad" class="text-slate-700 text-xs"></span></li>
-              <li class="flex flex-col"><span class="text-slate-500 mb-0.5 text-xs">지번 주소</span> <span id="guiAddr" class="text-slate-700 text-xs"></span></li>
               <li class="flex flex-col mb-1"><span class="text-slate-500 mb-0.5 text-xs">찾아오는 길</span> <span id="guiDir" class="text-slate-700 text-xs line-clamp-2"></span></li>
               <li class="flex justify-between pt-2 border-t"><span class="text-slate-500">전화번호</span> <span id="guiPhone" class="font-bold text-slate-900"></span></li>
               <li class="flex justify-between items-center"><span class="text-slate-500">스마트콜</span> <span id="guiSmart"></span></li>
@@ -111,13 +115,15 @@
           <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm">
             <h4 class="text-xs font-bold text-blue-600 mb-3 border-b pb-2">상위노출 랭킹 알고리즘 정량 지표 (SEO Scores)</h4>
             <ul class="space-y-2.5 text-[13px]">
-              <li class="flex justify-between items-center"><span class="text-slate-500">방문자(영수증) 총 리뷰</span> <span id="guiRevV" class="font-bold text-slate-900 bg-slate-100 px-2 py-0.5 rounded"></span></li>
-              <li class="flex justify-between items-center"><span class="text-slate-500">블로그/카페 총 리뷰</span> <span id="guiRevB" class="font-bold text-slate-900 bg-slate-100 px-2 py-0.5 rounded"></span></li>
-              <li class="flex justify-between items-center"><span class="text-slate-500">방문자 평점 스코어</span> <span id="guiScore" class="font-bold text-rose-600 bg-rose-50 px-2 py-0.5 rounded"></span></li>
-              <li class="flex justify-between items-center"><span class="text-slate-500">정성 텍스트 리뷰 수</span> <span id="guiRevT" class="font-bold text-slate-900 bg-slate-100 px-2 py-0.5 rounded"></span></li>
-              <li class="flex justify-between items-center"><span class="text-slate-500">키워드 투표 참여수</span> <span id="guiVote" class="font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded"></span></li>
-              <li class="flex justify-between items-center"><span class="text-slate-500">대표 사진 등록 수</span> <span id="guiPhoto" class="font-bold text-slate-900 bg-slate-100 px-2 py-0.5 rounded"></span></li>
-              <li class="flex justify-between items-center"><span class="text-slate-500">메뉴/상품 등록 수</span> <span id="guiMenu" class="font-bold text-slate-900 bg-slate-100 px-2 py-0.5 rounded"></span></li>
+              <li class="flex justify-between items-center"><span class="text-slate-500">방문자(영수증) 총 리뷰 <i class="fa-regular fa-circle-question text-slate-300 text-[10px]" title="방문자 리뷰(영수증리뷰+예약리뷰)의 합계 숫자입니다. 후기를 적지 않고 평가만 진행한 경우까지 집계하므로 네이버 통계와 다를 수 있습니다."></i></span> <span id="guiRevV" class="font-bold text-slate-900 bg-slate-100 px-2 py-0.5 rounded"></span></li>
+              <li class="flex justify-between items-center"><span class="text-slate-500">블로그/카페 총 리뷰 <i class="fa-regular fa-circle-question text-slate-300 text-[10px]" title="네이버 검색에 노출된 블로그·카페 후기 글의 총 개수입니다."></i></span> <span id="guiRevB" class="font-bold text-slate-900 bg-slate-100 px-2 py-0.5 rounded"></span></li>
+              <li class="flex justify-between items-center"><span class="text-slate-500">방문자 평점 스코어 <i class="fa-regular fa-circle-question text-slate-300 text-[10px]" title="방문자 리뷰의 평균 평점입니다. 5점 만점이며, 매장이 비공개로 설정한 경우 표시되지 않습니다."></i></span> <span id="guiScore" class="font-bold text-rose-600 bg-rose-50 px-2 py-0.5 rounded"></span></li>
+              <li class="flex justify-between items-center"><span class="text-slate-500">정성 텍스트 리뷰 수 <i class="fa-regular fa-circle-question text-slate-300 text-[10px]" title="평점만 남기지 않고 실제 글로 작성된 방문자 후기 수입니다."></i></span> <span id="guiRevT" class="font-bold text-slate-900 bg-slate-100 px-2 py-0.5 rounded"></span></li>
+              <li class="flex justify-between items-center"><span class="text-slate-500">키워드 투표 참여수 <i class="fa-regular fa-circle-question text-slate-300 text-[10px]" title="방문자가 리뷰 작성 시 선택한 키워드(예: 친절해요, 맛있어요)의 총 투표 참여 횟수입니다."></i></span> <span id="guiVote" class="font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded"></span></li>
+              <li class="flex justify-between items-center"><span class="text-slate-500">대표 사진 등록 수 <i class="fa-regular fa-circle-question text-slate-300 text-[10px]" title="플레이스에 등록된 대표 사진의 총 개수입니다."></i></span> <span id="guiPhoto" class="font-bold text-slate-900 bg-slate-100 px-2 py-0.5 rounded"></span></li>
+              <li class="flex justify-between items-center"><span class="text-slate-500">메뉴/상품 등록 수 <i class="fa-regular fa-circle-question text-slate-300 text-[10px]" title="등록된 메뉴 또는 판매 상품의 개수입니다."></i></span> <span id="guiMenu" class="font-bold text-slate-900 bg-slate-100 px-2 py-0.5 rounded"></span></li>
+              <li class="flex justify-between items-center pt-2 border-t"><span class="text-slate-500">최근 소식 (1개월) <i class="fa-regular fa-circle-question text-slate-300 text-[10px]" title="최근 1개월 이내 매장 소식(이벤트/공지) 등록 여부입니다. 자주 갱신할수록 네이버 알고리즘 가산점에 유리합니다."></i></span> <span id="guiNews" class="font-bold text-slate-900 text-[12px]"></span></li>
+              <li class="flex justify-between items-center"><span class="text-slate-500">설명 분량 <i class="fa-regular fa-circle-question text-slate-300 text-[10px]" title="매장 상세설명 글자 수입니다. 최대 1,500자까지 등록 가능하며, 등록 키워드를 설명에 포함하면 SEO에 유리합니다."></i></span> <span id="guiDescLen" class="font-bold text-slate-900 bg-slate-100 px-2 py-0.5 rounded"></span></li>
             </ul>
           </div>
         </div>
@@ -147,7 +153,7 @@
             <h4 class="text-xs font-bold text-amber-400 mb-3 border-b border-slate-700 pb-2">매장 누락 정보 감사 진단 (SEO 감점)</h4>
             <ul class="space-y-3 text-xs">
               <li class="flex justify-between items-center"><span class="text-slate-400">영업시간</span> <span id="guiAuditTime" class="font-bold"></span></li>
-              <li class="flex justify-between items-center"><span class="text-slate-400">메뉴 사진</span> <span id="guiAuditMenu" class="font-bold"></span></li>
+              <li class="flex justify-between items-center"><span class="text-slate-400">메뉴판 이미지</span> <span id="guiAuditMenu" class="font-bold"></span></li>
               <li class="flex justify-between items-center"><span class="text-slate-400">찾아오는 길</span> <span id="guiAuditDir" class="font-bold"></span></li>
               <li class="flex justify-between items-center"><span class="text-slate-400">편의시설</span> <span id="guiAuditAmen" class="font-bold"></span></li>
               <li class="flex justify-between items-center"><span class="text-slate-400">상세설명</span> <span id="guiAuditDesc" class="font-bold"></span></li>
@@ -182,18 +188,21 @@
     <div id="step2Result" class="hidden w-full max-w-4xl bg-white border border-slate-200 rounded-3xl p-6 md:p-8 shadow-2xl text-left transition-all">
       <div class="flex items-center justify-between mb-6 flex-wrap gap-2">
         <h3 id="gapTitle" class="font-bold text-slate-900 text-lg">📊 Gap 분석 결과</h3>
-        <div class="flex items-center gap-2">
-          <span id="rankBadge" class="text-xs font-bold px-3 py-1.5 rounded-full"></span>
-          <span id="gradeBadge" class="text-xs font-black px-3 py-1.5 rounded-full"></span>
-        </div>
+        <button onclick="shareCurrentPage()" class="text-xs font-semibold text-slate-600 hover:text-blue-600 px-3 py-1.5 rounded-xl border border-slate-200 hover:border-blue-200 transition flex items-center gap-1.5">
+          <i class="fa-solid fa-link text-[11px]"></i> 결과 공유하기
+        </button>
       </div>
 
       <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
         <!-- 방사형 차트 -->
         <div class="bg-slate-50 rounded-2xl p-5 border border-slate-200/80">
           <h4 class="text-xs font-bold text-slate-600 mb-3">내 매장 vs 상위 10개 평균</h4>
-          <div class="w-full bg-white rounded-xl border border-slate-200/60 p-2 flex justify-center" style="height: 250px;">
+          <div class="w-full bg-white rounded-xl border border-slate-200/60 p-2 flex justify-center mb-3" style="height: 250px;">
             <canvas id="radarChart"></canvas>
+          </div>
+          <div class="flex items-center justify-center gap-3">
+            <span id="rankBadge" class="text-sm font-bold px-4 py-2 rounded-full"></span>
+            <span id="gradeBadge" class="text-lg font-black px-4 py-2 rounded-full"></span>
           </div>
         </div>
 
@@ -227,37 +236,20 @@
         </div>
       </div>
 
-      <!-- 지표별 진입선(10위) 비교 카드 -->
+      <!-- 지표별 상위 10개 업체 대비 비교 카드 -->
       <h3 class="text-lg font-bold text-slate-900 mb-4 flex items-center gap-2">
-        <i class="fa-solid fa-flag-checkered text-blue-600"></i> 1페이지 진입선까지 얼마나 남았나
+        <i class="fa-solid fa-flag-checkered text-blue-600"></i> 상위 10개 업체 대비 내 위치
       </h3>
       <div id="boundaryCards" class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-8"></div>
 
       <!-- 결핍 자극 UI -->
       <div class="pt-8 border-t border-slate-200">
         <h3 class="font-bold text-slate-900 text-lg mb-4">🚨 마케팅 결핍 진단</h3>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <!-- 키워드 미스매치 -->
-          <div class="bg-rose-50 rounded-2xl p-5 border border-rose-200 flex flex-col justify-between">
-            <div>
-              <div class="flex items-center gap-2 mb-2">
-                <i class="fa-solid fa-triangle-exclamation text-rose-500"></i>
-                <h4 class="font-bold text-rose-900 text-sm">키워드 미스매치 위험</h4>
-              </div>
-              <p class="text-[11px] text-rose-700 leading-relaxed mb-3">
-                원하는 타겟 키워드와 실제 고객이 느끼는 매력에 괴리가 발생하고 있습니다.
-              </p>
-              <div class="bg-white/60 p-2 rounded-lg mb-2 flex items-center justify-between">
-                <span class="text-[10px] text-slate-500">사장님 등록키워드</span>
-                <span id="defiWants" class="text-[11px] font-bold text-slate-800 truncate max-w-[120px] text-right"></span>
-              </div>
-              <div class="bg-white/60 p-2 rounded-lg flex items-center justify-between">
-                <span class="text-[10px] text-slate-500">실제 고객투표 1위</span>
-                <span id="defiFact" class="text-[11px] font-bold text-slate-800 truncate max-w-[120px] text-right"></span>
-              </div>
-            </div>
-          </div>
-
+        <div id="defiSummary" class="bg-rose-50 border border-rose-200 rounded-2xl p-4 mb-4 text-sm font-semibold text-rose-800 flex items-start gap-2">
+          <i class="fa-solid fa-triangle-exclamation text-rose-500 mt-0.5"></i>
+          <span id="defiSummaryText"></span>
+        </div>
+        <div class="grid grid-cols-1 gap-4">
           <!-- 생명력 신호등 -->
           <div id="defiFreshBg" class="bg-slate-50 rounded-2xl p-5 border border-slate-200 flex flex-col justify-between transition-colors">
             <div>
@@ -298,6 +290,12 @@
           </div>
         </div>
       </div>
+
+      <div class="mt-6 flex justify-center">
+        <button onclick="shareCurrentPage()" class="text-sm font-semibold text-slate-600 hover:text-blue-600 px-4 py-2.5 rounded-xl border border-slate-200 hover:border-blue-200 transition flex items-center gap-2">
+          <i class="fa-solid fa-link text-xs"></i> 이 결과 공유하기
+        </button>
+      </div>
     </div>
   </main>
 
@@ -308,8 +306,22 @@
 
   <script>
     let currentPlace = null;
+    let currentShareId = null;
     let loadingInterval = null;
     let radarChartInstance = null;
+
+    // 공유하기: shareId가 있으면 크롤러용 OG 페이지(/share/:id)를, 없으면 홈 주소를 복사한다.
+    async function shareCurrentPage() {
+      const url = currentShareId
+        ? `${location.origin}/share/${currentShareId}`
+        : location.origin + location.pathname;
+      try {
+        await navigator.clipboard.writeText(url);
+        alert('링크가 복사되었습니다.\n' + url);
+      } catch (err) {
+        prompt('아래 링크를 복사하세요:', url);
+      }
+    }
 
     // 공통: 버튼에 로딩 텍스트 순환 연출을 걸고 비동기 작업 실행
     async function withLoading(btn, texts, task) {
@@ -374,7 +386,10 @@
         renderGap(data);
         document.getElementById('step2Result').classList.remove('hidden');
         document.getElementById('step2Result').scrollIntoView({ behavior: 'smooth' });
-        if (data.shareId) window.history.pushState({}, '', `?shareId=${data.shareId}`);
+        if (data.shareId) {
+          currentShareId = data.shareId;
+          window.history.pushState({}, '', `?shareId=${data.shareId}`);
+        }
       });
     }
 
@@ -391,6 +406,7 @@
         if (!res.ok) return;
         const data = await res.json();
         currentPlace = data.myStore;
+        currentShareId = data.shareId || shareId;
         renderPlace(currentPlace);
         renderKeywordChips(currentPlace);
         document.getElementById('keywordInput').value = data.targetKeyword || '';
@@ -444,7 +460,6 @@
       setVal('guiName', my.name);
       setVal('guiCat', my.category);
       setVal('guiRoad', my.roadAddress);
-      setVal('guiAddr', my.address);
       setVal('guiDir', my.directions);
       setVal('guiPhone', my.phone);
 
@@ -476,6 +491,7 @@
       setVal('guiVote', my.seoMetrics.totalVoteCount + '표');
       setVal('guiPhoto', my.seoMetrics.photoCount + '장');
       setVal('guiMenu', my.seoMetrics.menuCount + '개');
+      setVal('guiDescLen', (my.seoMetrics.descriptionLength || 0) + ' / 1,500자');
 
       const ulKwd = document.getElementById('guiTopKwd');
       ulKwd.innerHTML = (my.topRepKeywords && my.topRepKeywords.length > 0)
@@ -497,6 +513,9 @@
         const days = Math.floor((Date.now() - new Date(my.recentNewsDate).getTime()) / 86400000);
         isNewsRecent = days <= 30 ? `✅ 등록됨 (${days}일 전)` : `❌ 오래됨 (${days}일 전 - 최근 1개월 내 미등록)`;
       }
+      const guiNewsEl = document.getElementById('guiNews');
+      guiNewsEl.innerText = isNewsRecent;
+      guiNewsEl.className = 'font-bold text-[12px] ' + (isNewsRecent.startsWith('✅') ? 'text-emerald-600' : 'text-rose-500');
 
       const auditLine = (label, missing) => `${label}:`.padEnd(0) + (missing === null || missing === undefined ? '확인불가' : (missing ? '⚠️ 누락됨 (SEO 감점 요인!)' : '정상 등록 (양호)'));
 
@@ -512,7 +531,6 @@
 • 상호명 (name):                 ${my.name}
 • 카테고리 (category):           ${my.category}
 • 도로명 주소 (roadAddress):     ${my.roadAddress || '미등록'}
-• 지번 주소 (address):           ${my.address || '미등록'}
 • 찾아오는 길 (directions):      ${my.directions || '미등록'}
 • 일반 전화번호 (phone):         ${my.phone || '미등록'}
 • 스마트콜 여부:                 ${my.seoMetrics.hasSmartCall ? '연동됨' : '미연동'}
@@ -537,6 +555,7 @@
 • 네이버 톡톡(실시간) 연동 가산점: ${my.seoMetrics.hasTalktalk ? '가산점 획득 (연동됨)' : '미연동 (감점/보류)'}
 • 대표 사진 등록 수:              ${my.seoMetrics.photoCount}장
 • 메뉴 및 상품 등록 수:           ${my.seoMetrics.menuCount}개
+• 설명 분량:                     ${my.seoMetrics.descriptionLength || 0} / 1,500자
 
 --------------------------------------------------------------------------------
 [SECTION 3. 소비자 키워드 리뷰 전수 데이터 (Voted Keywords Full List)]
@@ -629,25 +648,37 @@ ${(my.samplePhotos || []).map((p, i) => `   ${(i + 1).toString().padStart(2, ' '
       });
     }
 
-    // 지표별 "1페이지 진입선(10위)" 비교 카드. §2 확정: 절망 유발 절대값 대신 부족분 + 채울 방법.
+    // 5단계 등급: 진입선(10위) 실측값이 있으면 그 기준, 없으면(검색결과 10곳 미만) 상위 평균 기준.
+    function gradeTier(ratio) {
+      if (ratio >= 1.2) return { label: '최우수', badge: 'text-emerald-700 bg-emerald-100' };
+      if (ratio >= 1.0) return { label: '우수', badge: 'text-emerald-600 bg-emerald-50' };
+      if (ratio >= 0.7) return { label: '양호', badge: 'text-blue-600 bg-blue-50' };
+      if (ratio >= 0.4) return { label: '개선필요', badge: 'text-amber-600 bg-amber-50' };
+      return { label: '위험', badge: 'text-rose-600 bg-rose-50' };
+    }
+
+    // 지표별 "상위 10개 업체 대비 내 위치" 카드. §2 확정: 절망 유발 절대값 대신 부족분 + 채울 방법.
+    // "확인불가"로 방치하지 않고, 10위 값이 없을 땐 상위 평균 기준으로라도 5단계 등급을 매긴다.
     function boundaryCard(label, unit, myVal, avgVal, boundaryVal) {
       const has = boundaryVal !== null && boundaryVal !== undefined;
+      const denom = has ? boundaryVal : avgVal;
+      const ratio = myVal / Math.max(denom, 0.01);
+      const tier = gradeTier(ratio);
       const cleared = has && myVal >= boundaryVal;
-      const deficit = has ? Math.max(boundaryVal - myVal, 0) : null;
-      return `
+      const html = `
         <div class="bg-white rounded-2xl p-4 border ${cleared ? 'border-emerald-200' : 'border-slate-200'} shadow-sm">
           <div class="flex justify-between items-center mb-2">
             <span class="text-xs font-bold text-slate-700">${label}</span>
-            ${cleared
-              ? '<span class="text-[11px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-lg">진입선 통과 ✅</span>'
-              : (has ? `<span class="text-[11px] font-bold text-rose-600 bg-rose-50 px-2 py-0.5 rounded-lg">${deficit.toLocaleString()}${unit} 부족</span>` : '')}
+            <span class="text-[11px] font-bold px-2 py-0.5 rounded-lg ${tier.badge}">${tier.label}</span>
           </div>
           <div class="grid grid-cols-3 gap-2 text-center text-[11px]">
             <div><span class="block text-slate-400">내 매장</span><span class="font-black text-slate-900">${Number(myVal).toLocaleString()}${unit}</span></div>
             <div><span class="block text-slate-400">상위 평균</span><span class="font-black text-slate-500">${Number(avgVal).toLocaleString()}${unit}</span></div>
-            <div><span class="block text-slate-400">10위(진입선)</span><span class="font-black text-blue-600">${has ? Number(boundaryVal).toLocaleString() + unit : '확인불가'}</span></div>
+            <div><span class="block text-slate-400">10위(진입선)</span><span class="font-black text-blue-600">${has ? Number(boundaryVal).toLocaleString() + unit : '데이터 부족'}</span></div>
           </div>
+          ${!has ? '<p class="text-[10px] text-slate-400 mt-1.5">검색결과가 10곳 미만이라 상위 평균 기준으로 등급을 매겼습니다.</p>' : ''}
         </div>`;
+      return { html, label, isDeficient: tier.label === '개선필요' || tier.label === '위험' };
     }
 
     // [2·3단계] Gap 결과 렌더링
@@ -659,26 +690,40 @@ ${(my.samplePhotos || []).map((p, i) => `   ${(i + 1).toString().padStart(2, ' '
 
       const rankBadge = document.getElementById('rankBadge');
       if (data.myRank) {
-        rankBadge.className = 'text-xs font-bold px-3 py-1.5 rounded-full ' + (data.myRank <= 10 ? 'bg-blue-50 text-blue-700' : 'bg-amber-50 text-amber-700');
+        rankBadge.className = 'text-sm font-bold px-4 py-2 rounded-full ' + (data.myRank <= 10 ? 'bg-blue-50 text-blue-700' : 'bg-amber-50 text-amber-700');
         rankBadge.innerText = `현재 ${data.myRank}위`;
       } else {
-        rankBadge.className = 'text-xs font-bold px-3 py-1.5 rounded-full bg-slate-100 text-slate-600';
+        rankBadge.className = 'text-sm font-bold px-4 py-2 rounded-full bg-slate-100 text-slate-600';
         rankBadge.innerText = `${data.rankSearched}위 밖 (1페이지 미진입)`;
       }
 
       const gradeColors = { A: 'bg-emerald-50 text-emerald-700', B: 'bg-amber-50 text-amber-700', C: 'bg-rose-50 text-rose-700' };
       const gradeBadge = document.getElementById('gradeBadge');
-      gradeBadge.className = 'text-xs font-black px-3 py-1.5 rounded-full ' + (gradeColors[data.grade] || gradeColors.B);
+      gradeBadge.className = 'text-lg font-black px-4 py-2 rounded-full ' + (gradeColors[data.grade] || gradeColors.B);
       gradeBadge.innerText = `${data.grade}등급`;
 
       drawRadarChart(my, stats);
 
-      document.getElementById('boundaryCards').innerHTML = [
+      const boundaryResults = [
         boundaryCard('영수증(방문자) 리뷰', '건', my.seoMetrics.visitorReviewsTotal, stats.visitorReviewsTotal.avg, stats.visitorReviewsTotal.boundary),
         boundaryCard('블로그/카페 리뷰', '건', my.seoMetrics.cafeBlogReviewsTotal, stats.cafeBlogReviewsTotal.avg, stats.cafeBlogReviewsTotal.boundary),
         boundaryCard('키워드 투표수', '표', my.seoMetrics.totalVoteCount, stats.totalVoteCount.avg, stats.totalVoteCount.boundary),
         boundaryCard('등록 사진 수', '장', my.seoMetrics.photoCount, stats.photoCount.avg, stats.photoCount.boundary),
-      ].join('');
+      ];
+      document.getElementById('boundaryCards').innerHTML = boundaryResults.map(r => r.html).join('');
+
+      // 결핍 요약 문구: 키워드 미스매치(구조적으로 매칭 불가능해 삭제)를 대신해
+      // "개선필요/위험" 등급 지표를 자동으로 모아 한 문장으로 환기시킨다.
+      const deficientLabels = boundaryResults.filter(r => r.isDeficient).map(r => r.label);
+      const defiSummary = document.getElementById('defiSummary');
+      const defiSummaryText = document.getElementById('defiSummaryText');
+      if (deficientLabels.length > 0) {
+        defiSummary.className = 'bg-rose-50 border border-rose-200 rounded-2xl p-4 mb-4 text-sm font-semibold text-rose-800 flex items-start gap-2';
+        defiSummaryText.innerText = `경쟁사 평균 대비 '${deficientLabels.join("', '")}'가 부족합니다. 개선이 필요합니다.`;
+      } else {
+        defiSummary.className = 'bg-emerald-50 border border-emerald-200 rounded-2xl p-4 mb-4 text-sm font-semibold text-emerald-800 flex items-start gap-2';
+        defiSummaryText.innerText = '주요 지표가 상위 10개 업체 대비 양호한 수준입니다.';
+      }
 
       // 미니홈피 프리뷰
       const cleanPhone = (my.phone || '').replace(/[^0-9]/g, '');
@@ -699,10 +744,6 @@ ${(my.samplePhotos || []).map((p, i) => `   ${(i + 1).toString().padStart(2, ' '
       } else {
         document.getElementById('previewImageContainer').style.display = 'none';
       }
-
-      // 키워드 미스매치
-      document.getElementById('defiWants').innerText = (my.keywordList && my.keywordList.length > 0) ? my.keywordList[0] : '미등록';
-      document.getElementById('defiFact').innerText = (my.topRepKeywords && my.topRepKeywords.length > 0) ? my.topRepKeywords[0].keyword : '데이터 없음';
 
       // 생명력 지수
       let freshScore = 0;
