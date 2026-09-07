@@ -20,6 +20,13 @@ export async function getOrganicRanking(keyword: string, limit = 14): Promise<st
       headers: { 'User-Agent': UA_DESKTOP }
     });
     const html = await res.text();
+
+    // §7.13: '새로 오픈했어요' 캐러셀(최근 3개월 이내 개업 홍보 카드, 오가닉 순위 아님)에
+    // 포함된 업체는 data-nop_res-doc-id="{placeId}" 속성으로 명확히 표시된다. 이 캐러셀이
+    // 순위 리스트 중간에 끼어들면서 절반 이상이 홍보 카드로 오염되는 사례가 실사용에서 확인됨
+    // (14개 중 9개가 이 캐러셀이었던 사례 있음). 반드시 제외할 것.
+    const nopIds = new Set([...html.matchAll(/data-nop_res-doc-id="(\d+)"/g)].map(m => m[1]));
+
     const regex = /href="(https?:\/\/map\.naver\.com\/p\/(?:search\/[^/]+\/place|entry\/place)\/(\d+)[^"]*)"[^>]*>([\s\S]*?)<\/a>/gi;
 
     const seen = new Set<string>();
@@ -29,6 +36,7 @@ export async function getOrganicRanking(keyword: string, limit = 14): Promise<st
       if (ranking.length >= limit) break;
       const id = match[2];
       if (seen.has(id)) continue;
+      if (nopIds.has(id)) continue;
 
       const surrounding = html.slice(Math.max(0, match.index - 300), match.index + 300);
       const isAd = surrounding.includes('ico_ad') || surrounding.includes('sp_ad');
