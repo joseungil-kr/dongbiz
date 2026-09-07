@@ -28,6 +28,20 @@ async function cached<T>(env: Env, key: string, ttlSeconds: number, fetcher: () 
 const PLACE_TTL = 60 * 60 * 24; // 24h
 const KEYWORD_TTL = 60 * 60 * 6; // 6h
 
+// places 테이블 upsert. search_histories.place_id가 FK로 이 테이블을 참조하므로,
+// 매장이 관련된 모든 진입점(place/gap)에서 먼저 이 테이블에 존재를 보장해야 한다.
+async function upsertPlace(db: D1Database | undefined, store: any) {
+  if (!db) return;
+  try {
+    await db.prepare(`
+      INSERT OR IGNORE INTO places (id, name, category, road_address, talktalk_active)
+      VALUES (?, ?, ?, ?, ?)
+    `).bind(store.placeId, store.name, store.category, store.roadAddress, store.seoMetrics.hasTalktalk ? 1 : 0).run();
+  } catch (dbErr) {
+    console.error('DB Insert Error (places):', dbErr);
+  }
+}
+
 // 지표별 평균/중앙값 계산 (§7.6 평균 왜곡 방어)
 function calcStats(competitors: any[], key: string, isScoreField = false) {
   const raw = competitors.map(s => s.seoMetrics[key]);
@@ -49,18 +63,7 @@ app.get('/api/place', async (c) => {
 
   try {
     const myStore = await cached(c.env, `place:${query}`, PLACE_TTL, () => scrapeFullPlaceMetrics(query));
-
-    const db = c.env.DB;
-    if (db) {
-      try {
-        await db.prepare(`
-          INSERT OR IGNORE INTO places (id, name, category, road_address, talktalk_active)
-          VALUES (?, ?, ?, ?, ?)
-        `).bind(myStore.placeId, myStore.name, myStore.category, myStore.roadAddress, myStore.seoMetrics.hasTalktalk ? 1 : 0).run();
-      } catch (dbErr) {
-        console.error('DB Insert Error:', dbErr);
-      }
-    }
+    await upsertPlace(c.env.DB, myStore);
 
     return c.json({ success: true, myStore });
   } catch (err: any) {
@@ -132,6 +135,7 @@ app.get('/api/gap', async (c) => {
     if (reviewRatio < 0.5) grade = 'C';
 
     const shareId = generateShareId();
+    await upsertPlace(c.env.DB, myStore); // search_histories.place_id FK 충족 (place API를 거치지 않고 gap을 바로 호출하는 경우 대비)
 
     const responsePayload = {
       success: true,

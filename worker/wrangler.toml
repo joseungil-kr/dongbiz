@@ -12,11 +12,9 @@ directory = "./public"
 [[d1_databases]]
 binding = "DB"
 database_name = "dongbiz-db"
-database_id = "your-d1-db-id"
+database_id = "fb4d0641-f7c9-4060-938a-d3acf3de95e0"
 
 # KV Cache Bindings (§3.4 캐시 정책: placeId 24h, keyword 6h)
-# 실행 전 필요: npx wrangler kv namespace create CACHE  (Cloudflare 로그인 필요)
-# 결과로 나온 id를 아래에 채울 것. 바인딩 전에도 코드는 캐시 없이 정상 동작함.
 [[kv_namespaces]]
 binding = "CACHE"
-id = "your-kv-namespace-id"
+id = "4063e07d64ba4db4a7e8ff6195e6735b"
