@@ -279,7 +279,7 @@
                 <span id="previewMenu" class="font-bold text-white"></span>
               </div>
               <div class="bg-slate-800/80 p-2.5 rounded-xl border border-slate-700/60">
-                <span class="text-slate-400 block text-[10px]">인기키워드</span>
+                <span id="previewKeywordLabel" class="text-slate-400 block text-[10px]">인기키워드</span>
                 <span id="previewKeyword" class="font-bold text-amber-400"></span>
               </div>
             </div>
@@ -302,7 +302,10 @@
         <h3 class="font-bold text-slate-900 text-lg mb-4">🚨 마케팅 결핍 진단</h3>
         <div id="defiSummary" class="bg-rose-50 border border-rose-200 rounded-2xl p-4 mb-4 text-sm font-semibold text-rose-800 flex items-start gap-2">
           <i class="fa-solid fa-triangle-exclamation text-rose-500 mt-0.5"></i>
-          <span id="defiSummaryText"></span>
+          <span>
+            <span id="defiSummaryText"></span>
+            <span class="block text-xs font-medium text-slate-900 mt-1.5">이미 순위권에 있더라도 지표가 뛰어난 경쟁자가 나타나면 순위 역전이 발생할 수 있습니다.</span>
+          </span>
         </div>
         <div class="grid grid-cols-1 gap-4">
           <!-- 생명력 신호등 -->
@@ -911,8 +914,13 @@
       document.getElementById('previewMenu').innerText = (my.menus && my.menus.length > 0)
         ? `${my.menus[0].name} ${my.menus[0].price ? my.menus[0].price.toLocaleString() + '원' : ''}`
         : '대표 메뉴 등록중';
-      document.getElementById('previewKeyword').innerText = (my.topRepKeywords && my.topRepKeywords.length > 0)
-        ? `#${my.topRepKeywords[0].keyword}` : '#친절해요';
+      // 인기키워드가 없는 매장(병원 등 카테고리)에 '#친절해요'를 기본값으로 박아두면
+      // 그 매장의 실제 데이터인 것처럼 보인다. 없으면 실제로 가진 정보로 대체한다.
+      const repKwd = (my.topRepKeywords && my.topRepKeywords.length > 0) ? my.topRepKeywords[0].keyword : null;
+      document.getElementById('previewKeywordLabel').innerText = repKwd ? '인기키워드' : (my.phone ? '연락처' : '업종');
+      document.getElementById('previewKeyword').innerText = repKwd
+        ? `#${repKwd}`
+        : (my.phone || (my.category || '').split(',')[0].trim() || '정보 없음');
       document.getElementById('previewLink').href = my.placeUrl;
 
       if (my.samplePhotos && my.samplePhotos.length > 0) {
