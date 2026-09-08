@@ -718,7 +718,23 @@ const ADMIN_STYLE = `
   pre { background: #1E293B; color: #CBD5E1; padding: 16px; border-radius: 12px; overflow-x: auto; font-size: 12px; white-space: pre-wrap; word-break: break-all; }
   .card { background: #fff; border-radius: 12px; padding: 16px 20px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
   .back { display: inline-block; margin-bottom: 16px; font-size: 13px; }
+  .nav { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; background: #fff; border-radius: 12px; padding: 10px 12px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); font-size: 13px; }
+  .nav a { font-weight: 700; padding: 5px 10px; border-radius: 8px; }
+  .nav a:hover { background: #EFF6FF; text-decoration: none; }
+  .nav .sep { color: #94A3B8; font-size: 11px; margin: 0 4px 0 10px; border-left: 1px solid #E2E8F0; padding-left: 12px; }
 `;
+
+// 관리자 페이지 공통 상단 메뉴. 페이지마다 흩어져 있던 이동 링크를 한 줄로 모은다.
+const ADMIN_NAV = `<nav class="nav">
+  <a href="/admin">진단 리스트</a>
+  <a href="/admin/analytics">지표 분석</a>
+  <a href="/admin/analytics/market">시장 통계</a>
+  <a href="/rank" target="_blank">공개 순위 페이지</a>
+  <span class="sep">수동 수집</span>
+  <a href="/admin/cron/run/fixed-a">고정A</a>
+  <a href="/admin/cron/run/fixed-b">고정B</a>
+  <a href="/admin/cron/run/user-driven">사용자 키워드</a>
+</nav>`;
 
 // 관리자: 진단 리스트 (최신 100건). §6 Phase C 신규 요청 — 관리자 자신이 raw데이터를 검증할 수 있어야 함.
 app.get('/admin', async (c) => {
@@ -742,13 +758,14 @@ app.get('/admin', async (c) => {
       <td>${r.my_rank ? r.my_rank + '위' : '순위밖'}</td>
       <td><span class="badge grade-${escapeHtml(r.grade_reviews || 'B')}">${escapeHtml(r.grade_reviews || '-')}</span></td>
       <td>${r.my_reviews ?? '-'} / 평균 ${r.top10_avg_reviews ?? '-'}</td>
-      <td><a href="/admin/${escapeHtml(r.share_id)}">상세보기</a> · <a href="/share/${escapeHtml(r.share_id)}" target="_blank">공유링크</a></td>
+      <td><a href="/admin/${escapeHtml(r.share_id)}">원본데이터</a> · <a href="/share/${escapeHtml(r.share_id)}" target="_blank">공유링크</a></td>
     </tr>`).join('');
 
   const bypassUrl = c.env.RATE_LIMIT_BYPASS_TOKEN ? `/?bypass=${c.env.RATE_LIMIT_BYPASS_TOKEN}` : null;
 
   return c.html(`<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><title>동네비즈 관리자 - 진단 리스트</title><style>${ADMIN_STYLE}</style></head>
 <body>
+  ${ADMIN_NAV}
   ${bypassUrl ? `<div style="background:#0F172A;color:#fff;padding:10px 14px;border-radius:10px;margin-bottom:16px;font-size:13px;display:flex;justify-content:space-between;align-items:center;gap:12px;">
     <span>🔓 일일 검색한도 우회 링크 (본인 테스트용, 외부 공유 금지)</span>
     <a href="${bypassUrl}" style="color:#93C5FD;font-weight:700;" target="_blank">${escapeHtml(bypassUrl)}</a>
@@ -789,7 +806,7 @@ app.get('/admin/analytics', async (c) => {
 
   return c.html(`<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><title>동네비즈 관리자 - 지표 분석</title><style>${ADMIN_STYLE}</style></head>
 <body>
-  <a class="back" href="/admin">&larr; 진단 리스트로</a>
+  ${ADMIN_NAV}
   <div style="display:flex;justify-content:space-between;align-items:center;">
     <h1 style="margin:0;">상위노출 지표 분석 — 키워드별 관측 현황</h1>
     <a href="/admin/analytics/market" style="font-size:13px;font-weight:700;">🏙️ 리서치 키워드 시장 통계 →</a>
@@ -860,7 +877,7 @@ app.get('/admin/analytics/market', async (c) => {
 
   return c.html(`<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><title>동네비즈 관리자 - 리서치 시장 통계</title><style>${ADMIN_STYLE}</style></head>
 <body>
-  <a class="back" href="/admin/analytics">&larr; 지표 분석으로</a>
+  ${ADMIN_NAV}
   <h1>리서치 고정 키워드 — 시장 통계</h1>
   <p style="font-size:13px;color:#64748B;margin:-8px 0 16px;">경쟁이 치열해 순위 변동이 잦은 유명 키워드를 매일 고정 관측한다. 업체 식별 없이 상위 10곳의 평균/중앙값/비율만 남긴다.</p>
 
@@ -954,7 +971,7 @@ app.get('/admin/analytics/:keyword', async (c) => {
   return c.html(`<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><title>${escapeHtml(keyword)} - 순위 추이</title><style>${ADMIN_STYLE}</style>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script></head>
 <body>
-  <a class="back" href="/admin/analytics">&larr; 키워드 목록으로</a>
+  ${ADMIN_NAV}
   <h1>'${escapeHtml(keyword)}' 순위 추이</h1>
   <p style="font-size:13px;color:#64748B;margin:-8px 0 16px;">스냅샷 ${snapshots.length}건 · 업체 ${byPlace.size}곳 · ${escapeHtml(fmtKST(timestamps[0]))} ~ ${escapeHtml(fmtKST(timestamps[timestamps.length - 1]))}</p>
 
@@ -1012,12 +1029,12 @@ app.get('/admin/:shareId', async (c) => {
 
   return c.html(`<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><title>${escapeHtml(my.name)} - 진단 상세</title><style>${ADMIN_STYLE}</style></head>
 <body>
-  <a class="back" href="/admin">&larr; 목록으로</a>
+  ${ADMIN_NAV}
   <div class="card">
     <h1 style="margin:0 0 8px;">${escapeHtml(my.name)} <span class="badge grade-${escapeHtml(data.grade || 'B')}">${escapeHtml(data.grade || '-')}</span></h1>
     <p style="font-size:13px;color:#475569;margin:4px 0;">키워드: <b>${escapeHtml(data.targetKeyword)}</b> · 순위: <b>${data.myRank ? data.myRank + '위' : '순위밖(' + data.rankSearched + '위 밖)'}</b> · 진단일시: ${escapeHtml(fmtKST(String(row.created_at || '')))}</p>
     <p style="font-size:13px;color:#475569;margin:4px 0;">연락처: <b>${escapeHtml(my.phone || '미등록')}</b> · 주소: ${escapeHtml(my.roadAddress || '미등록')}</p>
-    <p style="font-size:13px;margin:8px 0 0;"><a href="/share/${escapeHtml(shareId)}" target="_blank">공유 링크(고객용)</a> · <a href="/?shareId=${escapeHtml(shareId)}" target="_blank">실제 앱 화면으로 보기</a></p>
+    <p style="font-size:13px;margin:8px 0 0;"><a href="/share/${escapeHtml(shareId)}" target="_blank">공유링크</a></p>
   </div>
 
   <h2 style="font-size:15px;">내 매장 원본 데이터 (Raw)</h2>
