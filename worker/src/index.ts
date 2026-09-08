@@ -897,6 +897,17 @@ app.get('/admin/analytics/:keyword', async (c) => {
   // Chart.js용 순위 추이 데이터 (순위는 낮을수록 좋으므로 y축 반전)
   const placeNames = [...byPlace.keys()].map(id => byPlace.get(id)![0].place_name || id);
   const timestamps = [...new Set(snapshots.map(s => s.collected_at))].sort();
+
+  // 차트 오른쪽 축에 "현재 그 순위에 있는 업체명"을 같은 높이로 붙인다. 범위는 전체 관측의
+  // 순위 최소~최대로 잡아야 과거에만 하위권이던 업체의 선이 잘리지 않는다.
+  const allRanks = snapshots.map(s => Number(s.rank)).filter(n => n > 0);
+  const minRank = allRanks.length ? Math.min(...allRanks) : 1;
+  const maxRank = allRanks.length ? Math.max(...allRanks) : 1;
+  const lastTs = timestamps[timestamps.length - 1];
+  const nameAtRank: Record<number, string> = {};
+  for (const s of snapshots) {
+    if (s.collected_at === lastTs && s.rank) nameAtRank[s.rank] = s.place_name || s.place_id;
+  }
   const datasets = [...byPlace.entries()].map(([id, rows], i) => {
     const byTime = new Map(rows.map(r => [r.collected_at, r.rank]));
     const hue = (i * 67) % 360;
@@ -965,7 +976,14 @@ app.get('/admin/analytics/:keyword', async (c) => {
         datasets: ${JSON.stringify(datasets)}
       },
       options: {
-        scales: { y: { reverse: true, title: { display: true, text: '순위 (낮을수록 상위)' }, ticks: { stepSize: 1 } } },
+        scales: {
+          y: { reverse: true, min: ${minRank}, max: ${maxRank}, ticks: { stepSize: 1 } },
+          yNames: {
+            position: 'right', reverse: true, min: ${minRank}, max: ${maxRank},
+            grid: { drawOnChartArea: false },
+            ticks: { stepSize: 1, autoSkip: false, callback: v => (${JSON.stringify(nameAtRank)})[v] || '' }
+          }
+        },
         plugins: { legend: { position: 'bottom' } }
       }
     });
