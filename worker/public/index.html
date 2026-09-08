@@ -182,6 +182,7 @@
               <li class="flex justify-between items-center"><span class="text-slate-500">메뉴/상품 등록 수 <i class="fa-regular fa-circle-question text-slate-300 text-[10px]" title="등록된 메뉴 또는 판매 상품의 개수입니다."></i></span> <span id="guiMenu" class="font-bold text-slate-900 bg-slate-100 px-2 py-0.5 rounded"></span></li>
               <li class="flex justify-between items-center pt-2 border-t"><span class="text-slate-500">최근 소식 (2개월) <i class="fa-regular fa-circle-question text-slate-300 text-[10px]" title="최근 2개월 이내 매장 소식(이벤트/공지) 등록 여부입니다. 자주 갱신할수록 네이버 알고리즘 가산점에 유리합니다."></i></span> <span id="guiNews" class="font-bold text-slate-900 text-[12px]"></span></li>
               <li class="flex justify-between items-center"><span class="text-slate-500">설명 분량 <i class="fa-regular fa-circle-question text-slate-300 text-[10px]" title="매장 상세설명 글자 수입니다. 최대 2,000자까지 등록 가능하며, 등록 키워드를 설명에 포함하면 SEO에 유리합니다."></i></span> <span id="guiDescLen" class="font-bold text-slate-900 bg-slate-100 px-2 py-0.5 rounded"></span></li>
+              <li class="flex justify-between items-center"><span class="text-slate-500">찾아오시는 길 분량 <i class="fa-regular fa-circle-question text-slate-300 text-[10px]" title="스마트플레이스에 등록한 '찾아오는 길' 안내문의 글자 수입니다."></i></span> <span id="guiDirLen" class="font-bold text-slate-900 bg-slate-100 px-2 py-0.5 rounded"></span></li>
             </ul>
           </div>
         </div>
@@ -483,6 +484,7 @@
       photoCount: '사진이 많을수록 신뢰도와 체류시간이 올라갑니다. 메뉴·내부·외관·주차 등 다양한 각도로 꾸준히 추가해주세요.',
       reviewScore: '평점은 신규 고객이 방문을 결정하는 가장 큰 기준입니다. 낮은 평점 리뷰엔 정중히 답글을 남겨 관리 중임을 보여주는 것이 좋습니다.',
       reviewScoreHidden: "업종에 따라 '비공개'가 기본값인 경우가 있습니다. 이 경우 0건으로 집계되더라도 본 리포트 평가와 상관없이 모두 동일한 점수를 확보하니 걱정하지 않으셔도 됩니다.",
+      menuCount: '상품 등록은 중요한 상품(대표상품) 순으로 넣는 것이 좋습니다. 상품과 상관없는 스팸성 키워드는 오히려 순위 하락의 원인이 됩니다.',
     };
 
     function reportNoteHtml(key) {
@@ -773,6 +775,7 @@
       setVal('guiPhoto', my.seoMetrics.photoCount + '장');
       setVal('guiMenu', my.seoMetrics.menuCount + '개');
       setVal('guiDescLen', (my.seoMetrics.descriptionLength || 0) + ' / 2,000자');
+      setVal('guiDirLen', (my.directions || '').length + '자');
 
       const ulKwd = document.getElementById('guiTopKwd');
       ulKwd.innerHTML = (my.topRepKeywords && my.topRepKeywords.length > 0)
@@ -799,6 +802,9 @@
       guiNewsEl.className = 'font-bold text-[12px] ' + (isNewsRecent.startsWith('✅') ? 'text-emerald-600' : 'text-rose-500');
 
       // 리포트 모드: 실제 데이터 행 바로 아래에 개선 주석을 붙인다
+      addReportNote('guiMenu', 'menuCount');
+      // 최근소식 주석은 이 상단 행에 붙인다(생명력 지수 카드와 중복 방지). 미등록일 때만.
+      addReportNote('guiNews', 'news', !isNewsRecent.startsWith('✅'));
       // 누락된 항목에만 주석을 단다. '정상 등록(양호)'에는 설명이 필요 없다.
       addReportNote('guiAuditTime', 'bizHour', my.seoMetrics.isBizHourMissing === true);
       addReportNote('guiAuditMenu', 'menuImage', my.seoMetrics.isMenuImageMissing === true);
@@ -1059,7 +1065,7 @@
       missingRow('defiAuditDesc', my.seoMetrics.isDescriptionMissing);
       // 찾아오는길/편의시설/상세설명 누락 주석은 SECTION 7(guiAuditDir 등)에 이미 붙였으므로 중복 방지 차원에서 여기선 생략
       // 이미 충족된 항목엔 주석을 달지 않는다 — 고쳐야 할 것만 남겨야 리포트가 읽힌다.
-      addReportNote('defiNews', 'news', !newsText.startsWith('✅'));
+      // 최근소식 주석은 상단 매장정보의 guiNews 행에 붙였으므로 여기선 생략(중복 방지).
       addReportNote('defiCall', 'talk', callScore < 2);
       addReportNote('defiDesc', 'descLen', descLen < 1000);
 
