@@ -26,9 +26,9 @@ CREATE TABLE IF NOT EXISTS search_histories (
     place_id TEXT NOT NULL,          -- 대상 플레이스
     target_keyword TEXT NOT NULL,    -- 진단 키워드 (사용자 직접 입력)
     my_rank INTEGER,                 -- 당시 내 순위 (1~14, 14위 밖이면 NULL)
-    top10_avg_reviews INTEGER,       -- 상위 10개 업체(본인 제외) 방문자 리뷰 평균
-    top10_median_reviews INTEGER,    -- 상위 10개 업체(본인 제외) 방문자 리뷰 중앙값 (§7.6 평균 왜곡 방어)
-    rank_boundary_reviews INTEGER,   -- 10위 업체(1페이지 진입선) 방문자 리뷰 수
+    top10_avg_reviews INTEGER,       -- 컬럼명은 유지(과거 데이터 호환), 실제로는 상위 TOP_N(6)개 업체(본인 제외) 방문자 리뷰 평균 — 2026-09-08 10→6 변경
+    top10_median_reviews INTEGER,    -- 상위 TOP_N개 업체(본인 제외) 방문자 리뷰 중앙값 (§7.6 평균 왜곡 방어)
+    rank_boundary_reviews INTEGER,   -- TOP_N위 업체(1페이지 진입선) 방문자 리뷰 수
     my_reviews INTEGER,              -- 내 리뷰 수
     grade_reviews TEXT,              -- A, B, C 등급
     raw_data JSON,                   -- 스크래핑 당시 전체 JSON 스냅샷 (프론트엔드 복원용)

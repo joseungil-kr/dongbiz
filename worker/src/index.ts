@@ -36,7 +36,10 @@ function generateShareId() {
 // 실제로 두 번 겪은 문제: 코드는 배포됐는데 KV에 남은 예전(버그) 값이 TTL(최대 24h) 동안 계속
 // 서빙되어 "고쳤다는데 왜 아직도 이래?"가 재발했다. 버전을 올리면 이전 키가 자동으로 무효화되어
 // 수동으로 wrangler kv key delete 할 필요가 없다.
-const CACHE_VERSION = 'v8'; // v8: getOrganicRanking()이 href 스캔 대신 PlaceListBusinesses.items JSON을 우선 사용 (순위 뒤섞임 버그 수정, §7.15)
+const CACHE_VERSION = 'v9'; // v9: 비교 기준을 상위 10개→6개로 변경 (네이버 지도 1페이지 실노출 개수 기준, §4.2 B15)
+
+// 네이버 지도 "1페이지" 진입선 = 실제로 더보기 누르기 전 노출되는 6곳 (10 아님, 2026-09-08 사용자 확인).
+const TOP_N = 6;
 
 // KV 캐시 래퍼. CACHE 바인딩이 없으면 매번 새로 조회한다 (기능은 동작, 속도/원가만 손해).
 async function cached<T>(env: Env, key: string, ttlSeconds: number, fetcher: () => Promise<T>): Promise<T> {
@@ -255,7 +258,7 @@ app.get('/api/gap', async (c) => {
       const myRankIndex = ranking.indexOf(placeId);
       myRank = myRankIndex >= 0 ? myRankIndex + 1 : null;
 
-      const top10Ids = ranking.slice(0, 10).filter(id => id !== placeId);
+      const top10Ids = ranking.slice(0, TOP_N).filter(id => id !== placeId);
       if (top10Ids.length === 0) {
         return c.json({ error: '비교할 경쟁사가 없습니다.' }, 404);
       }
@@ -263,8 +266,8 @@ app.get('/api/gap', async (c) => {
         top10Ids.map(id => cached(c.env, `place:${id}`, PLACE_TTL, () => scrapeFullPlaceMetrics(id)))
       );
 
-      // 10위 업체 = 1페이지 진입선. 본인이 10위면 11위를 진입선으로 사용.
-      const boundaryId = ranking[9] && ranking[9] !== placeId ? ranking[9] : ranking[10];
+      // TOP_N위 업체 = 1페이지 진입선. 본인이 TOP_N위면 그다음 순위를 진입선으로 사용.
+      const boundaryId = ranking[TOP_N - 1] && ranking[TOP_N - 1] !== placeId ? ranking[TOP_N - 1] : ranking[TOP_N];
       boundaryStore = boundaryId
         ? (competitors.find(s => s.placeId === boundaryId)
           || await cached(c.env, `place:${boundaryId}`, PLACE_TTL, () => scrapeFullPlaceMetrics(boundaryId)))
@@ -446,7 +449,7 @@ app.get('/share/:shareId', async (c) => {
         const data = JSON.parse(row.raw_data as string);
         const my = data.myStore;
         title = `${my.name} 상위노출 진단 결과 (${data.grade}등급)`;
-        description = `'${data.targetKeyword}' 키워드 상위 10개 업체와 비교한 ${my.name}의 실시간 Gap 분석 결과. 지금 확인해보세요.`;
+        description = `'${data.targetKeyword}' 키워드 상위 ${TOP_N}개 업체와 비교한 ${my.name}의 실시간 Gap 분석 결과. 지금 확인해보세요.`;
         if (my.samplePhotos && my.samplePhotos.length > 0) image = my.samplePhotos[0];
       }
     } catch (err) {

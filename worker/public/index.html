@@ -4,13 +4,13 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>동네비즈 (dongbiz.com) - 상위노출 Gap 실시간 진단</title>
-  <meta name="description" content="상호나 전화번호만 넣으면 우리 매장의 네이버 상위노출 현주소를 진단합니다. 원하는 키워드에서 1페이지 상위 10개 업체와 실시간으로 비교하는 무료 진단 서비스.">
+  <meta name="description" content="상호나 전화번호만 넣으면 우리 매장의 네이버 상위노출 현주소를 진단합니다. 원하는 키워드에서 1페이지 상위 6개 업체와 실시간으로 비교하는 무료 진단 서비스.">
   <link rel="canonical" href="https://dongbiz.com/">
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHdpZHRoPSc2NCcgaGVpZ2h0PSc2NCc+PHJlY3Qgd2lkdGg9JzY0JyBoZWlnaHQ9JzY0JyByeD0nMTYnIGZpbGw9JyMyNTYzRUInLz48dGV4dCB4PSczMicgeT0nNDUnIGZvbnQtZmFtaWx5PSdBcmlhbCwgc2Fucy1zZXJpZicgZm9udC1zaXplPSczMicgZm9udC13ZWlnaHQ9JzkwMCcgZmlsbD0nd2hpdGUnIHRleHQtYW5jaG9yPSdtaWRkbGUnPuuPmTwvdGV4dD48L3N2Zz4=" />
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://dongbiz.com/">
   <meta property="og:title" content="동네비즈 - 네이버 플레이스 상위노출 Gap 진단">
-  <meta property="og:description" content="전화번호 하나로 우리 매장의 상위노출 현주소를 진단합니다. 상위 10개 업체와 실시간 비교.">
+  <meta property="og:description" content="전화번호 하나로 우리 매장의 상위노출 현주소를 진단합니다. 상위 6개 업체와 실시간 비교.">
   <meta property="og:image" content="https://dongbiz.com/og-image.png">
   <meta name="twitter:card" content="summary_large_image">
   <script src="https://cdn.tailwindcss.com"></script>
@@ -64,7 +64,7 @@
 
     <p class="text-base md:text-lg text-slate-600 max-w-2xl mb-10 leading-relaxed">
       스마트플레이스에 등록된 정보를 실시간으로 가져와<br class="hidden sm:inline" />
-      원하는 키워드에서 1페이지 상위 10개 업체와의 격차를 분석합니다.
+      원하는 키워드에서 1페이지 상위 6개 업체와의 격차를 분석합니다.
     </p>
 
     <!-- [1단계] 토스형 입력 폼 -->
@@ -192,7 +192,7 @@
     <!-- [2단계] 키워드 입력 -->
     <div id="step2Input" class="hidden w-full max-w-2xl glass-card p-6 md:p-8 rounded-3xl shadow-xl shadow-slate-200/50 mb-8">
       <label class="block text-sm font-bold text-slate-700 mb-1.5 text-left">2단계: 상위노출 원하는 키워드를 입력하세요(하루 3번까지 검색가능)</label>
-      <p class="text-xs text-slate-500 mb-3 text-left">1페이지 상위 10개 업체 평균과 내 매장을 실시간으로 비교합니다.</p>
+      <p class="text-xs text-slate-500 mb-3 text-left">1페이지 상위 6개 업체 평균과 내 매장을 실시간으로 비교합니다.</p>
       <div class="flex flex-col sm:flex-row gap-3">
         <input type="text" id="keywordInput" placeholder="예: 안산 스카이차, 상록구 맛집"
           class="flex-1 px-4 py-4 rounded-2xl border border-slate-200 bg-white text-base font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600 transition" />
@@ -229,7 +229,7 @@
       <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
         <!-- 방사형 차트 -->
         <div class="bg-slate-50 rounded-2xl p-5 border border-slate-200/80">
-          <h4 id="radarPanelTitle" class="text-xs font-bold text-slate-600 mb-3">내 매장 vs 상위 10개 평균</h4>
+          <h4 id="radarPanelTitle" class="text-xs font-bold text-slate-600 mb-3">내 매장 vs 상위 6개 평균</h4>
           <div class="w-full bg-white rounded-xl border border-slate-200/60 p-2 flex justify-center mb-3" style="height: 250px;">
             <canvas id="radarChart"></canvas>
           </div>
@@ -725,7 +725,7 @@
               borderWidth: 2
             },
             {
-              label: compareLabel || '상위 10개 평균',
+              label: compareLabel || '상위 6개 평균',
               data: [
                 (stats.visitorReviewsTotal.avg / maxVisitor) * 100,
                 (stats.cafeBlogReviewsTotal.avg / maxBlog) * 100,
@@ -809,7 +809,7 @@
     function renderGap(data) {
       const my = data.myStore;
       const stats = data.stats;
-      const foundCount = Math.min(data.rankSearched || 0, 10); // 네이버 위젯이 실제로 노출한 오가닉 업체 수 (10 미만일 수 있음)
+      const foundCount = Math.min(data.rankSearched || 0, 6); // 네이버 지도 1페이지 실노출 개수 기준 (6곳 미만일 수 있음)
 
       document.getElementById('gapTitle').innerText = data.isDirectCompare
         ? `📊 ${data.targetKeyword} Gap 분석`
@@ -818,8 +818,8 @@
       boundaryTitle.innerHTML = data.isDirectCompare
         ? `<i class="fa-solid fa-flag-checkered text-blue-600"></i> 경쟁사 대비 내 위치`
         : `<i class="fa-solid fa-flag-checkered text-blue-600"></i> 상위 ${foundCount}개 업체 대비 내 위치`;
-      if (!data.isDirectCompare && foundCount < 10) {
-        boundaryTitle.innerHTML += ` <span class="text-xs font-normal text-slate-400">(네이버 검색 결과가 ${foundCount}곳뿐이라 10개 미만입니다)</span>`;
+      if (!data.isDirectCompare && foundCount < 6) {
+        boundaryTitle.innerHTML += ` <span class="text-xs font-normal text-slate-400">(네이버 검색 결과가 ${foundCount}곳뿐이라 6개 미만입니다)</span>`;
       }
 
       const rankBadge = document.getElementById('rankBadge');
@@ -827,7 +827,7 @@
         rankBadge.className = 'text-sm font-bold px-4 py-2 rounded-full bg-slate-100 text-slate-600';
         rankBadge.innerText = '1:1 직접비교';
       } else if (data.myRank) {
-        rankBadge.className = 'text-sm font-bold px-4 py-2 rounded-full ' + (data.myRank <= 10 ? 'bg-blue-50 text-blue-700' : 'bg-amber-50 text-amber-700');
+        rankBadge.className = 'text-sm font-bold px-4 py-2 rounded-full ' + (data.myRank <= 6 ? 'bg-blue-50 text-blue-700' : 'bg-amber-50 text-amber-700');
         rankBadge.innerText = `현재 ${data.myRank}위`;
       } else {
         rankBadge.className = 'text-sm font-bold px-4 py-2 rounded-full bg-slate-100 text-slate-600';
@@ -839,9 +839,9 @@
       gradeBadge.className = 'text-lg font-black px-4 py-2 rounded-full ' + (gradeColors[data.grade] || gradeColors.B);
       gradeBadge.innerText = `${data.grade}등급`;
 
-      // 1:1 직접비교 땐 "상위 10개 평균" 대신 그 경쟁사 이름 자체를 비교축으로 쓴다.
+      // 1:1 직접비교 땐 "상위 6개 평균" 대신 그 경쟁사 이름 자체를 비교축으로 쓴다.
       const compareName = data.isDirectCompare ? (data.top10Competitors[0]?.name || '경쟁사') : null;
-      document.getElementById('radarPanelTitle').innerText = compareName ? `내 매장 vs ${compareName}` : '내 매장 vs 상위 10개 평균';
+      document.getElementById('radarPanelTitle').innerText = compareName ? `내 매장 vs ${compareName}` : '내 매장 vs 상위 6개 평균';
       drawRadarChart(my, stats, compareName);
 
       const boundaryResults = [
@@ -870,7 +870,7 @@
         defiSummary.className = 'bg-emerald-50 border border-emerald-200 rounded-2xl p-4 mb-4 text-sm font-semibold text-emerald-800 flex items-start gap-2';
         defiSummaryText.innerText = compareName
           ? `'${compareName}' 대비 약점인 지표가 없습니다.`
-          : '주요 지표가 상위 10개 업체 대비 양호한 수준입니다.';
+          : '주요 지표가 상위 6개 업체 대비 양호한 수준입니다.';
       }
 
       // 미니홈피 프리뷰
