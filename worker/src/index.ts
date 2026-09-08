@@ -467,6 +467,9 @@ app.get('/share/:shareId', async (c) => {
 <meta property="og:description" content="${escapeHtml(description)}">
 ${image ? `<meta property="og:image" content="${escapeHtml(image)}">` : ''}
 <meta name="twitter:card" content="${image ? 'summary_large_image' : 'summary'}">
+<!-- §6.1.2b 2단: 개별 진단 결과는 공유는 되되 색인은 막는다(등급·결핍 판정이 특정 업체명과
+     함께 검색에 노출되는 신용 리스크 차단). 공개 색인 자산은 /rank/:keyword 쪽이다. -->
+<meta name="robots" content="noindex">
 <meta http-equiv="refresh" content="0;url=${appUrl}">
 <script>location.replace(${JSON.stringify(appUrl)});</script>
 </head>
@@ -476,6 +479,167 @@ ${image ? `<meta property="og:image" content="${escapeHtml(image)}">` : ''}
 </html>`;
 
   return c.html(html);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// pSEO: 키워드 순위 페이지 (§6.1). 공개 범위는 §6.1.2b의 "1단"으로 엄격히 제한한다 —
+// 순위표·집계·변동성만 싣고 해석/권고 문장과 개별 업체 시계열은 절대 넣지 않는다.
+// 그게 곧 컨설팅 상품이라 공개하는 순간 경쟁사에 무료로 넘어간다.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const RANK_PAGE_STYLE = `
+  *{box-sizing:border-box} body{margin:0;padding:0;font-family:-apple-system,'Pretendard',sans-serif;color:#0F172A;background:#F8FAFC;line-height:1.6}
+  .wrap{max-width:760px;margin:0 auto;padding:24px 16px 56px}
+  header a{font-weight:800;color:#2563EB;text-decoration:none;font-size:15px}
+  h1{font-size:22px;margin:20px 0 6px;line-height:1.35}
+  .meta{font-size:12px;color:#64748B;margin-bottom:20px}
+  table{width:100%;border-collapse:collapse;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+  th,td{padding:10px 12px;font-size:13px;text-align:left;border-bottom:1px solid #E2E8F0}
+  th{background:#F1F5F9;font-weight:700;color:#475569;font-size:12px}
+  td.num,th.num{text-align:right}
+  tr:last-child td{border-bottom:none}
+  .rank{font-weight:800;color:#2563EB}
+  h2{font-size:15px;margin:28px 0 10px}
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+  .card{background:#fff;border:1px solid #E2E8F0;border-radius:12px;padding:14px}
+  .card .k{font-size:11px;color:#64748B;display:block;margin-bottom:4px}
+  .card .v{font-size:20px;font-weight:800}
+  .cta{display:block;margin:28px 0 0;background:#0F172A;color:#fff;text-align:center;padding:16px;border-radius:14px;font-weight:800;text-decoration:none}
+  footer{margin-top:32px;font-size:11px;color:#94A3B8;border-top:1px solid #E2E8F0;padding-top:16px}
+  .kwlist{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+  .kwlist a{background:#fff;border:1px solid #E2E8F0;border-radius:999px;padding:7px 14px;font-size:13px;font-weight:600;color:#334155;text-decoration:none}
+`;
+
+function median(nums: number[]): number {
+  if (nums.length === 0) return 0;
+  const s = [...nums].sort((a, b) => a - b);
+  const mid = Math.floor(s.length / 2);
+  return s.length % 2 === 0 ? Math.round((s[mid - 1] + s[mid]) / 2) : s[mid];
+}
+
+// 공개 자격: 관측 2회 이상. 1회짜리는 집계·변동성이 성립하지 않아 껍데기 페이지가 된다(§6.1.2).
+async function eligibleRankKeywords(db: D1Database): Promise<string[]> {
+  const { results } = await db.prepare(`
+    SELECT keyword FROM rank_snapshots
+    GROUP BY keyword HAVING COUNT(DISTINCT collected_at) >= 2
+    ORDER BY MAX(collected_at) DESC
+  `).all();
+  return (results as any[]).map(r => r.keyword);
+}
+
+app.get('/rank', async (c) => {
+  const db = c.env.DB;
+  if (!db) return c.text('DB 미설정', 500);
+  const keywords = await eligibleRankKeywords(db);
+  const items = keywords.map(k =>
+    `<a href="/rank/${encodeURIComponent(k)}">${escapeHtml(k)}</a>`
+  ).join('');
+  return c.html(`<!DOCTYPE html><html lang="ko"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>네이버 플레이스 키워드별 순위 현황 | 동네비즈</title>
+<meta name="description" content="네이버 플레이스 키워드별 상위 노출 업체 순위와 리뷰·사진 등 지표 현황을 실측 데이터로 정리했습니다.">
+<link rel="canonical" href="https://dongbiz.com/rank">
+<style>${RANK_PAGE_STYLE}</style></head><body><div class="wrap">
+<header><a href="/">동네비즈</a></header>
+<h1>키워드별 네이버 플레이스 순위 현황</h1>
+<p class="meta">관측이 2회 이상 누적된 키워드만 공개합니다. 총 ${keywords.length}개.</p>
+<div class="kwlist">${items || '<span class="meta">아직 공개 가능한 키워드가 없습니다.</span>'}</div>
+<a class="cta" href="/">내 매장 순위 무료로 진단하기</a>
+<footer>상호 : 인터피아드 · 사업자등록번호 : 124-35-56796 · 문의 : interpiad@gmail.com</footer>
+</div></body></html>`);
+});
+
+app.get('/rank/:keyword', async (c) => {
+  const db = c.env.DB;
+  if (!db) return c.text('DB 미설정', 500);
+  const keyword = decodeURIComponent(c.req.param('keyword'));
+
+  const { results } = await db.prepare(`
+    SELECT place_id, place_name, rank, visitor_reviews, blog_reviews, vote_count, photo_count, collected_at
+    FROM rank_snapshots WHERE keyword = ? ORDER BY collected_at ASC
+  `).bind(keyword).all();
+  const rows = results as any[];
+
+  const batches = [...new Set(rows.map(r => r.collected_at))].sort();
+  if (batches.length < 2) {
+    return c.html(`<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8">
+<meta name="robots" content="noindex"><title>준비 중 | 동네비즈</title><style>${RANK_PAGE_STYLE}</style></head>
+<body><div class="wrap"><header><a href="/">동네비즈</a></header>
+<h1>아직 공개 기준을 채우지 못한 키워드입니다</h1>
+<p class="meta">관측이 2회 이상 누적되면 공개됩니다.</p>
+<a class="cta" href="/">내 매장 순위 무료로 진단하기</a></div></body></html>`, 404);
+  }
+
+  const latest = batches[batches.length - 1];
+  const top = rows.filter(r => r.collected_at === latest && r.rank).sort((a, b) => a.rank - b.rank).slice(0, TOP_N);
+  if (top.length === 0) return c.text('데이터 없음', 404);
+
+  // 변동성: 연속한 관측 사이에 상위권 순서가 바뀐 횟수. 개별 업체의 궤적은 드러내지 않는
+  // 집계 수치라 §6.1.2b의 1단에 해당한다.
+  const recent = batches.slice(-10);
+  const orderOf = (batch: string) => rows
+    .filter(r => r.collected_at === batch && r.rank).sort((a, b) => a.rank - b.rank)
+    .slice(0, TOP_N).map(r => r.place_id).join(',');
+  let changes = 0;
+  for (let i = 1; i < recent.length; i++) if (orderOf(recent[i]) !== orderOf(recent[i - 1])) changes++;
+
+  const reviews = top.map(r => Number(r.visitor_reviews) || 0);
+  const boundary = reviews[reviews.length - 1];
+  const tableRows = top.map(r => `<tr>
+    <td class="rank">${r.rank}</td>
+    <td>${escapeHtml(r.place_name || '-')}</td>
+    <td class="num">${Number(r.visitor_reviews || 0).toLocaleString()}</td>
+    <td class="num">${Number(r.blog_reviews || 0).toLocaleString()}</td>
+    <td class="num">${Number(r.vote_count || 0).toLocaleString()}</td>
+    <td class="num">${Number(r.photo_count || 0).toLocaleString()}</td>
+  </tr>`).join('');
+
+  const title = `${keyword} 네이버 플레이스 순위 TOP ${top.length}`;
+  const desc = `'${keyword}' 검색 시 상위 노출된 업체 ${top.length}곳의 순위와 방문자 리뷰·블로그 리뷰·사진 수 실측 데이터입니다. 기준일 ${fmtKST(latest).slice(0, 10)}.`;
+  const canonical = `https://dongbiz.com/rank/${encodeURIComponent(keyword)}`;
+
+  return c.html(`<!DOCTYPE html><html lang="ko"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${escapeHtml(title)} | 동네비즈</title>
+<meta name="description" content="${escapeHtml(desc)}">
+<link rel="canonical" href="${escapeHtml(canonical)}">
+<meta property="og:title" content="${escapeHtml(title)}">
+<meta property="og:description" content="${escapeHtml(desc)}">
+<meta property="og:url" content="${escapeHtml(canonical)}">
+<meta property="og:image" content="https://dongbiz.com/og-image.png">
+<meta name="twitter:card" content="summary_large_image">
+<style>${RANK_PAGE_STYLE}</style></head><body><div class="wrap">
+<header><a href="/">동네비즈</a></header>
+<h1>${escapeHtml(title)}</h1>
+<p class="meta">기준일 ${escapeHtml(fmtKST(latest))} · 관측 ${batches.length}회 누적 · 네이버 통합검색 플레이스 영역 기준</p>
+<table>
+  <thead><tr><th>순위</th><th>업체명</th><th class="num">방문자 리뷰</th><th class="num">블로그 리뷰</th><th class="num">키워드 투표</th><th class="num">사진</th></tr></thead>
+  <tbody>${tableRows}</tbody>
+</table>
+<h2>상위권 지표 요약</h2>
+<div class="cards">
+  <div class="card"><span class="k">방문자 리뷰 중앙값</span><span class="v">${median(reviews).toLocaleString()}</span></div>
+  <div class="card"><span class="k">1페이지 진입선 (${top.length}위)</span><span class="v">${boundary.toLocaleString()}</span></div>
+  <div class="card"><span class="k">최근 관측 ${recent.length}회 중 순위 변동</span><span class="v">${changes}회</span></div>
+</div>
+<a class="cta" href="/">내 매장은 이 기준 대비 어디인지 무료로 진단하기</a>
+<footer>본 페이지는 네이버 통합검색 결과에서 수집한 공개 정보를 집계한 것이며, 순위는 검색자의 위치에 따라 다르게 표시될 수 있습니다.<br>상호 : 인터피아드 · 사업자등록번호 : 124-35-56796 · 문의 : interpiad@gmail.com</footer>
+</div></body></html>`);
+});
+
+app.get('/sitemap.xml', async (c) => {
+  const db = c.env.DB;
+  const keywords = db ? await eligibleRankKeywords(db) : [];
+  const urls = [
+    '  <url><loc>https://dongbiz.com/</loc><changefreq>weekly</changefreq><priority>1.0</priority></url>',
+    '  <url><loc>https://dongbiz.com/rank</loc><changefreq>daily</changefreq><priority>0.8</priority></url>',
+    ...keywords.map(k =>
+      `  <url><loc>https://dongbiz.com/rank/${encodeURIComponent(k)}</loc><changefreq>weekly</changefreq><priority>0.6</priority></url>`
+    ),
+  ].join('\n');
+  return c.body(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls}\n</urlset>`, 200, {
+    'Content-Type': 'application/xml; charset=utf-8',
+  });
 });
 
 const ADMIN_STYLE = `
