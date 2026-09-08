@@ -17,6 +17,18 @@
   <meta property="og:image" content="https://dongbiz.com/og-image.png">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="naver-site-verification" content="fce8a104f79010590feaf77e868d05a69909c506" />
+  <script type="application/ld+json">
+  {"@context":"https://schema.org","@type":"FAQPage","mainEntity":[
+    {"@type":"Question","name":"이 점수가 네이버 공식 순위인가요?","acceptedAnswer":{"@type":"Answer","text":"아닙니다. 네이버 공개 페이지에서 수집한 데이터를 기준으로 한 자체 분석이며, 네이버 공식 API나 랭킹 로직이 아닙니다. 참고용으로 봐주세요."}},
+    {"@type":"Question","name":"무엇을 입력하면 되나요?","acceptedAnswer":{"@type":"Answer","text":"상호, 전화번호, 네이버 지도 공유주소, 플레이스 고유 숫자 중 아무거나 하나면 됩니다. 로그인이나 설치는 필요 없습니다."}},
+    {"@type":"Question","name":"왜 키워드까지 입력해야 하나요?","acceptedAnswer":{"@type":"Answer","text":"경쟁 상대가 키워드마다 다르기 때문입니다. 같은 매장이라도 '안산 맛집'에서 겨루는 곳과 '상록구 칼국수'에서 겨루는 곳은 완전히 다릅니다. 내 매장만 점검하는 진단으로는 얼마나 더 해야 하는지를 알 수 없습니다."}},
+    {"@type":"Question","name":"표시된 순위가 제가 아는 것과 다릅니다.","acceptedAnswer":{"@type":"Answer","text":"네이버는 검색하는 사람의 위치에 따라 순위를 보정합니다. 본 진단은 위치 가산점이 없는 원본 데이터를 기준으로 측정하므로, 매장 근처에서 직접 검색했을 때와 차이가 날 수 있습니다."}},
+    {"@type":"Question","name":"하루에 몇 번까지 진단할 수 있나요?","acceptedAnswer":{"@type":"Answer","text":"하루 3회입니다. 진단 1건마다 네이버에서 여러 매장 정보를 실시간으로 수집하기 때문에 서버 부담을 고려한 제한입니다."}},
+    {"@type":"Question","name":"경쟁사와 1:1 비교도 되나요?","acceptedAnswer":{"@type":"Answer","text":"됩니다. 키워드 입력창 아래 특정 경쟁사와 1:1로 바로 비교하기를 열고 상대 매장을 입력하면, 상위 평균 대신 그 매장과 직접 비교합니다."}},
+    {"@type":"Question","name":"리뷰 수가 실제와 다릅니다.","acceptedAnswer":{"@type":"Answer","text":"네이버가 집계하는 방문자 리뷰는 영수증·예약 리뷰를 합산한 값이라, 앱 화면에 보이는 후기 개수와 다를 수 있습니다. 블로그·카페 리뷰도 검색에 노출된 글 기준이라 실제 작성 수와 차이가 납니다."}},
+    {"@type":"Question","name":"정말 무료인가요?","acceptedAnswer":{"@type":"Answer","text":"네. 진단 결과 확인까지 전부 무료이고 로그인도 없습니다. 결과를 바탕으로 한 개선 컨설팅만 별도 상담으로 진행합니다."}}
+  ]}
+  </script>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -372,6 +384,66 @@
     </div>
   </main>
 
+  <!-- 사용 방법 + FAQ. 검색엔진이 이 페이지가 무엇에 관한 페이지인지 판단할 본문이
+       거의 없었다(§6.1.0). 리포트 모드에서는 applyReportMode()가 통째로 숨긴다. -->
+  <section id="homeContent" class="no-print w-full max-w-3xl mx-auto px-6 pb-16">
+    <h2 class="text-xl font-black text-slate-900 mb-6 text-center">2분이면 끝나는 진단, 이렇게 진행됩니다</h2>
+    <ol class="space-y-4 mb-14">
+      <li class="bg-white border border-slate-200 rounded-2xl p-5">
+        <h3 class="font-bold text-slate-900 mb-1"><span class="text-blue-600">1.</span> 내 매장 찾기</h3>
+        <p class="text-sm text-slate-600 leading-relaxed">상호나 전화번호를 입력하면 네이버에 등록된 우리 매장 정보를 불러옵니다. 지도 공유주소나 플레이스 숫자 ID로도 됩니다.</p>
+      </li>
+      <li class="bg-white border border-slate-200 rounded-2xl p-5">
+        <h3 class="font-bold text-slate-900 mb-1"><span class="text-blue-600">2.</span> 목표 키워드 입력</h3>
+        <p class="text-sm text-slate-600 leading-relaxed">상위노출을 원하는 키워드를 입력합니다. 예: 안산 상록구 맛집</p>
+      </li>
+      <li class="bg-white border border-slate-200 rounded-2xl p-5">
+        <h3 class="font-bold text-slate-900 mb-1"><span class="text-blue-600">3.</span> 상위 6곳과 격차 확인</h3>
+        <p class="text-sm text-slate-600 leading-relaxed">그 키워드로 실제 검색해 1페이지 상위 6곳을 수집하고, 리뷰·사진·키워드 투표 등 지표를 내 매장과 비교합니다. 어느 항목이 얼마나 부족한지 숫자로 나옵니다.</p>
+      </li>
+      <li class="bg-white border border-slate-200 rounded-2xl p-5">
+        <h3 class="font-bold text-slate-900 mb-1"><span class="text-blue-600">4.</span> 개선 후 다시 진단</h3>
+        <p class="text-sm text-slate-600 leading-relaxed">리뷰나 사진을 보강한 뒤 같은 키워드로 재진단하면 격차가 얼마나 줄었는지 확인할 수 있습니다.</p>
+      </li>
+    </ol>
+
+    <h2 class="text-xl font-black text-slate-900 mb-6 text-center">자주 묻는 질문</h2>
+    <div class="space-y-2">
+      <details class="bg-white border border-slate-200 rounded-2xl p-5">
+        <summary class="font-bold text-slate-800 cursor-pointer text-sm">이 점수가 네이버 공식 순위인가요?</summary>
+        <p class="text-sm text-slate-600 leading-relaxed mt-3">아닙니다. 네이버 공개 페이지에서 수집한 데이터를 기준으로 한 자체 분석이며, 네이버 공식 API나 랭킹 로직이 아닙니다. 참고용으로 봐주세요.</p>
+      </details>
+      <details class="bg-white border border-slate-200 rounded-2xl p-5">
+        <summary class="font-bold text-slate-800 cursor-pointer text-sm">무엇을 입력하면 되나요?</summary>
+        <p class="text-sm text-slate-600 leading-relaxed mt-3">상호, 전화번호, 네이버 지도 공유주소, 플레이스 고유 숫자 중 아무거나 하나면 됩니다. 로그인이나 설치는 필요 없습니다.</p>
+      </details>
+      <details class="bg-white border border-slate-200 rounded-2xl p-5">
+        <summary class="font-bold text-slate-800 cursor-pointer text-sm">왜 키워드까지 입력해야 하나요?</summary>
+        <p class="text-sm text-slate-600 leading-relaxed mt-3">경쟁 상대가 키워드마다 다르기 때문입니다. 같은 매장이라도 '안산 맛집'에서 겨루는 곳과 '상록구 칼국수'에서 겨루는 곳은 완전히 다릅니다. 내 매장만 점검하는 진단으로는 "얼마나 더 해야 하는지"를 알 수 없습니다.</p>
+      </details>
+      <details class="bg-white border border-slate-200 rounded-2xl p-5">
+        <summary class="font-bold text-slate-800 cursor-pointer text-sm">표시된 순위가 제가 아는 것과 다릅니다.</summary>
+        <p class="text-sm text-slate-600 leading-relaxed mt-3">네이버는 검색하는 사람의 위치에 따라 순위를 보정합니다. 본 진단은 위치 가산점이 없는 원본 데이터를 기준으로 측정하므로, 매장 근처에서 직접 검색했을 때와 차이가 날 수 있습니다.</p>
+      </details>
+      <details class="bg-white border border-slate-200 rounded-2xl p-5">
+        <summary class="font-bold text-slate-800 cursor-pointer text-sm">하루에 몇 번까지 진단할 수 있나요?</summary>
+        <p class="text-sm text-slate-600 leading-relaxed mt-3">하루 3회입니다. 진단 1건마다 네이버에서 여러 매장 정보를 실시간으로 수집하기 때문에 서버 부담을 고려한 제한입니다.</p>
+      </details>
+      <details class="bg-white border border-slate-200 rounded-2xl p-5">
+        <summary class="font-bold text-slate-800 cursor-pointer text-sm">경쟁사와 1:1 비교도 되나요?</summary>
+        <p class="text-sm text-slate-600 leading-relaxed mt-3">됩니다. 키워드 입력창 아래 "특정 경쟁사와 1:1로 바로 비교하기"를 열고 상대 매장을 입력하면, 상위 평균 대신 그 매장과 직접 비교합니다.</p>
+      </details>
+      <details class="bg-white border border-slate-200 rounded-2xl p-5">
+        <summary class="font-bold text-slate-800 cursor-pointer text-sm">리뷰 수가 실제와 다릅니다.</summary>
+        <p class="text-sm text-slate-600 leading-relaxed mt-3">네이버가 집계하는 방문자 리뷰는 영수증·예약 리뷰를 합산한 값이라, 앱 화면에 보이는 후기 개수와 다를 수 있습니다. 블로그·카페 리뷰도 검색에 노출된 글 기준이라 실제 작성 수와 차이가 납니다.</p>
+      </details>
+      <details class="bg-white border border-slate-200 rounded-2xl p-5">
+        <summary class="font-bold text-slate-800 cursor-pointer text-sm">정말 무료인가요?</summary>
+        <p class="text-sm text-slate-600 leading-relaxed mt-3">네. 진단 결과 확인까지 전부 무료이고 로그인도 없습니다. 결과를 바탕으로 한 개선 컨설팅만 별도 상담으로 진행합니다.</p>
+      </details>
+    </div>
+  </section>
+
   <!-- 푸터 -->
   <footer class="w-full border-t border-slate-200 py-6 text-center text-xs text-slate-500 space-y-1">
     <p><a href="/rank" class="font-bold text-blue-600 hover:underline">키워드별 네이버 플레이스 순위 현황 보기</a></p>
@@ -585,6 +657,7 @@
     function applyReportMode() {
       document.querySelector('header')?.classList.add('hidden');
       document.getElementById('step2Input')?.classList.add('hidden');
+      document.getElementById('homeContent')?.classList.add('hidden');
       document.querySelectorAll('[onclick="shareCurrentPage()"]').forEach(el => el.classList.add('hidden'));
 
       const ctaBtn = document.getElementById('ctaCallBtn');
