@@ -834,7 +834,7 @@ app.get('/guide/:slug', (c) => {
 <p class="crumb"><a href="/">홈</a> › <a href="/guide">가이드</a></p>
 <h1>${escapeHtml(g.title)}</h1>
 <p class="meta">최종 수정 ${escapeHtml(g.updated)}</p>
-<p class="answer">${escapeHtml(g.answer)}</p>
+<p class="answer" id="aeo-direct-answer">${escapeHtml(g.answer)}</p>
 ${body}
 ${g.sources?.length ? `<h2>이 글에 쓰인 숫자의 출처</h2>
 <ul class="sources">${g.sources.map(s => `<li>${escapeHtml(s)}</li>`).join('')}</ul>` : ''}
