@@ -721,15 +721,20 @@ const ADMIN_STYLE = `
   .nav { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; background: #fff; border-radius: 12px; padding: 10px 12px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); font-size: 13px; }
   .nav a { font-weight: 700; padding: 5px 10px; border-radius: 8px; }
   .nav a:hover { background: #EFF6FF; text-decoration: none; }
-  .nav .sep { color: #94A3B8; font-size: 11px; margin: 0 4px 0 10px; border-left: 1px solid #E2E8F0; padding-left: 12px; }
+  .nav .sep { color: #94A3B8; font-size: 11px; font-weight: 700; margin: 0 4px 0 10px; border-left: 1px solid #E2E8F0; padding-left: 12px; }
+  .nav .sep.first { margin-left: 0; border-left: none; padding-left: 0; }
 `;
 
 // 관리자 페이지 공통 상단 메뉴. 페이지마다 흩어져 있던 이동 링크를 한 줄로 모은다.
 const ADMIN_NAV = `<nav class="nav">
+  <span class="sep first">진단</span>
   <a href="/admin">진단 리스트</a>
+  <a href="/admin?view=report">개선리포트</a>
+  <span class="sep">분석</span>
   <a href="/admin/analytics">지표 분석</a>
   <a href="/admin/analytics/market">시장 통계</a>
-  <a href="/rank" target="_blank">공개 순위 페이지</a>
+  <span class="sep">공개</span>
+  <a href="/rank" target="_blank">순위 페이지</a>
   <span class="sep">수동 수집</span>
   <a href="/admin/cron/run/fixed-a">고정A</a>
   <a href="/admin/cron/run/fixed-b">고정B</a>
@@ -750,15 +755,21 @@ app.get('/admin', async (c) => {
     LIMIT 100
   `).all();
 
+  // ?view=report — 같은 목록을 "PDF로 저장할 리포트 찾기" 관점으로 보여준다. 별도 목록
+  // 페이지를 새로 만들면 진단 리스트와 내용이 같은 화면이 둘로 갈라진다.
+  const isReport = c.req.query('view') === 'report';
+
   const rows = (results as any[]).map(r => `
     <tr>
       <td>${escapeHtml(fmtKST(r.created_at))}</td>
-      <td><b>${escapeHtml(r.name || r.place_id)}</b><br><span style="color:#94A3B8">${escapeHtml(r.category || '')}</span></td>
+      <td>${isReport
+        ? `<a href="/admin/${escapeHtml(r.share_id)}/report" target="_blank"><b>${escapeHtml(r.name || r.place_id)}</b></a>`
+        : `<b>${escapeHtml(r.name || r.place_id)}</b>`}<br><span style="color:#94A3B8">${escapeHtml(r.category || '')}</span></td>
       <td>${escapeHtml(r.target_keyword)}</td>
       <td>${r.my_rank ? r.my_rank + '위' : '순위밖'}</td>
       <td><span class="badge grade-${escapeHtml(r.grade_reviews || 'B')}">${escapeHtml(r.grade_reviews || '-')}</span></td>
       <td>${r.my_reviews ?? '-'} / 평균 ${r.top10_avg_reviews ?? '-'}</td>
-      <td><a href="/admin/${escapeHtml(r.share_id)}">원본데이터</a> · <a href="/share/${escapeHtml(r.share_id)}" target="_blank">공유링크</a></td>
+      <td><a href="/admin/${escapeHtml(r.share_id)}/report" target="_blank"><b>개선리포트</b></a> · <a href="/admin/${escapeHtml(r.share_id)}">원본데이터</a> · <a href="/share/${escapeHtml(r.share_id)}" target="_blank">공유링크</a></td>
     </tr>`).join('');
 
   const bypassUrl = c.env.RATE_LIMIT_BYPASS_TOKEN ? `/?bypass=${c.env.RATE_LIMIT_BYPASS_TOKEN}` : null;
@@ -770,10 +781,8 @@ app.get('/admin', async (c) => {
     <span>🔓 일일 검색한도 우회 링크 (본인 테스트용, 외부 공유 금지)</span>
     <a href="${bypassUrl}" style="color:#93C5FD;font-weight:700;" target="_blank">${escapeHtml(bypassUrl)}</a>
   </div>` : ''}
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
-    <h1 style="margin:0;">진단 리스트 (최신 ${(results as any[]).length}건)</h1>
-    <a href="/admin/analytics" style="font-size:13px;font-weight:700;">📈 상위노출 지표 분석 →</a>
-  </div>
+  <h1>${isReport ? '개선리포트' : '진단 리스트'} (최신 ${(results as any[]).length}건)</h1>
+  ${isReport ? '<p style="font-size:13px;color:#64748B;margin:8px 0 16px;">매장명을 누르면 주석이 달린 개선리포트가 열린다. 그 화면 우측 상단의 인쇄 버튼으로 PDF 저장 후 고객에게 전달한다.</p>' : ''}
   <table>
     <thead><tr><th>일시</th><th>매장</th><th>키워드</th><th>내 순위</th><th>등급</th><th>리뷰(내/평균)</th><th></th></tr></thead>
     <tbody>${rows || '<tr><td colspan="7">아직 진단 기록이 없습니다.</td></tr>'}</tbody>
@@ -807,10 +816,7 @@ app.get('/admin/analytics', async (c) => {
   return c.html(`<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><title>동네비즈 관리자 - 지표 분석</title><style>${ADMIN_STYLE}</style></head>
 <body>
   ${ADMIN_NAV}
-  <div style="display:flex;justify-content:space-between;align-items:center;">
-    <h1 style="margin:0;">상위노출 지표 분석 — 키워드별 관측 현황</h1>
-    <a href="/admin/analytics/market" style="font-size:13px;font-weight:700;">🏙️ 리서치 키워드 시장 통계 →</a>
-  </div>
+  <h1>상위노출 지표 분석 — 키워드별 관측 현황</h1>
   <p style="font-size:13px;color:#64748B;margin:8px 0 16px;">업체별 순위 추이(순위가 바뀔 때 어떤 지표가 같이 움직였는지). 사용자가 직접 진단한 키워드는 한 번 검색하면 매일 자동 재수집되고(cron, 최대 ${CRON_KEYWORD_BATCH_LIMIT}개/일), 강남맛집 등 고정 리서치 키워드 8개도 매일 상위 7곳씩 여기 함께 쌓인다. 위 "시장 통계"는 같은 고정 키워드의 평균/중앙값 집계만 따로 본다.</p>
   <table>
     <thead><tr><th>키워드</th><th>스냅샷</th><th>관측 기간</th><th>자동수집</th><th></th></tr></thead>
