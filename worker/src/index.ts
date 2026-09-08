@@ -609,6 +609,20 @@ app.get('/rank/:keyword', async (c) => {
     <td class="num">${Number(r.photo_count || 0).toLocaleString()}</td>
   </tr>`).join('');
 
+  // 순위표를 기계가 읽을 수 있게 ItemList로 노출. 사실(순위·상호명)만 담는다 —
+  // 평가·등급을 구조화 데이터로 내보내면 §6.1.3의 신용 리스크가 그대로 따라온다.
+  const jsonLd = JSON.stringify({
+    '@context': 'https://schema.org',
+    '@type': 'ItemList',
+    name: `${keyword} 네이버 플레이스 순위`,
+    numberOfItems: top.length,
+    itemListElement: top.map(r => ({
+      '@type': 'ListItem',
+      position: r.rank,
+      name: r.place_name || '',
+    })),
+  }).replace(/</g, '\\u003c');
+
   const title = `${keyword} 네이버 플레이스 순위 TOP ${top.length}`;
   const desc = `'${keyword}' 검색 시 상위 노출된 업체 ${top.length}곳의 순위와 방문자 리뷰·블로그 리뷰·사진 수 실측 데이터입니다. 기준일 ${fmtKST(latest).slice(0, 10)}.`;
   // 띄어쓰기 변형으로 들어와도 대표 표기 한 곳으로 canonical을 모아 중복 색인을 막는다.
@@ -626,8 +640,9 @@ app.get('/rank/:keyword', async (c) => {
 <meta property="og:url" content="${escapeHtml(canonical)}">
 <meta property="og:image" content="https://dongbiz.com/og-image.png">
 <meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">${jsonLd}</script>
 <style>${RANK_PAGE_STYLE}</style></head><body><div class="wrap">
-<header><a href="/">동네비즈</a></header>
+<header><a href="/">동네비즈</a> · <a href="/rank">키워드 전체 목록</a></header>
 <h1>${escapeHtml(title)}</h1>
 <p class="meta">기준일 ${escapeHtml(fmtKST(latest))} · 관측 ${batches.length}회 누적 · 네이버 통합검색 플레이스 영역 기준</p>
 <table>
