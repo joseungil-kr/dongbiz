@@ -517,14 +517,29 @@ function median(nums: number[]): number {
   return s.length % 2 === 0 ? Math.round((s[mid - 1] + s[mid]) / 2) : s[mid];
 }
 
+// "안산 상록구맛집"과 "안산 상록구 맛집"은 사용자 입력만 다를 뿐 같은 검색이라 같은 페이지가
+// 된다. 띄어쓰기를 지운 값을 동일성 기준으로 삼는다.
+function normKeyword(k: string): string {
+  return k.replace(/\s+/g, '');
+}
+
 // 공개 자격: 관측 2회 이상. 1회짜리는 집계·변동성이 성립하지 않아 껍데기 페이지가 된다(§6.1.2).
+// 띄어쓰기만 다른 표기는 관측이 많은 쪽 하나만 대표로 공개한다 — 안 그러면 내용이 같은
+// 페이지가 여러 장 색인되어 §6.1.3의 대량생성 리스크를 스스로 키운다.
 async function eligibleRankKeywords(db: D1Database): Promise<string[]> {
   const { results } = await db.prepare(`
-    SELECT keyword FROM rank_snapshots
-    GROUP BY keyword HAVING COUNT(DISTINCT collected_at) >= 2
-    ORDER BY MAX(collected_at) DESC
+    SELECT keyword, COUNT(DISTINCT collected_at) AS obs, MAX(collected_at) AS last_at
+    FROM rank_snapshots
+    GROUP BY keyword HAVING obs >= 2
+    ORDER BY last_at DESC
   `).all();
-  return (results as any[]).map(r => r.keyword);
+  const rep = new Map<string, any>();
+  for (const r of results as any[]) {
+    const key = normKeyword(r.keyword);
+    const cur = rep.get(key);
+    if (!cur || r.obs > cur.obs) rep.set(key, r);
+  }
+  return [...rep.values()].map(r => r.keyword);
 }
 
 app.get('/rank', async (c) => {
@@ -596,7 +611,10 @@ app.get('/rank/:keyword', async (c) => {
 
   const title = `${keyword} 네이버 플레이스 순위 TOP ${top.length}`;
   const desc = `'${keyword}' 검색 시 상위 노출된 업체 ${top.length}곳의 순위와 방문자 리뷰·블로그 리뷰·사진 수 실측 데이터입니다. 기준일 ${fmtKST(latest).slice(0, 10)}.`;
-  const canonical = `https://dongbiz.com/rank/${encodeURIComponent(keyword)}`;
+  // 띄어쓰기 변형으로 들어와도 대표 표기 한 곳으로 canonical을 모아 중복 색인을 막는다.
+  const reps = await eligibleRankKeywords(db);
+  const repKeyword = reps.find(k => normKeyword(k) === normKeyword(keyword)) || keyword;
+  const canonical = `https://dongbiz.com/rank/${encodeURIComponent(repKeyword)}`;
 
   return c.html(`<!DOCTYPE html><html lang="ko"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
