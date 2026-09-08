@@ -3,6 +3,9 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <!-- 브라우저 강제 다크모드(크롬 Auto Dark Theme·삼성인터넷) 옵트아웃. 미선언 시 흰 배경 입력창이
+       임의로 반전돼 글자가 안 보이는 문제가 실제로 발생함. -->
+  <meta name="color-scheme" content="only light" />
   <title>동네비즈 (dongbiz.com) - 상위노출 Gap 실시간 진단</title>
   <meta name="description" content="상호나 전화번호만 넣으면 우리 매장의 네이버 상위노출 현주소를 진단합니다. 원하는 키워드에서 1페이지 상위 6개 업체와 실시간으로 비교하는 무료 진단 서비스.">
   <link rel="canonical" href="https://dongbiz.com/">
@@ -19,6 +22,22 @@
   <style>
     @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
     * { font-family: 'Pretendard', sans-serif; }
+    :root { color-scheme: only light; }
+    /* 2단계 입력 카드: 1단계 결과와 같은 흰 카드라 페이지의 일부처럼 묻혀서 놓치는 문제 →
+       파란 테두리 + 옅은 배경으로 분리하고, 나타날 때 3번만 맥박쳐서 시선을 끈다. */
+    .step-highlight {
+      background: linear-gradient(180deg, #EFF6FF 0%, #FFFFFF 55%);
+      border: 2px solid #2563EB;
+    }
+    /* 카드가 화면 아래쪽(1단계 결과 밑)에 있어서, 나타나는 순간 애니메이션을 돌리면
+       사용자가 스크롤해 내려왔을 땐 이미 끝나 있다. 실제로 보일 때 재생시킨다. */
+    .step-pulse { animation: stepPulse 1.6s ease-out 3; }
+    @keyframes stepPulse {
+      0%   { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.45); }
+      70%  { box-shadow: 0 0 0 16px rgba(37, 99, 235, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0); }
+    }
+    @media (prefers-reduced-motion: reduce) { .step-pulse { animation: none; } }
     .glass-card {
       background: rgba(255, 255, 255, 0.85);
       backdrop-filter: blur(16px);
@@ -191,12 +210,13 @@
     </div>
 
     <!-- [2단계] 키워드 입력 -->
-    <div id="step2Input" class="hidden w-full max-w-2xl glass-card p-6 md:p-8 rounded-3xl shadow-xl shadow-slate-200/50 mb-8">
-      <label class="block text-sm font-bold text-slate-700 mb-1.5 text-left">2단계: 상위노출 원하는 키워드를 입력하세요(하루 3번까지 검색가능)</label>
+    <div id="step2Input" class="hidden w-full max-w-2xl step-highlight p-6 md:p-8 rounded-3xl shadow-xl shadow-blue-200/50 mb-8">
+      <span class="inline-block text-[11px] font-black tracking-wide text-white bg-blue-600 rounded-full px-3 py-1 mb-2">STEP 2</span>
+      <label class="block text-base font-black text-slate-900 mb-1.5 text-left">👇 상위노출 원하는 키워드를 입력하세요 <span class="text-xs font-bold text-slate-400">(하루 3번까지 검색가능)</span></label>
       <p class="text-xs text-slate-500 mb-3 text-left">1페이지 상위 6개 업체 평균과 내 매장을 실시간으로 비교합니다.</p>
       <div class="flex flex-col sm:flex-row gap-3">
         <input type="text" id="keywordInput" placeholder="예: 안산 스카이차, 상록구 맛집"
-          class="flex-1 px-4 py-4 rounded-2xl border border-slate-200 bg-white text-base font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600 transition" />
+          class="flex-1 px-4 py-4 rounded-2xl border-2 border-blue-300 bg-white text-base font-semibold text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-600 transition" />
         <button id="gapBtn" onclick="runGap()" class="w-full sm:w-auto px-8 py-4 bg-slate-900 hover:bg-slate-800 text-white font-bold text-base rounded-2xl shadow-lg transition transform active:scale-95 flex items-center justify-center gap-2">
           <span>Gap 분석</span>
           <i class="fa-solid fa-chart-line text-sm"></i>
@@ -595,6 +615,15 @@
         wrap.appendChild(btn);
       });
     }
+
+    // 2단계 카드가 실제로 화면에 들어왔을 때 한 번만 맥박 애니메이션 재생.
+    new IntersectionObserver((entries, obs) => {
+      entries.forEach(e => {
+        if (!e.isIntersecting) return;
+        e.target.classList.add('step-pulse');
+        obs.unobserve(e.target);
+      });
+    }, { threshold: 0.4 }).observe(document.getElementById('step2Input'));
 
     function setVal(id, val, empty = '데이터 없음') {
       document.getElementById(id).innerText = (val === 0) ? '0' : (val || empty);
