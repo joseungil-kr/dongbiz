@@ -738,6 +738,9 @@ const GUIDE_STYLE = `
   .more{margin-top:36px;border-top:1px solid #E2E8F0;padding-top:18px}
   .more h2{font-size:14px;margin:0 0 10px}
   .more a{display:block;background:#fff;border:1px solid #E2E8F0;border-radius:12px;padding:12px 14px;margin-bottom:8px;text-decoration:none;color:#0F172A;font-weight:700;font-size:14px}
+  .sources{background:#F1F5F9;border-radius:12px;padding:14px 14px 14px 30px;margin:0;font-size:13px;color:#475569}
+  .sources li{margin-bottom:7px}
+  .sources li:last-child{margin-bottom:0}
   footer{margin-top:32px;font-size:11px;color:#94A3B8;border-top:1px solid #E2E8F0;padding-top:16px}
 `;
 
@@ -776,6 +779,12 @@ app.get('/guide/:slug', (c) => {
     `<a href="/guide/${encodeURIComponent(x.slug)}">${escapeHtml(x.title)}</a>`
   ).join('');
 
+  const org = {
+    '@type': 'Organization',
+    name: '동네비즈',
+    url: 'https://dongbiz.com/',
+    logo: 'https://dongbiz.com/og-image.png',
+  };
   const jsonLd = JSON.stringify([
     {
       '@context': 'https://schema.org',
@@ -784,8 +793,18 @@ app.get('/guide/:slug', (c) => {
       description: g.desc,
       datePublished: g.updated,
       dateModified: g.updated,
-      publisher: { '@type': 'Organization', name: '동네비즈' },
+      publisher: org,
       mainEntityOfPage: canonical,
+    },
+    { '@context': 'https://schema.org', ...org },
+    {
+      '@context': 'https://schema.org',
+      '@type': 'BreadcrumbList',
+      itemListElement: [
+        { '@type': 'ListItem', position: 1, name: '홈', item: 'https://dongbiz.com/' },
+        { '@type': 'ListItem', position: 2, name: '가이드', item: 'https://dongbiz.com/guide' },
+        { '@type': 'ListItem', position: 3, name: g.title, item: canonical },
+      ],
     },
     {
       '@context': 'https://schema.org',
@@ -817,6 +836,8 @@ app.get('/guide/:slug', (c) => {
 <p class="meta">최종 수정 ${escapeHtml(g.updated)}</p>
 <p class="answer">${escapeHtml(g.answer)}</p>
 ${body}
+${g.sources?.length ? `<h2>이 글에 쓰인 숫자의 출처</h2>
+<ul class="sources">${g.sources.map(s => `<li>${escapeHtml(s)}</li>`).join('')}</ul>` : ''}
 <h2>자주 묻는 질문</h2>
 ${faqs}
 <a class="cta" href="/">내 매장은 지금 몇 위인지 무료로 진단하기</a>
