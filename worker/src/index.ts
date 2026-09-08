@@ -570,7 +570,31 @@ app.get('/rank', async (c) => {
 </div></body></html>`);
 });
 
-function renderRankPageHtml(keyword: string, rows: any[], repKeyword: string): string {
+// 형제 링크용 관련 키워드 선정(사양 §1.7 횡 연결). 허브에서만 링크되면 페이지가 늘수록
+// 허브 한 곳에 링크가 몰려 개별 링크 가치가 희석된다. 글자 2-gram이 많이 겹치는 순으로
+// 고르면 "안산 도배" 옆에 "안산 상록구맛집"처럼 같은 지역이 자연스럽게 붙는다.
+function relatedKeywords(current: string, all: string[], limit = 8): string[] {
+  const grams = (s: string) => {
+    const t = normKeyword(s);
+    const out = new Set<string>();
+    for (let i = 0; i < t.length - 1; i++) out.add(t.slice(i, i + 2));
+    return out;
+  };
+  const mine = grams(current);
+  return all
+    .filter(k => normKeyword(k) !== normKeyword(current))
+    .map((k, i) => {
+      const g = grams(k);
+      let hit = 0;
+      for (const x of g) if (mine.has(x)) hit++;
+      return { k, hit, i };
+    })
+    .sort((a, b) => b.hit - a.hit || a.i - b.i) // 겹침 우선, 같으면 최근 관측 순서 유지
+    .slice(0, limit)
+    .map(r => r.k);
+}
+
+function renderRankPageHtml(keyword: string, rows: any[], repKeyword: string, siblings: string[] = []): string {
   const batches = [...new Set(rows.map(r => r.collected_at))].sort();
   const latest = batches[batches.length - 1];
   const top = rows.filter(r => r.collected_at === latest && r.rank).sort((a, b) => a.rank - b.rank).slice(0, TOP_N);
@@ -656,6 +680,9 @@ function renderRankPageHtml(keyword: string, rows: any[], repKeyword: string): s
   <div class="card"><span class="k">최근 관측 ${recent.length}회 중 순위 변동</span><span class="v">${changes}회</span></div>
 </div>
 <a class="cta" href="/">내 매장은 이 기준 대비 어디인지 무료로 진단하기</a>
+${siblings.length ? `<h2>다른 키워드 순위 현황</h2>
+<div class="kwlist">${siblings.map(k => `<a href="/rank/${encodeURIComponent(k)}">${escapeHtml(k)}</a>`).join('')}</div>
+<p class="meta" style="margin-top:12px"><a href="/rank">전체 키워드 목록 보기</a> · <a href="/guide">플레이스 상위노출 가이드</a></p>` : ''}
 <footer>본 페이지는 네이버 통합검색 결과에서 수집한 공개 정보를 집계한 것이며, 순위는 검색자의 위치에 따라 다르게 표시될 수 있습니다.<br>상호 : 인터피아드 · 사업자등록번호 : 124-35-56796 · 문의 : interpiad@gmail.com</footer>
 </div></body></html>`;
 }
@@ -685,7 +712,7 @@ app.get('/rank/:keyword', async (c) => {
   // 띄어쓰기 변형으로 들어와도 대표 표기 한 곳으로 canonical을 모아 중복 색인을 막는다.
   const reps = await eligibleRankKeywords(db);
   const repKeyword = reps.find(k => normKeyword(k) === normKeyword(keyword)) || keyword;
-  return c.html(renderRankPageHtml(keyword, rows, repKeyword));
+  return c.html(renderRankPageHtml(keyword, rows, repKeyword, relatedKeywords(keyword, reps)));
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
