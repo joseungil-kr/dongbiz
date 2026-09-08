@@ -904,11 +904,16 @@ app.get('/admin/analytics/:keyword', async (c) => {
     return c.html(`<!DOCTYPE html><html><body style="font-family:sans-serif;padding:24px;"><a href="/admin/analytics">&larr; 목록으로</a><p>데이터가 없습니다.</p></body></html>`, 404);
   }
 
-  // place_id별로 그룹화
+  // place_id별로 그룹화. 진단을 유발한 내 매장이 그 키워드 순위권 밖이면 rank가 NULL로
+  // 기록되는데(logRankSnapshots), 그대로 두면 선은 안 그려지고 범례에만 남아 오해를 준다.
+  // 한 번도 순위에 든 적 없는 업체는 차트에서 제외한다.
   const byPlace = new Map<string, any[]>();
   for (const s of snapshots) {
     if (!byPlace.has(s.place_id)) byPlace.set(s.place_id, []);
     byPlace.get(s.place_id)!.push(s);
+  }
+  for (const [id, rows] of byPlace) {
+    if (!rows.some(r => Number(r.rank) > 0)) byPlace.delete(id);
   }
 
   // Chart.js용 순위 추이 데이터 (순위는 낮을수록 좋으므로 y축 반전)
