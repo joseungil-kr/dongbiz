@@ -877,7 +877,7 @@
       });
     }
 
-    // 5단계 등급: 진입선(10위) 실측값이 있으면 그 기준, 없으면(검색결과 10곳 미만) 상위 평균 기준.
+    // 5단계 등급: 진입선(TOP_N위) 실측값이 있으면 그 기준, 없으면(검색결과가 그보다 적으면) 상위 평균 기준.
     function gradeTier(ratio) {
       if (ratio >= 1.2) return { label: '최우수', badge: 'text-emerald-700 bg-emerald-100' };
       if (ratio >= 1.0) return { label: '우수', badge: 'text-emerald-600 bg-emerald-50' };
@@ -895,7 +895,7 @@
     }
 
     // 지표별 "상위 업체 대비 내 위치" 카드. §2 확정: 절망 유발 절대값 대신 부족분 + 채울 방법.
-    // "확인불가"로 방치하지 않고, 10위 값이 없을 땐 상위 평균 기준으로라도 5단계 등급을 매긴다.
+    // "확인불가"로 방치하지 않고, 진입선 값이 없을 땐 상위 평균 기준으로라도 5단계 등급을 매긴다.
     const BOUNDARY_NOTE_KEYS = {
       '영수증(방문자) 리뷰': 'visitorReviews',
       '블로그/카페 리뷰': 'blogReviews',
@@ -906,7 +906,12 @@
     function boundaryCard(label, unit, myVal, avgVal, boundaryVal, tooltip, compareName) {
       const has = boundaryVal !== null && boundaryVal !== undefined;
       const denom = has ? boundaryVal : avgVal;
-      const tier = compareName ? compareTier(Number(myVal), Number(avgVal)) : gradeTier(myVal / Math.max(denom, 0.01));
+      // 비교 대상이 전부 0이면 우열을 가릴 근거 자체가 없다. ratio 기반 gradeTier는 이 경우
+      // 0/0.01=0으로 계산해 "위험"으로 오판정하고 결핍 요약에까지 올라간다.
+      const allZero = Number(myVal) === 0 && Number(avgVal) === 0 && (!has || Number(boundaryVal) === 0);
+      const tier = allZero
+        ? { label: '집계 없음', badge: 'text-slate-500 bg-slate-100' }
+        : (compareName ? compareTier(Number(myVal), Number(avgVal)) : gradeTier(myVal / Math.max(denom, 0.01)));
       const cleared = has && myVal >= boundaryVal;
       // 1:1 직접비교 땐 경쟁사가 1곳뿐이라 "상위평균"과 "진입선"이 항상 같은 값 — 열 하나로 합쳐서 보여준다.
       const compareCols = compareName
@@ -916,7 +921,7 @@
         : `
           <div><span class="block text-slate-400">내 매장</span><span class="font-black text-slate-900">${Number(myVal).toLocaleString()}${unit}</span></div>
           <div><span class="block text-slate-400">상위 평균</span><span class="font-black text-slate-500">${Math.round(Number(avgVal)).toLocaleString()}${unit}</span></div>
-          <div><span class="block text-slate-400">10위(진입선)</span><span class="font-black text-blue-600">${has ? Number(boundaryVal).toLocaleString() + unit : '데이터 부족'}</span></div>`;
+          <div><span class="block text-slate-400">6위(진입선)</span><span class="font-black text-blue-600">${has ? Number(boundaryVal).toLocaleString() + unit : '데이터 부족'}</span></div>`;
       const html = `
         <div class="bg-white rounded-2xl p-4 border ${cleared ? 'border-emerald-200' : 'border-slate-200'} shadow-sm">
           <div class="flex justify-between items-center mb-2">
@@ -924,7 +929,8 @@
             <span class="text-[11px] font-bold px-2 py-0.5 rounded-lg ${tier.badge}">${tier.label}</span>
           </div>
           <div class="grid ${compareName ? 'grid-cols-2' : 'grid-cols-3'} gap-2 text-center text-[11px]">${compareCols}</div>
-          ${!has && !compareName ? '<p class="text-[10px] text-slate-400 mt-1.5">검색결과가 10곳 미만이라 상위 평균 기준으로 등급을 매겼습니다.</p>' : ''}
+          ${allZero ? '<p class="text-[10px] text-slate-400 mt-1.5">내 매장과 비교 대상 모두 집계값이 0이라 우열을 판정하지 않았습니다.</p>' : ''}
+          ${!has && !compareName && !allZero ? '<p class="text-[10px] text-slate-400 mt-1.5">검색결과가 6곳 미만이라 상위 평균 기준으로 등급을 매겼습니다.</p>' : ''}
           ${IS_REPORT && BOUNDARY_NOTE_KEYS[label] ? reportNoteHtml(BOUNDARY_NOTE_KEYS[label]) : ''}
         </div>`;
       return { html, label, isDeficient: tier.label === '개선필요' || tier.label === '위험' || tier.label === '약점' };
