@@ -195,7 +195,7 @@
           </div>
 
           <!-- SECTION 5 -->
-          <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm md:col-span-1 flex flex-col justify-center">
+          <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm md:col-span-1">
             <h4 class="text-xs font-bold text-blue-600 mb-3 border-b pb-2">편의시설 & 결제 수단</h4>
             <div class="mb-3">
               <span class="block text-[11px] font-bold text-slate-400 mb-1">제공 편의시설</span>
@@ -467,7 +467,7 @@
     // 사용자(조승일)가 직접 첨삭 확정한 항목별 개선 주석. 판정 로직(뱃지·등급)은 이미 있는
     // 렌더링 함수가 그대로 하고, 리포트 모드일 때 이 문구만 각 항목 아래에 덧붙인다.
     const REPORT_NOTES = {
-      news: '최근소식은 최소 2개월에 1건, 이상적으로는 월 1건 이상 등록하는 것이 좋습니다. 오래 방치된 매장보다 자주 관리되는 매장에 네이버가 가산점을 부여합니다.',
+      news: "네이버 새소식 등록은 플레이스 '활성화지표'에 큰 영향을 끼치는 요소입니다. 최소 2개월에 1건, 이상적으로는 월 1건 이상 주기적으로 등록하시는 것을 추천드립니다.",
       talk: '톡톡·스마트콜 연동은 실제로 존재하는 네이버 가산점 요소입니다. 사용에 특별한 거부감이 없다면 두 기능 모두 켜두는 것을 권장드립니다.',
       descLen: '상세설명은 상위노출을 원하는 키워드를 포함해 1,000자 이상 작성하는 것이 좋습니다. 친절한 말투와 함께 위치·주차·대표메뉴 등 고객이 궁금해할 정보를 빠짐없이 담아주세요.',
       directions: '정보가 비어 있으면 고객이 매장을 찾기 어렵고, 네이버 정보 완성도 평가에서도 감점 요인이 됩니다. 지하철역·정류장 등 눈에 띄는 기준점으로 안내문을 등록해주세요.',
@@ -482,19 +482,27 @@
       voteCount: '리뷰 작성 시 고객이 고르는 항목으로, 매장 강점을 네이버에 직접 알리는 지표입니다. 리뷰 요청 시 관련 키워드도 함께 눌러달라고 안내해보세요.',
       photoCount: '사진이 많을수록 신뢰도와 체류시간이 올라갑니다. 메뉴·내부·외관·주차 등 다양한 각도로 꾸준히 추가해주세요.',
       reviewScore: '평점은 신규 고객이 방문을 결정하는 가장 큰 기준입니다. 낮은 평점 리뷰엔 정중히 답글을 남겨 관리 중임을 보여주는 것이 좋습니다.',
+      reviewScoreHidden: "업종에 따라 '비공개'가 기본값인 경우가 있습니다. 이 경우 0건으로 집계되더라도 본 리포트 평가와 상관없이 모두 동일한 점수를 확보하니 걱정하지 않으셔도 됩니다.",
     };
 
     function reportNoteHtml(key) {
-      return REPORT_NOTES[key] ? `<div class="report-note">${REPORT_NOTES[key]}</div>` : '';
+      return REPORT_NOTES[key] ? `<div class="report-note" data-note-key="${key}">${REPORT_NOTES[key]}</div>` : '';
     }
 
     // 실제 데이터 바로 아래에 주석을 붙인다 — el의 행(li 또는 flex 컨테이너) 뒤에 삽입.
-    function addReportNote(elId, key) {
-      if (!IS_REPORT) return;
+    // show=false면 붙이지 않는다. 이미 정상인 항목까지 설명이 달리면 읽을 게 늘어나
+    // 정작 고쳐야 할 항목이 묻힌다.
+    function addReportNote(elId, key, show = true) {
+      if (!IS_REPORT || !show) return;
       const el = document.getElementById(elId);
       if (!el) return;
-      const anchor = el.closest('li') || el.closest('div.flex') || el;
-      if (anchor.nextElementSibling && anchor.nextElementSibling.classList.contains('report-note')) return;
+      let anchor = el.closest('li') || el.closest('div.flex') || el;
+      // 한 행에 주석이 여러 개 붙을 수 있으므로 이미 붙은 것들 뒤로 이어 붙인다.
+      // 같은 주석이 두 번 들어가는 것만 막는다.
+      while (anchor.nextElementSibling && anchor.nextElementSibling.classList.contains('report-note')) {
+        if (anchor.nextElementSibling.dataset.noteKey === key) return;
+        anchor = anchor.nextElementSibling;
+      }
       anchor.insertAdjacentHTML('afterend', reportNoteHtml(key));
     }
     const bypassQS = bypassToken ? `&bypass=${encodeURIComponent(bypassToken)}` : '';
@@ -791,12 +799,15 @@
       guiNewsEl.className = 'font-bold text-[12px] ' + (isNewsRecent.startsWith('✅') ? 'text-emerald-600' : 'text-rose-500');
 
       // 리포트 모드: 실제 데이터 행 바로 아래에 개선 주석을 붙인다
-      addReportNote('guiAuditTime', 'bizHour');
-      addReportNote('guiAuditMenu', 'menuImage');
-      addReportNote('guiAuditDir', 'directions');
-      addReportNote('guiAuditAmen', 'conveniences');
-      addReportNote('guiAuditDesc', 'descMissing');
+      // 누락된 항목에만 주석을 단다. '정상 등록(양호)'에는 설명이 필요 없다.
+      addReportNote('guiAuditTime', 'bizHour', my.seoMetrics.isBizHourMissing === true);
+      addReportNote('guiAuditMenu', 'menuImage', my.seoMetrics.isMenuImageMissing === true);
+      addReportNote('guiAuditDir', 'directions', my.seoMetrics.isAccessorMissing === true);
+      addReportNote('guiAuditAmen', 'conveniences', my.seoMetrics.isConveniencesMissing === true);
+      addReportNote('guiAuditDesc', 'descMissing', my.seoMetrics.isDescriptionMissing === true);
       addReportNote('guiScore', 'reviewScore');
+      // 평점이 '비공개'로 뜨면 감점처럼 보이지만 업종 기본값인 경우가 많아 따로 안심시킨다.
+      addReportNote('guiScore', 'reviewScoreHidden', !my.seoMetrics.visitorReviewsScore);
       // 대표키워드 5개 채움 + 설명 매칭은 guiRepKwdAudit 하나가 두 케이스를 같이 판정하므로 주석도 함께 붙인다
       if (IS_REPORT) {
         const kwdRow = kwdAuditEl.closest('li');
@@ -1047,9 +1058,10 @@
       missingRow('defiAuditAmen', my.seoMetrics.isConveniencesMissing);
       missingRow('defiAuditDesc', my.seoMetrics.isDescriptionMissing);
       // 찾아오는길/편의시설/상세설명 누락 주석은 SECTION 7(guiAuditDir 등)에 이미 붙였으므로 중복 방지 차원에서 여기선 생략
-      addReportNote('defiNews', 'news');
-      addReportNote('defiCall', 'talk');
-      addReportNote('defiDesc', 'descLen');
+      // 이미 충족된 항목엔 주석을 달지 않는다 — 고쳐야 할 것만 남겨야 리포트가 읽힌다.
+      addReportNote('defiNews', 'news', !newsText.startsWith('✅'));
+      addReportNote('defiCall', 'talk', callScore < 2);
+      addReportNote('defiDesc', 'descLen', descLen < 1000);
 
       // 타이틀은 항상 '매장 생명력 지수' 고정 — 개별 항목(예: 톡톡/스마트콜 모두 연동됨)이 정상인데도
       // 종합 상태(경고 등)가 타이틀에 섞여 그 항목까지 문제로 보이는 걸 막는다. 상태는 별도 배지로만.
