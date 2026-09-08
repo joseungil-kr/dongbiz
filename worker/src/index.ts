@@ -569,30 +569,10 @@ app.get('/rank', async (c) => {
 </div></body></html>`);
 });
 
-app.get('/rank/:keyword', async (c) => {
-  const db = c.env.DB;
-  if (!db) return c.text('DB 미설정', 500);
-  const keyword = decodeURIComponent(c.req.param('keyword'));
-
-  const { results } = await db.prepare(`
-    SELECT place_id, place_name, rank, visitor_reviews, blog_reviews, vote_count, photo_count, collected_at
-    FROM rank_snapshots WHERE keyword = ? ORDER BY collected_at ASC
-  `).bind(keyword).all();
-  const rows = results as any[];
-
+function renderRankPageHtml(keyword: string, rows: any[], repKeyword: string, demo = false): string {
   const batches = [...new Set(rows.map(r => r.collected_at))].sort();
-  if (batches.length < 2) {
-    return c.html(`<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8">
-<meta name="robots" content="noindex"><title>준비 중 | 동네비즈</title><style>${RANK_PAGE_STYLE}</style></head>
-<body><div class="wrap"><header><a href="/">동네비즈</a></header>
-<h1>아직 공개 기준을 채우지 못한 키워드입니다</h1>
-<p class="meta">관측이 2회 이상 누적되면 공개됩니다.</p>
-<a class="cta" href="/">내 매장 순위 무료로 진단하기</a></div></body></html>`, 404);
-  }
-
   const latest = batches[batches.length - 1];
   const top = rows.filter(r => r.collected_at === latest && r.rank).sort((a, b) => a.rank - b.rank).slice(0, TOP_N);
-  if (top.length === 0) return c.text('데이터 없음', 404);
 
   // 변동성: 연속한 관측 사이에 상위권 순서가 바뀐 횟수. 개별 업체의 궤적은 드러내지 않는
   // 집계 수치라 §6.1.2b의 1단에 해당한다.
@@ -615,9 +595,12 @@ app.get('/rank/:keyword', async (c) => {
   const tableRows = top.map(r => {
     const before = prevRank.get(r.place_id);
     const up = before ? before - r.rank : 0;
-    const riseBlock = up > 0
-      ? `<div class="rise"><span class="riseBadge">▲ ${up}</span> 최근 순위 상승 이슈가 있었습니다. <a class="riseBtn" href="/">내 매장 진단하기</a></div>`
-      : '';
+    let riseBlock = '';
+    if (!before) {
+      riseBlock = `<div class="rise"><span class="riseBadge">▲ 신규</span> 최근 순위권에 새로 진입했습니다. <a class="riseBtn" href="/">내 매장 진단하기</a></div>`;
+    } else if (up > 0) {
+      riseBlock = `<div class="rise"><span class="riseBadge">▲ ${up}</span> 최근 순위 상승 이슈가 있었습니다. <a class="riseBtn" href="/">내 매장 진단하기</a></div>`;
+    }
     return `<tr>
     <td class="rank">${r.rank}</td>
     <td>${escapeHtml(r.place_name || '-')}${riseBlock}</td>
@@ -644,15 +627,13 @@ app.get('/rank/:keyword', async (c) => {
 
   const title = `${keyword} 네이버 플레이스 순위 TOP ${top.length}`;
   const desc = `'${keyword}' 검색 시 상위 노출된 업체 ${top.length}곳의 순위와 방문자 리뷰·블로그 리뷰·사진 수 실측 데이터입니다. 기준일 ${fmtKST(latest).slice(0, 10)}.`;
-  // 띄어쓰기 변형으로 들어와도 대표 표기 한 곳으로 canonical을 모아 중복 색인을 막는다.
-  const reps = await eligibleRankKeywords(db);
-  const repKeyword = reps.find(k => normKeyword(k) === normKeyword(keyword)) || keyword;
   const canonical = `https://dongbiz.com/rank/${encodeURIComponent(repKeyword)}`;
 
-  return c.html(`<!DOCTYPE html><html lang="ko"><head>
+  return `<!DOCTYPE html><html lang="ko"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${escapeHtml(title)} | 동네비즈</title>
 <meta name="description" content="${escapeHtml(desc)}">
+${demo ? '<meta name="robots" content="noindex">' : ''}
 <link rel="canonical" href="${escapeHtml(canonical)}">
 <meta property="og:title" content="${escapeHtml(title)}">
 <meta property="og:description" content="${escapeHtml(desc)}">
@@ -662,6 +643,7 @@ app.get('/rank/:keyword', async (c) => {
 <script type="application/ld+json">${jsonLd}</script>
 <style>${RANK_PAGE_STYLE}</style></head><body><div class="wrap">
 <header><a href="/">동네비즈</a> · <a href="/rank">키워드 전체 목록</a></header>
+${demo ? '<p style="background:#FEE2E2;color:#991B1B;padding:10px 12px;border-radius:10px;font-size:12px;font-weight:700;margin-top:14px">확인용 가상 데이터 페이지입니다. 실제 수집 결과가 아니며 확인 후 삭제됩니다.</p>' : ''}
 <h1>${escapeHtml(title)}</h1>
 <p class="meta">기준일 ${escapeHtml(fmtKST(latest))} · 관측 ${batches.length}회 누적 · 네이버 통합검색 플레이스 영역 기준</p>
 <table>
@@ -676,7 +658,54 @@ app.get('/rank/:keyword', async (c) => {
 </div>
 <a class="cta" href="/">내 매장은 이 기준 대비 어디인지 무료로 진단하기</a>
 <footer>본 페이지는 네이버 통합검색 결과에서 수집한 공개 정보를 집계한 것이며, 순위는 검색자의 위치에 따라 다르게 표시될 수 있습니다.<br>상호 : 인터피아드 · 사업자등록번호 : 124-35-56796 · 문의 : interpiad@gmail.com</footer>
-</div></body></html>`);
+</div></body></html>`;
+}
+
+// ⚠️ 임시 확인용 라우트. 순위 상승/신규진입 배지를 실제 데이터가 쌓이기 전에 눈으로 보려고
+// 만든 가상 페이지다. 확인 끝나면 이 라우트를 통째로 지울 것.
+// `/rank/:keyword`보다 먼저 등록해야 :keyword에 잡히지 않는다.
+app.get('/rank/__demo', (c) => {
+  const t1 = '2026-09-07 04:00:00';
+  const t2 = '2026-09-08 04:00:00';
+  const mk = (collected_at: string, place_id: string, place_name: string, rank: number, v: number) =>
+    ({ collected_at, place_id, place_name, rank, visitor_reviews: v, blog_reviews: v * 2, vote_count: v * 3, photo_count: v });
+  const rows = [
+    mk(t1, 'p1', '가상금은방', 1, 820), mk(t1, 'p2', '가상주얼리', 2, 610),
+    mk(t1, 'p3', '가상골드', 3, 540), mk(t1, 'p4', '가상다이아', 4, 480),
+    mk(t1, 'p5', '가상실버', 5, 300), mk(t1, 'p6', '가상체인', 6, 210),
+    mk(t2, 'p1', '가상금은방', 1, 840), mk(t2, 'p5', '가상실버', 2, 360),
+    mk(t2, 'p2', '가상주얼리', 3, 620), mk(t2, 'p7', '가상신규공방', 4, 150),
+    mk(t2, 'p3', '가상골드', 5, 545), mk(t2, 'p4', '가상다이아', 6, 486),
+  ];
+  return c.html(renderRankPageHtml('가상키워드', rows, '가상키워드', true));
+});
+
+app.get('/rank/:keyword', async (c) => {
+  const db = c.env.DB;
+  if (!db) return c.text('DB 미설정', 500);
+  const keyword = decodeURIComponent(c.req.param('keyword'));
+
+  const { results } = await db.prepare(`
+    SELECT place_id, place_name, rank, visitor_reviews, blog_reviews, vote_count, photo_count, collected_at
+    FROM rank_snapshots WHERE keyword = ? ORDER BY collected_at ASC
+  `).bind(keyword).all();
+  const rows = results as any[];
+
+  const batches = new Set(rows.map(r => r.collected_at));
+  const hasRanked = rows.some(r => r.rank);
+  if (batches.size < 2 || !hasRanked) {
+    return c.html(`<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8">
+<meta name="robots" content="noindex"><title>준비 중 | 동네비즈</title><style>${RANK_PAGE_STYLE}</style></head>
+<body><div class="wrap"><header><a href="/">동네비즈</a></header>
+<h1>아직 공개 기준을 채우지 못한 키워드입니다</h1>
+<p class="meta">관측이 2회 이상 누적되면 공개됩니다.</p>
+<a class="cta" href="/">내 매장 순위 무료로 진단하기</a></div></body></html>`, 404);
+  }
+
+  // 띄어쓰기 변형으로 들어와도 대표 표기 한 곳으로 canonical을 모아 중복 색인을 막는다.
+  const reps = await eligibleRankKeywords(db);
+  const repKeyword = reps.find(k => normKeyword(k) === normKeyword(keyword)) || keyword;
+  return c.html(renderRankPageHtml(keyword, rows, repKeyword));
 });
 
 app.get('/sitemap.xml', async (c) => {
