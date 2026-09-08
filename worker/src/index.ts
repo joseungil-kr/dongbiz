@@ -570,7 +570,7 @@ app.get('/admin/analytics', async (c) => {
     <h1 style="margin:0;">상위노출 지표 분석 — 키워드별 관측 현황</h1>
     <a href="/admin/analytics/market" style="font-size:13px;font-weight:700;">🏙️ 리서치 키워드 시장 통계 →</a>
   </div>
-  <p style="font-size:13px;color:#64748B;margin:8px 0 16px;">여기는 사용자가 직접 진단한 업체별 순위 추이. 키워드는 한 번 검색하면 매일 자동으로 재수집된다(cron, 최대 ${CRON_KEYWORD_BATCH_LIMIT}개/일). 강남맛집 등 고정 리서치 키워드 8개는 이 목록에 안 나오고 위 "시장 통계"에 별도로 쌓인다(업체 식별 없이 평균/중앙값만).</p>
+  <p style="font-size:13px;color:#64748B;margin:8px 0 16px;">업체별 순위 추이(순위가 바뀔 때 어떤 지표가 같이 움직였는지). 사용자가 직접 진단한 키워드는 한 번 검색하면 매일 자동 재수집되고(cron, 최대 ${CRON_KEYWORD_BATCH_LIMIT}개/일), 강남맛집 등 고정 리서치 키워드 8개도 매일 상위 7곳씩 여기 함께 쌓인다. 위 "시장 통계"는 같은 고정 키워드의 평균/중앙값 집계만 따로 본다.</p>
   <table>
     <thead><tr><th>키워드</th><th>스냅샷</th><th>관측 기간</th><th>자동수집</th><th></th></tr></thead>
     <tbody>${rows || '<tr><td colspan="5">아직 수집된 데이터가 없습니다.</td></tr>'}</tbody>
@@ -860,7 +860,7 @@ async function collectKeywordSnapshot(env: Env, keyword: string) {
   }
 }
 
-// 리서치용 고정 키워드 수집: 특정 업체 식별 없이 상위권의 평균/중앙값/비율만 한 행 기록.
+// 리서치용 고정 키워드 수집: 상위권의 평균/중앙값/비율 집계 한 행 + 업체별 세부 스냅샷.
 // 4개씩 한 Worker 호출에서 순차 처리하므로(§CRON_KEYWORD_BATCH_LIMIT 주석 참조) 10곳
 // 전부 긁으면 한도를 넘길 수 있어 7곳으로 낮췄다 — 집계 통계 용도라 정밀도 손실은 적다.
 async function collectKeywordAggregateStats(env: Env, keyword: string, category: 'general' | 'medical') {
@@ -872,6 +872,18 @@ async function collectKeywordAggregateStats(env: Env, keyword: string, category:
     const topIds = ranking.slice(0, 7);
     const stores = await Promise.all(topIds.map(id => scrapeFullPlaceMetrics(id)));
     if (stores.length === 0) return;
+
+    // 집계만으로는 "순위가 바뀔 때 뭐가 같이 바뀌었나"를 못 본다(§9.1 리버스엔지니어링 취지).
+    // 어차피 위에서 다 긁어온 데이터라 batch 쓰기 1회(subrequest +1)만 추가하면 된다.
+    stores.forEach((s: any) => {
+      s.rankFactors = { ...keywordMatch(keyword, s.name, s.category), distanceFromMeKm: null };
+    });
+    await insertRankSnapshotRows(
+      db,
+      keyword,
+      stores.map((s: any, i: number) => ({ id: s.placeId, name: s.name, rank: i + 1, s })),
+      'cron'
+    );
 
     const metricKeys: Array<[string, boolean]> = [
       ['visitorReviewsTotal', false], ['cafeBlogReviewsTotal', false],
