@@ -3,6 +3,7 @@ import { cors } from 'hono/cors';
 import { basicAuth } from 'hono/basic-auth';
 import { scrapeFullPlaceMetrics, getOrganicRanking } from './scraper';
 import { notify, logDiagnosisToSheet, NotifyEnv } from './notify';
+import { GUIDES, GUIDE_BY_SLUG } from './guides';
 
 export interface Env extends NotifyEnv {
   DB: D1Database;
@@ -641,7 +642,7 @@ function renderRankPageHtml(keyword: string, rows: any[], repKeyword: string): s
 <meta name="twitter:card" content="summary_large_image">
 <script type="application/ld+json">${jsonLd}</script>
 <style>${RANK_PAGE_STYLE}</style></head><body><div class="wrap">
-<header><a href="/">동네비즈</a> · <a href="/rank">키워드 전체 목록</a></header>
+<header><a href="/">동네비즈</a> · <a href="/rank">키워드 전체 목록</a> · <a href="/guide">상위노출 가이드</a></header>
 <h1>${escapeHtml(title)}</h1>
 <p class="meta">기준일 ${escapeHtml(fmtKST(latest))} · 관측 ${batches.length}회 누적 · 네이버 통합검색 플레이스 영역 기준</p>
 <table>
@@ -687,11 +688,126 @@ app.get('/rank/:keyword', async (c) => {
   return c.html(renderRankPageHtml(keyword, rows, repKeyword));
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// 가이드 문서 (검색·AI 인용 유입용). 본문은 src/guides.ts.
+// 첫 문단이 질문에 바로 답하는 Answer-First 구조이고, 전 페이지가 허브와 서로 링크된다.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const GUIDE_STYLE = `
+  *{box-sizing:border-box} body{margin:0;padding:0;font-family:-apple-system,'Pretendard',sans-serif;color:#0F172A;background:#F8FAFC;line-height:1.75}
+  .wrap{max-width:760px;margin:0 auto;padding:24px 16px 56px}
+  header a{font-weight:800;color:#2563EB;text-decoration:none;font-size:15px}
+  .crumb{font-size:12px;color:#94A3B8;margin:18px 0 6px}
+  .crumb a{color:#64748B;text-decoration:none}
+  h1{font-size:24px;margin:0 0 8px;line-height:1.35;letter-spacing:-0.02em}
+  .meta{font-size:12px;color:#94A3B8;margin-bottom:22px}
+  .answer{background:#EFF6FF;border-left:4px solid #2563EB;border-radius:0 12px 12px 0;padding:16px 18px;font-size:15px;font-weight:600;color:#1E3A8A;margin-bottom:28px}
+  h2{font-size:17px;margin:32px 0 10px;letter-spacing:-0.01em}
+  p{margin:0 0 12px;font-size:15px;color:#334155}
+  details{background:#fff;border:1px solid #E2E8F0;border-radius:12px;padding:14px 16px;margin-bottom:8px}
+  summary{font-weight:700;cursor:pointer;font-size:14px}
+  details p{margin:10px 0 0;font-size:14px}
+  .cta{display:block;margin:32px 0 0;background:#0F172A;color:#fff;text-align:center;padding:16px;border-radius:14px;font-weight:800;text-decoration:none}
+  .more{margin-top:36px;border-top:1px solid #E2E8F0;padding-top:18px}
+  .more h2{font-size:14px;margin:0 0 10px}
+  .more a{display:block;background:#fff;border:1px solid #E2E8F0;border-radius:12px;padding:12px 14px;margin-bottom:8px;text-decoration:none;color:#0F172A;font-weight:700;font-size:14px}
+  footer{margin-top:32px;font-size:11px;color:#94A3B8;border-top:1px solid #E2E8F0;padding-top:16px}
+`;
+
+app.get('/guide', (c) => {
+  const items = GUIDES.map(g =>
+    `<a href="/guide/${encodeURIComponent(g.slug)}">${escapeHtml(g.title)}<span style="display:block;font-weight:500;color:#64748B;font-size:12px;margin-top:3px">${escapeHtml(g.desc)}</span></a>`
+  ).join('');
+  return c.html(`<!DOCTYPE html><html lang="ko"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>네이버 플레이스 상위노출 가이드 | 동네비즈</title>
+<meta name="description" content="네이버 플레이스 순위 조회, 순위 하락 원인, 대표키워드 설정, 상위노출 방법을 실측 데이터를 근거로 정리한 가이드입니다.">
+<link rel="canonical" href="https://dongbiz.com/guide">
+<style>${GUIDE_STYLE}</style></head><body><div class="wrap">
+<header><a href="/">동네비즈</a></header>
+<h1>네이버 플레이스 상위노출 가이드</h1>
+<p class="meta">실제로 수집한 순위·지표 데이터를 근거로 씁니다.</p>
+<div class="more" style="border:none;padding:0;margin-top:8px">${items}</div>
+<a class="cta" href="/">내 매장 순위 무료로 진단하기</a>
+<footer>상호 : 인터피아드 · 사업자등록번호 : 124-35-56796 · 문의 : interpiad@gmail.com</footer>
+</div></body></html>`);
+});
+
+app.get('/guide/:slug', (c) => {
+  const slug = decodeURIComponent(c.req.param('slug'));
+  const g = GUIDE_BY_SLUG.get(slug);
+  if (!g) return c.notFound();
+
+  const canonical = `https://dongbiz.com/guide/${encodeURIComponent(g.slug)}`;
+  const body = g.sections.map(s =>
+    `<h2>${escapeHtml(s.h)}</h2>${s.p.map(t => `<p>${escapeHtml(t)}</p>`).join('')}`
+  ).join('');
+  const faqs = g.faqs.map(f =>
+    `<details><summary>${escapeHtml(f.q)}</summary><p>${escapeHtml(f.a)}</p></details>`
+  ).join('');
+  const others = GUIDES.filter(x => x.slug !== g.slug).map(x =>
+    `<a href="/guide/${encodeURIComponent(x.slug)}">${escapeHtml(x.title)}</a>`
+  ).join('');
+
+  const jsonLd = JSON.stringify([
+    {
+      '@context': 'https://schema.org',
+      '@type': 'Article',
+      headline: g.title,
+      description: g.desc,
+      datePublished: g.updated,
+      dateModified: g.updated,
+      publisher: { '@type': 'Organization', name: '동네비즈' },
+      mainEntityOfPage: canonical,
+    },
+    {
+      '@context': 'https://schema.org',
+      '@type': 'FAQPage',
+      mainEntity: g.faqs.map(f => ({
+        '@type': 'Question',
+        name: f.q,
+        acceptedAnswer: { '@type': 'Answer', text: f.a },
+      })),
+    },
+  ]).replace(/</g, '\\u003c');
+
+  return c.html(`<!DOCTYPE html><html lang="ko"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${escapeHtml(g.title)} | 동네비즈</title>
+<meta name="description" content="${escapeHtml(g.desc)}">
+<link rel="canonical" href="${escapeHtml(canonical)}">
+<meta property="og:type" content="article">
+<meta property="og:title" content="${escapeHtml(g.title)}">
+<meta property="og:description" content="${escapeHtml(g.desc)}">
+<meta property="og:url" content="${escapeHtml(canonical)}">
+<meta property="og:image" content="https://dongbiz.com/og-image.png">
+<meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">${jsonLd}</script>
+<style>${GUIDE_STYLE}</style></head><body><div class="wrap">
+<header><a href="/">동네비즈</a></header>
+<p class="crumb"><a href="/">홈</a> › <a href="/guide">가이드</a></p>
+<h1>${escapeHtml(g.title)}</h1>
+<p class="meta">최종 수정 ${escapeHtml(g.updated)}</p>
+<p class="answer">${escapeHtml(g.answer)}</p>
+${body}
+<h2>자주 묻는 질문</h2>
+${faqs}
+<a class="cta" href="/">내 매장은 지금 몇 위인지 무료로 진단하기</a>
+<div class="more"><h2>함께 보면 좋은 글</h2>${others}
+<a href="/rank">키워드별 네이버 플레이스 순위 현황</a></div>
+<footer>본 문서는 네이버 공개 정보를 수집·집계한 자체 분석에 근거하며, 네이버 공식 자료가 아닙니다.<br>상호 : 인터피아드 · 사업자등록번호 : 124-35-56796 · 문의 : interpiad@gmail.com</footer>
+</div></body></html>`);
+});
+
 app.get('/sitemap.xml', async (c) => {
   const db = c.env.DB;
   const keywords = db ? await eligibleRankKeywords(db) : [];
   const urls = [
     '  <url><loc>https://dongbiz.com/</loc><changefreq>weekly</changefreq><priority>1.0</priority></url>',
+    '  <url><loc>https://dongbiz.com/guide</loc><changefreq>weekly</changefreq><priority>0.9</priority></url>',
+    ...GUIDES.map(g =>
+      `  <url><loc>https://dongbiz.com/guide/${encodeURIComponent(g.slug)}</loc><lastmod>${g.updated}</lastmod><changefreq>monthly</changefreq><priority>0.8</priority></url>`
+    ),
     '  <url><loc>https://dongbiz.com/rank</loc><changefreq>daily</changefreq><priority>0.8</priority></url>',
     ...keywords.map(k =>
       `  <url><loc>https://dongbiz.com/rank/${encodeURIComponent(k)}</loc><changefreq>weekly</changefreq><priority>0.6</priority></url>`
