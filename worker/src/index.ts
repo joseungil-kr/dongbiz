@@ -508,6 +508,11 @@ const RANK_PAGE_STYLE = `
   footer{margin-top:32px;font-size:11px;color:#94A3B8;border-top:1px solid #E2E8F0;padding-top:16px}
   .kwlist{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
   .kwlist a{background:#fff;border:1px solid #E2E8F0;border-radius:999px;padding:7px 14px;font-size:13px;font-weight:600;color:#334155;text-decoration:none}
+  .rise{margin-top:7px;font-size:11px;color:#B45309;display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+  .riseBadge{background:#FEF3C7;color:#B45309;font-weight:800;padding:2px 8px;border-radius:999px;animation:riseUp 1.8s ease-in-out infinite}
+  .riseBtn{background:#0F172A;color:#fff;font-weight:700;padding:4px 10px;border-radius:8px;text-decoration:none;white-space:nowrap}
+  @keyframes riseUp{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
+  @media (prefers-reduced-motion:reduce){.riseBadge{animation:none}}
 `;
 
 function median(nums: number[]): number {
@@ -598,16 +603,30 @@ app.get('/rank/:keyword', async (c) => {
   let changes = 0;
   for (let i = 1; i < recent.length; i++) if (orderOf(recent[i]) !== orderOf(recent[i - 1])) changes++;
 
+  // 직전 관측 대비 순위 변동. **상승만** 표시한다 — 특정 업체명 옆에 "하락"이 검색에 노출되면
+  // §6.1.3 리스크 2(신용훼손 시비)가 그대로 살아난다. 또한 "왜 올랐는지"(지표 델타)는 계속
+  // 감춘다. 사실만 보여주고 해석은 진단으로 유도하는 게 §6.1.2b의 취지다.
+  const prevBatch = batches[batches.length - 2];
+  const prevRank = new Map<string, number>();
+  for (const r of rows) if (r.collected_at === prevBatch && r.rank) prevRank.set(r.place_id, r.rank);
+
   const reviews = top.map(r => Number(r.visitor_reviews) || 0);
   const boundary = reviews[reviews.length - 1];
-  const tableRows = top.map(r => `<tr>
+  const tableRows = top.map(r => {
+    const before = prevRank.get(r.place_id);
+    const up = before ? before - r.rank : 0;
+    const riseBlock = up > 0
+      ? `<div class="rise"><span class="riseBadge">▲ ${up}</span> 최근 순위 상승 이슈가 있었습니다. <a class="riseBtn" href="/">내 매장 진단하기</a></div>`
+      : '';
+    return `<tr>
     <td class="rank">${r.rank}</td>
-    <td>${escapeHtml(r.place_name || '-')}</td>
+    <td>${escapeHtml(r.place_name || '-')}${riseBlock}</td>
     <td class="num">${Number(r.visitor_reviews || 0).toLocaleString()}</td>
     <td class="num">${Number(r.blog_reviews || 0).toLocaleString()}</td>
     <td class="num">${Number(r.vote_count || 0).toLocaleString()}</td>
     <td class="num">${Number(r.photo_count || 0).toLocaleString()}</td>
-  </tr>`).join('');
+  </tr>`;
+  }).join('');
 
   // 순위표를 기계가 읽을 수 있게 ItemList로 노출. 사실(순위·상호명)만 담는다 —
   // 평가·등급을 구조화 데이터로 내보내면 §6.1.3의 신용 리스크가 그대로 따라온다.
