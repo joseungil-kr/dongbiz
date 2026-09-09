@@ -509,6 +509,14 @@ const RANK_PAGE_STYLE = `
   footer{margin-top:32px;font-size:11px;color:#94A3B8;border-top:1px solid #E2E8F0;padding-top:16px}
   .kwlist{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
   .kwlist a{background:#fff;border:1px solid #E2E8F0;border-radius:999px;padding:7px 14px;font-size:13px;font-weight:600;color:#334155;text-decoration:none}
+  .answer{background:#EFF6FF;border-left:4px solid #2563EB;border-radius:0 12px 12px 0;padding:15px 17px;font-size:14px;font-weight:600;color:#1E3A8A;margin:0 0 22px;line-height:1.75}
+  p{font-size:14px;color:#334155;line-height:1.8;margin:0 0 12px}
+  details{background:#fff;border:1px solid #E2E8F0;border-radius:12px;padding:13px 15px;margin-bottom:8px}
+  summary{font-weight:700;cursor:pointer;font-size:13px}
+  details p{margin:9px 0 0;font-size:13px}
+  .sources{background:#F1F5F9;border-radius:12px;padding:14px 14px 14px 30px;margin:0;font-size:12px;color:#475569;line-height:1.7}
+  .sources li{margin-bottom:6px}
+  .sources li:last-child{margin-bottom:0}
   .rise{margin-top:7px;font-size:11px;color:#B45309;display:flex;flex-wrap:wrap;align-items:center;gap:6px}
   .riseBadge{background:#FEF3C7;color:#B45309;font-weight:800;padding:2px 8px;border-radius:999px;animation:riseUp 1.8s ease-in-out infinite}
   .riseBtn{background:#0F172A;color:#fff;font-weight:700;padding:4px 10px;border-radius:8px;text-decoration:none;white-space:nowrap}
@@ -715,11 +723,70 @@ function renderRankPageHtml(keyword: string, rows: any[], repKeyword: string, si
       name: r.place_name || '',
     })),
   }).replace(/</g, '\\u003c');
+  const faqLd = (list: { q: string; a: string }[]) => JSON.stringify({
+    '@context': 'https://schema.org',
+    '@type': 'FAQPage',
+    mainEntity: list.map(f => ({ '@type': 'Question', name: f.q, acceptedAnswer: { '@type': 'Answer', text: f.a } })),
+  }).replace(/</g, '\\u003c');
 
   // 제목에 '플레이스·지표·상위노출' 같은 업계 용어를 반드시 넣는다(§6.4.2). "제주도 맛집 순위"로
   // 두면 맛집 찾는 소비자가 유입돼 이탈률만 오르고 전환은 0이다. 걸러낼 신호가 필요하다.
   const tier = keywordTier(boundary);
   const mid = median(reviews);
+
+  // ── 문서 구조화(§6.4.5). 문구를 pool에서 고르는 것이 아니라 **데이터 조건이 어떤 문단을
+  // 쓸지 결정**한다. 그래서 키워드마다 실제로 다른 글이 되고, 조건이 안 맞으면 그 문단은
+  // 아예 생기지 않는다(빈 내용을 채우려 문장을 늘리지 않는다).
+  const midBlog = median(top.map(r => Number(r.blog_reviews) || 0));
+  const midPhoto = median(top.map(r => Number(r.photo_count) || 0));
+  const midVote = median(top.map(r => Number(r.vote_count) || 0));
+  const reviewLeader = [...top].sort((a, b) => (Number(b.visitor_reviews) || 0) - (Number(a.visitor_reviews) || 0))[0];
+  const rankLeader = top[0];
+  const leaderMismatch = reviewLeader && rankLeader && reviewLeader.place_id !== rankLeader.place_id;
+
+  const tierAdvice = tier.label === '틈새형'
+    ? `${keyword}는 상위권 리뷰 수가 낮아 리뷰 개수만으로는 순위가 갈리지 않는 구간입니다. 이런 키워드에서는 영업시간·찾아오는 길·상세설명처럼 등록만 하면 되는 항목을 채우는 쪽이 훨씬 빠릅니다. 다만 진입이 쉬운 만큼 검색량도 적으므로, 이 키워드 하나만으로는 방문자 수가 크게 늘지 않습니다.`
+    : tier.label === '중간형'
+      ? `${keyword}는 꾸준히 관리하면 닿는 구간입니다. 다만 몇 달 단위의 시간이 필요하고, 그동안 경쟁 업체도 움직이므로 진입선을 고정된 목표가 아니라 계속 올라가는 기준으로 봐야 합니다. 소상공인에게 가장 현실적인 목표가 대개 이 구간입니다.`
+      : `${keyword}는 리뷰만으로 따라잡기 어려운 구간입니다. 진입선이 ${boundary.toLocaleString()}건이므로 하루 10건씩 모아도 계산상 ${Math.max(1, Math.round(boundary / 10 / 30))}개월이 걸립니다. 정면으로 붙기보다 같은 손님이 칠 법한 더 좁은 키워드를 먼저 잡아 실제 방문을 만드는 순서가 현실적입니다.`;
+
+  const changeBlock = changes > 0
+    ? `<p>최근 관측 ${recent.length}회 동안 이 키워드의 상위 ${top.length}위권에서 자리가 바뀐 것은 ${changes}회입니다. 순위가 고정되어 있지 않다는 뜻이며, 관리하지 않으면 밀리고 관리하면 올라갈 여지가 함께 있다는 신호입니다.</p>`
+    : '';
+
+  const leaderBlock = leaderMismatch
+    ? `<p>눈여겨볼 점이 있습니다. 이 키워드에서 방문자 리뷰가 가장 많은 곳은 ${escapeHtml(reviewLeader.place_name || '-')}(${Number(reviewLeader.visitor_reviews || 0).toLocaleString()}건)인데, 실제 1위는 ${escapeHtml(rankLeader.place_name || '-')}(${Number(rankLeader.visitor_reviews || 0).toLocaleString()}건)입니다. 리뷰 수가 순위를 그대로 결정하지 않는다는 것을 이 키워드 안에서 바로 확인할 수 있습니다.</p>`
+    : `<p>이 키워드에서는 방문자 리뷰가 가장 많은 곳이 1위이기도 합니다. 다만 이것이 리뷰가 순위를 결정한다는 뜻은 아닙니다. 저희가 관측한 다른 키워드에서는 리뷰가 더 적은데도 더 높은 자리에 있는 업체가 흔하게 확인됩니다.</p>`;
+
+  // 자동 FAQ. 조건에 따라 **문항 구성 자체가 달라지게** 한다. 키워드명만 바뀌고 나머지가
+  // 같은 문항이 전 페이지에 반복되면 그 자체가 중복 신호가 된다.
+  const faqs: { q: string; a: string }[] = [
+    {
+      q: `${keyword} 1페이지에 들어가려면 방문자 리뷰가 몇 건 필요한가요?`,
+      a: `관측 기준으로 이 키워드의 1페이지 마지막 자리 업체는 방문자 리뷰 ${boundary.toLocaleString()}건을 보유하고 있습니다. 이 값을 진입선으로 보며, ${tier.label}에 해당합니다. 다만 리뷰는 여러 축 중 하나여서 이 숫자를 넘겼다고 진입이 보장되지는 않습니다.`,
+    },
+    {
+      q: `${keyword} 상위 업체들의 지표는 어느 정도인가요?`,
+      a: `상위 ${top.length}곳의 중앙값은 방문자 리뷰 ${mid.toLocaleString()}건, 블로그·카페 리뷰 ${midBlog.toLocaleString()}건, 사진 ${midPhoto.toLocaleString()}장, 키워드 투표 ${midVote.toLocaleString()}표입니다.`,
+    },
+  ];
+  if (changes > 0) {
+    faqs.push({
+      q: `${keyword} 순위는 자주 바뀌나요?`,
+      a: `최근 관측 ${recent.length}회 중 ${changes}회 자리가 바뀌었습니다. 관측 기간이 길어질수록 이 수치의 신뢰도가 올라갑니다.`,
+    });
+  }
+  if (leaderMismatch) {
+    faqs.push({
+      q: `리뷰가 가장 많은 업체가 1위인가요?`,
+      a: `아닙니다. 이 키워드에서 리뷰가 가장 많은 곳과 실제 1위는 서로 다른 업체입니다. 방문자 수나 재방문률, 체류시간처럼 검색 화면에 표시되지 않는 지표가 함께 작용합니다.`,
+    });
+  }
+  faqs.push({
+    q: `내 매장의 ${keyword} 순위는 어떻게 확인하나요?`,
+    a: `동네비즈에서 상호나 전화번호와 이 키워드를 넣으면 상위 ${top.length}곳을 실시간으로 수집해 내 매장의 위치와 지표 격차를 함께 보여줍니다. 무료이며 로그인이 필요 없습니다.`,
+  });
+
   const title = `${keyword} 플레이스 순위 분석 · 상위 ${top.length}곳 지표 비교`;
   const desc = `'${keyword}' 플레이스 상위 ${top.length}곳의 순위와 방문자 리뷰·블로그 리뷰·사진 수 실측 데이터. 1페이지 진입선 ${boundary.toLocaleString()}건(${tier.label}). 기준일 ${fmtKST(latest).slice(0, 10)}.`;
   const canonical = `https://dongbiz.com/rank/${encodeURIComponent(repKeyword)}`;
@@ -735,10 +802,12 @@ function renderRankPageHtml(keyword: string, rows: any[], repKeyword: string, si
 <meta property="og:image" content="https://dongbiz.com/og-image.png">
 <meta name="twitter:card" content="summary_large_image">
 <script type="application/ld+json">${jsonLd}</script>
+<script type="application/ld+json">${faqLd(faqs)}</script>
 <style>${RANK_PAGE_STYLE}</style></head><body><div class="wrap">
 <header><a href="/">동네비즈</a> · <a href="/rank">키워드 전체 목록</a> · <a href="/guide">상위노출 가이드</a></header>
 <h1>${escapeHtml(title)}</h1>
 <p class="meta">기준일 ${escapeHtml(fmtKST(latest))} · 관측 ${batches.length}회 누적 · 네이버 통합검색 플레이스 영역 기준</p>
+<p class="answer" id="aeo-direct-answer">'${escapeHtml(keyword)}' 검색 시 1페이지에 노출되는 업체는 ${top.length}곳이며, 마지막 자리 업체의 방문자 리뷰는 ${boundary.toLocaleString()}건입니다. 상위권 리뷰 중앙값은 ${mid.toLocaleString()}건, 사진 중앙값은 ${midPhoto.toLocaleString()}장입니다. 진입에 필요한 수준으로 보면 <b>${tier.label}</b>에 해당합니다.</p>
 <table>
   <thead><tr><th>순위</th><th>업체명</th><th class="num">방문자 리뷰</th><th class="num">블로그 리뷰</th><th class="num">키워드 투표</th><th class="num">사진</th></tr></thead>
   <tbody>${tableRows}</tbody>
@@ -757,9 +826,24 @@ ${mid > 0 && boundary > 0 ? `<p>상위권 방문자 리뷰 중앙값은 ${mid.to
       ? '진입선이 중앙값보다 낮다는 것은 최상위 몇 곳이 평균을 끌어올리고 있다는 뜻이며, 평균을 목표로 삼으면 실제 필요보다 과하게 잡게 됩니다.'
       : '진입선과 중앙값이 비슷해 상위권 분포가 고른 편입니다.'
 }</p>` : ''}
+${leaderBlock}
+${changeBlock}
+<h2>이 키워드는 지금 도전할 만한가</h2>
+<p>${escapeHtml(tierAdvice)}</p>
+<p class="meta">유형별 접근법은 <a href="/guide/${encodeURIComponent(tier.label === '고경쟁형' ? '플레이스진입선리뷰' : '플레이스상위노출')}">${tier.label === '고경쟁형' ? '1페이지 진입에 리뷰가 몇 개 필요할까' : '플레이스 상위노출 방법 총정리'}</a>에서 더 자세히 다룹니다.</p>
 ${weeklyBlock}
 <a class="cta" href="/">내 매장은 이 기준 대비 어디인지 무료로 진단하기</a>
 <p class="meta" style="text-align:center;margin-top:14px">기존 관측 데이터를 포함한 분석과 내 매장의 순위 상승에 필요한 상위노출 컨설팅은 <a href="/#contact">상담 신청</a>에서 받아보실 수 있습니다.</p>
+<h2>자주 묻는 질문</h2>
+${faqs.map(f => `<details><summary>${escapeHtml(f.q)}</summary><p>${escapeHtml(f.a)}</p></details>`).join('')}
+<h2>이 페이지 숫자의 출처</h2>
+<ul class="sources">
+  <li>동네비즈가 '${escapeHtml(keyword)}'를 직접 조회해 수집한 관측 기록입니다. 누적 ${batches.length}회 관측, 최근 기준일 ${escapeHtml(fmtKST(latest).slice(0, 10))}.</li>
+  <li>네이버 통합검색 플레이스 영역에서 광고를 제외한 순서를 기준으로, 1페이지 상위 ${top.length}곳의 공개 지표를 집계했습니다.</li>
+  <li>진입선은 1페이지 마지막 자리 업체의 방문자 리뷰 수를 뜻합니다. 방문자 리뷰는 영수증·예약 리뷰를 합산한 값이라 앱 화면의 후기 글 개수와 다를 수 있습니다.</li>
+  ${batches.length < 4 ? '<li>관측 회차가 아직 적어 순위 변동 경향은 결론을 낼 수 있는 단계가 아닙니다. 관측이 쌓이면 이 페이지도 함께 갱신됩니다.</li>' : ''}
+  <li>네이버 공식 자료가 아닌 공개 정보 기반의 자체 분석이며, 순위는 검색자의 위치에 따라 다르게 표시될 수 있습니다.</li>
+</ul>
 ${siblings.length ? `<h2>다른 키워드 순위 현황</h2>
 <div class="kwlist">${siblings.map(k => `<a href="/rank/${encodeURIComponent(k)}">${escapeHtml(k)}</a>`).join('')}</div>
 <p class="meta" style="margin-top:12px"><a href="/rank">전체 키워드 목록 보기</a> · <a href="/guide">플레이스 상위노출 가이드</a></p>` : ''}
@@ -787,7 +871,9 @@ app.get('/rank/__preview', async (c) => {
     const at = new Date(Date.now() - w * 7 * 86400000).toISOString().slice(0, 19).replace('T', ' ');
     for (const r of src) rows.push({ ...r, collected_at: at });
   }
-  return c.html(renderRankPageHtml(keyword + ' (미리보기)', rows, keyword, []));
+  const html = renderRankPageHtml(keyword + ' (미리보기)', rows, keyword, [])
+    .replace('<head>', '<head><meta name="robots" content="noindex">');
+  return c.html(html);
 });
 
 app.get('/rank/:keyword', async (c) => {
