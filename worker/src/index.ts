@@ -851,31 +851,6 @@ ${siblings.length ? `<h2>다른 키워드 순위 현황</h2>
 </div></body></html>`;
 }
 
-// ⚠️ 임시 확인용 라우트. 주차별 표는 관측 3주가 쌓여야 켜지므로 실제 데이터로는 아직 볼 수
-// 없다. '상록구 삼계탕'의 최신 관측을 4주치로 복제해 화면만 미리 확인한다.
-// DB에는 아무것도 쓰지 않는다 — 가짜 관측을 실제 데이터에 섞으면 통계가 오염된다.
-// 확인이 끝나면 이 라우트를 통째로 지울 것.
-app.get('/rank/__preview', async (c) => {
-  const db = c.env.DB;
-  if (!db) return c.text('DB 미설정', 500);
-  const keyword = '상록구 삼계탕';
-  const { results } = await db.prepare(`
-    SELECT place_id, place_name, rank, visitor_reviews, blog_reviews, vote_count, photo_count, collected_at
-    FROM rank_snapshots WHERE keyword = ? ORDER BY collected_at DESC
-  `).bind(keyword).all();
-  const src = dedupeByPlace((results as any[]).filter(r => r.rank));
-  if (src.length === 0) return c.text('원본 데이터 없음', 404);
-
-  const rows: any[] = [];
-  for (let w = 3; w >= 0; w--) {
-    const at = new Date(Date.now() - w * 7 * 86400000).toISOString().slice(0, 19).replace('T', ' ');
-    for (const r of src) rows.push({ ...r, collected_at: at });
-  }
-  const html = renderRankPageHtml(keyword + ' (미리보기)', rows, keyword, [])
-    .replace('<head>', '<head><meta name="robots" content="noindex">');
-  return c.html(html);
-});
-
 app.get('/rank/:keyword', async (c) => {
   const db = c.env.DB;
   if (!db) return c.text('DB 미설정', 500);
