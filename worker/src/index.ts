@@ -960,7 +960,7 @@ app.get('/guide/:slug', (c) => {
   const canonical = `https://dongbiz.com/guide/${encodeURIComponent(g.slug)}`;
   const body = g.sections.map(s =>
     `<h2>${escapeHtml(s.h)}</h2>` +
-    (s.img ? `<img src="${escapeHtml(s.img)}" alt="${escapeHtml(s.h)}" style="max-width:100%;height:auto;margin:1.5rem 0;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.1);" />` : '') +
+    (s.img ? `<img src="${escapeHtml(s.img)}" alt="${escapeHtml(s.h)}" loading="lazy" decoding="async" style="max-width:100%;height:auto;margin:1.5rem 0;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.1);" />` : '') +
     s.p.map(t => `<p>${escapeHtml(t)}</p>`).join('')
   ).join('');
   const faqs = g.faqs.map(f =>
