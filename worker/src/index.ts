@@ -696,7 +696,7 @@ function renderRankPageHtml(keyword: string, rows: any[], repKeyword: string, si
 <div style="overflow-x:auto"><table>
   <thead><tr><th>업체명</th>${head}</tr></thead>
   <tbody>${body}
-    <tr><td colspan="${weeks.length + 1}" style="background:#F8FAFC"><b>내 매장은 이 표에 없나요?</b> <a href="/">무료 진단으로 현재 위치 확인하기 →</a></td></tr>
+    <tr><td colspan="${weeks.length + 1}" style="background:#F8FAFC"><b>내 매장은 이 표에 없나요?</b> 아래 무료로 진단하기 버튼을 클릭하시면 내 매장의 상황을 확인하실 수 있습니다.</td></tr>
   </tbody>
 </table></div>
 <p class="meta" style="margin-top:10px">각 주의 마지막 관측을 그 주의 순위로 표기했습니다. 관측이 없는 주는 –로 표시됩니다.</p>`;
