@@ -41,7 +41,10 @@ export async function getOrganicRanking(keyword: string, limit = 14): Promise<st
         const start = itemsKeyIdx + '"items":['.length;
         const end = html.indexOf(']', start);
         const itemsBlock = html.slice(start, end);
-        const ids = [...itemsBlock.matchAll(/PlaceListBusinessesItem:(\d+)/g)].map(m => m[1]);
+        // §7.4: 같은 placeId가 두 번 나올 수 있다. href 스캔 폴백에는 seen 셋이 있었는데
+        // JSON 우선으로 바꾸면서(§7.15) 이 방어가 빠져 있었다 — 중복이 그대로 순위가 되어
+        // 같은 업체가 두 줄로 보이는 원인이 된다.
+        const ids = [...new Set([...itemsBlock.matchAll(/PlaceListBusinessesItem:(\d+)/g)].map(m => m[1]))];
         if (ids.length > 0) return ids.slice(0, limit);
       }
     }

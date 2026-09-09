@@ -594,16 +594,46 @@ function relatedKeywords(current: string, all: string[], limit = 8): string[] {
     .map(r => r.k);
 }
 
+// 한 관측 배치 안에서 같은 업체가 두 번 이상 들어간 경우를 걷어낸다. 같은 초에 두 번
+// 기록되면 같은 업체가 같은 순위로 두 줄 보인다(2026-09-09 실제 발생). 순위가 낮은 쪽(=상위)
+// 하나만 남긴다.
+function dedupeByPlace(list: any[]): any[] {
+  const seen = new Set<string>();
+  return list.filter(r => (seen.has(r.place_id) ? false : (seen.add(r.place_id), true)));
+}
+
+// 관측 시각을 KST 기준 주차로 묶는다. "몇째 주"는 사람마다 다르게 세므로 날짜 범위를 병기한다(§6.4.3).
+function weekOf(utcStr: string): { key: string; label: string } {
+  const d = toKST(new Date(utcStr.replace(' ', 'T') + 'Z'));
+  const mon = new Date(d.getTime() - ((d.getUTCDay() + 6) % 7) * 86400000);
+  const sun = new Date(mon.getTime() + 6 * 86400000);
+  const m = (x: Date) => x.getUTCMonth() + 1;
+  return {
+    key: mon.toISOString().slice(0, 10),
+    label: `${m(mon)}월 ${Math.ceil(mon.getUTCDate() / 7)}주차 (${m(mon)}/${mon.getUTCDate()}~${m(sun)}/${sun.getUTCDate()})`,
+  };
+}
+
+// 진입선 기준 키워드 유형(§6.4.5). 가이드 문서 '키워드 세 유형'과 같은 구분이다.
+function keywordTier(boundary: number | null): { label: string; color: string; desc: string } {
+  const b = Number(boundary) || 0;
+  if (b < 10) return { label: '틈새형', color: '#059669;background:#ECFDF5', desc: '리뷰 개수만으로는 변별력이 크지 않은 구간입니다. 기본 정보를 채우는 쪽이 빠릅니다.' };
+  if (b < 1000) return { label: '중간형', color: '#B45309;background:#FFFBEB', desc: '꾸준히 하면 닿는 구간입니다. 몇 달 단위의 시간이 필요합니다.' };
+  return { label: '고경쟁형', color: '#B91C1C;background:#FEF2F2', desc: '리뷰만으로 따라잡기 어려운 구간입니다. 더 좁은 키워드를 먼저 잡는 편이 현실적입니다.' };
+}
+
 function renderRankPageHtml(keyword: string, rows: any[], repKeyword: string, siblings: string[] = []): string {
   const batches = [...new Set(rows.map(r => r.collected_at))].sort();
   const latest = batches[batches.length - 1];
-  const top = rows.filter(r => r.collected_at === latest && r.rank).sort((a, b) => a.rank - b.rank).slice(0, TOP_N);
+  const top = dedupeByPlace(
+    rows.filter(r => r.collected_at === latest && r.rank).sort((a, b) => a.rank - b.rank)
+  ).slice(0, TOP_N);
 
   // 변동성: 연속한 관측 사이에 상위권 순서가 바뀐 횟수. 개별 업체의 궤적은 드러내지 않는
   // 집계 수치라 §6.1.2b의 1단에 해당한다.
   const recent = batches.slice(-10);
-  const orderOf = (batch: string) => rows
-    .filter(r => r.collected_at === batch && r.rank).sort((a, b) => a.rank - b.rank)
+  const orderOf = (batch: string) => dedupeByPlace(
+    rows.filter(r => r.collected_at === batch && r.rank).sort((a, b) => a.rank - b.rank))
     .slice(0, TOP_N).map(r => r.place_id).join(',');
   let changes = 0;
   for (let i = 1; i < recent.length; i++) if (orderOf(recent[i]) !== orderOf(recent[i - 1])) changes++;
@@ -636,6 +666,42 @@ function renderRankPageHtml(keyword: string, rows: any[], repKeyword: string, si
   </tr>`;
   }).join('');
 
+  // ── 주차별 순위표(§6.4.3). 관측 주차가 3주 이상 쌓였을 때만 켠다. 빈칸투성이 표는
+  // 부실해 보이므로 그 전에는 위의 단일 시점 표만 보여준다.
+  // 화살표·하락 표기는 넣지 않는다(§6.4.4) — 순위 숫자만 두면 사실 나열이지만 화살표를
+  // 붙이는 순간 평가가 되어 신용훼손 리스크가 생긴다.
+  const byWeek = new Map<string, { label: string; batch: string }>();
+  for (const b of batches) {
+    const w = weekOf(b);
+    byWeek.set(w.key, { label: w.label, batch: b }); // 같은 주에 여러 번이면 마지막 관측이 대표값
+  }
+  const weeks = [...byWeek.entries()].sort((a, b) => a[0].localeCompare(b[0])).slice(-4);
+  let weeklyBlock = '';
+  if (weeks.length >= 3) {
+    const rankAt = (batch: string) => {
+      const m = new Map<string, number>();
+      for (const r of dedupeByPlace(rows.filter(x => x.collected_at === batch && x.rank).sort((a, b) => a.rank - b.rank))) {
+        m.set(r.place_id, r.rank);
+      }
+      return m;
+    };
+    const maps = weeks.map(([, v]) => rankAt(v.batch));
+    const head = weeks.map(([, v]) => `<th class="num">${escapeHtml(v.label)}</th>`).join('');
+    const body = top.map((r, i) => `<tr>
+      <td>${escapeHtml(r.place_name || '-')}</td>
+      ${maps.map(m => `<td class="num">${m.has(r.place_id) ? m.get(r.place_id) + '위' : '<span style="color:#CBD5E1">–</span>'}</td>`).join('')}
+    </tr>`).join('');
+    weeklyBlock = `
+<h2>최근 ${weeks.length}주 순위 추이</h2>
+<div style="overflow-x:auto"><table>
+  <thead><tr><th>업체명</th>${head}</tr></thead>
+  <tbody>${body}
+    <tr><td colspan="${weeks.length + 1}" style="background:#F8FAFC"><b>내 매장은 이 표에 없나요?</b> <a href="/">무료 진단으로 현재 위치 확인하기 →</a></td></tr>
+  </tbody>
+</table></div>
+<p class="meta" style="margin-top:10px">각 주의 마지막 관측을 그 주의 순위로 표기했습니다. 관측이 없는 주는 –로 표시됩니다.</p>`;
+  }
+
   // 순위표를 기계가 읽을 수 있게 ItemList로 노출. 사실(순위·상호명)만 담는다 —
   // 평가·등급을 구조화 데이터로 내보내면 §6.1.3의 신용 리스크가 그대로 따라온다.
   const jsonLd = JSON.stringify({
@@ -650,8 +716,12 @@ function renderRankPageHtml(keyword: string, rows: any[], repKeyword: string, si
     })),
   }).replace(/</g, '\\u003c');
 
-  const title = `${keyword} 네이버 플레이스 순위 TOP ${top.length}`;
-  const desc = `'${keyword}' 검색 시 상위 노출된 업체 ${top.length}곳의 순위와 방문자 리뷰·블로그 리뷰·사진 수 실측 데이터입니다. 기준일 ${fmtKST(latest).slice(0, 10)}.`;
+  // 제목에 '플레이스·지표·상위노출' 같은 업계 용어를 반드시 넣는다(§6.4.2). "제주도 맛집 순위"로
+  // 두면 맛집 찾는 소비자가 유입돼 이탈률만 오르고 전환은 0이다. 걸러낼 신호가 필요하다.
+  const tier = keywordTier(boundary);
+  const mid = median(reviews);
+  const title = `${keyword} 플레이스 순위 분석 · 상위 ${top.length}곳 지표 비교`;
+  const desc = `'${keyword}' 플레이스 상위 ${top.length}곳의 순위와 방문자 리뷰·블로그 리뷰·사진 수 실측 데이터. 1페이지 진입선 ${boundary.toLocaleString()}건(${tier.label}). 기준일 ${fmtKST(latest).slice(0, 10)}.`;
   const canonical = `https://dongbiz.com/rank/${encodeURIComponent(repKeyword)}`;
 
   return `<!DOCTYPE html><html lang="ko"><head>
@@ -679,13 +749,46 @@ function renderRankPageHtml(keyword: string, rows: any[], repKeyword: string, si
   <div class="card"><span class="k">1페이지 진입선 (${top.length}위)</span><span class="v">${boundary.toLocaleString()}</span></div>
   <div class="card"><span class="k">최근 관측 ${recent.length}회 중 순위 변동</span><span class="v">${changes}회</span></div>
 </div>
+<p style="margin-top:14px">이 키워드는 <b>${tier.label}</b>입니다. ${escapeHtml(tier.desc)}</p>
+${mid > 0 && boundary > 0 ? `<p>상위권 방문자 리뷰 중앙값은 ${mid.toLocaleString()}건인데 1페이지 진입선은 ${boundary.toLocaleString()}건입니다. ${
+  boundary > mid * 1.5
+    ? '진입선이 중앙값보다 높다는 것은 상위권 안에서도 아래쪽이 두껍다는 뜻이며, 중앙값만 보고 목표를 잡으면 실제보다 낮게 잡게 됩니다.'
+    : boundary * 1.5 < mid
+      ? '진입선이 중앙값보다 낮다는 것은 최상위 몇 곳이 평균을 끌어올리고 있다는 뜻이며, 평균을 목표로 삼으면 실제 필요보다 과하게 잡게 됩니다.'
+      : '진입선과 중앙값이 비슷해 상위권 분포가 고른 편입니다.'
+}</p>` : ''}
+${weeklyBlock}
 <a class="cta" href="/">내 매장은 이 기준 대비 어디인지 무료로 진단하기</a>
+<p class="meta" style="text-align:center;margin-top:14px">기존 관측 데이터를 포함한 분석과 내 매장의 순위 상승에 필요한 상위노출 컨설팅은 <a href="/#contact">상담 신청</a>에서 받아보실 수 있습니다.</p>
 ${siblings.length ? `<h2>다른 키워드 순위 현황</h2>
 <div class="kwlist">${siblings.map(k => `<a href="/rank/${encodeURIComponent(k)}">${escapeHtml(k)}</a>`).join('')}</div>
 <p class="meta" style="margin-top:12px"><a href="/rank">전체 키워드 목록 보기</a> · <a href="/guide">플레이스 상위노출 가이드</a></p>` : ''}
 <footer>본 페이지는 네이버 통합검색 결과에서 수집한 공개 정보를 집계한 것이며, 순위는 검색자의 위치에 따라 다르게 표시될 수 있습니다.<br>상호 : 인터피아드 · 사업자등록번호 : 124-35-56796 · 문의 : interpiad@gmail.com</footer>
 </div></body></html>`;
 }
+
+// ⚠️ 임시 확인용 라우트. 주차별 표는 관측 3주가 쌓여야 켜지므로 실제 데이터로는 아직 볼 수
+// 없다. '상록구 삼계탕'의 최신 관측을 4주치로 복제해 화면만 미리 확인한다.
+// DB에는 아무것도 쓰지 않는다 — 가짜 관측을 실제 데이터에 섞으면 통계가 오염된다.
+// 확인이 끝나면 이 라우트를 통째로 지울 것.
+app.get('/rank/__preview', async (c) => {
+  const db = c.env.DB;
+  if (!db) return c.text('DB 미설정', 500);
+  const keyword = '상록구 삼계탕';
+  const { results } = await db.prepare(`
+    SELECT place_id, place_name, rank, visitor_reviews, blog_reviews, vote_count, photo_count, collected_at
+    FROM rank_snapshots WHERE keyword = ? ORDER BY collected_at DESC
+  `).bind(keyword).all();
+  const src = dedupeByPlace((results as any[]).filter(r => r.rank));
+  if (src.length === 0) return c.text('원본 데이터 없음', 404);
+
+  const rows: any[] = [];
+  for (let w = 3; w >= 0; w--) {
+    const at = new Date(Date.now() - w * 7 * 86400000).toISOString().slice(0, 19).replace('T', ' ');
+    for (const r of src) rows.push({ ...r, collected_at: at });
+  }
+  return c.html(renderRankPageHtml(keyword + ' (미리보기)', rows, keyword, []));
+});
 
 app.get('/rank/:keyword', async (c) => {
   const db = c.env.DB;
@@ -770,7 +873,9 @@ app.get('/guide/:slug', (c) => {
 
   const canonical = `https://dongbiz.com/guide/${encodeURIComponent(g.slug)}`;
   const body = g.sections.map(s =>
-    `<h2>${escapeHtml(s.h)}</h2>${s.p.map(t => `<p>${escapeHtml(t)}</p>`).join('')}`
+    `<h2>${escapeHtml(s.h)}</h2>` +
+    (s.img ? `<img src="${escapeHtml(s.img)}" alt="${escapeHtml(s.h)}" style="max-width:100%;height:auto;margin:1.5rem 0;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.1);" />` : '') +
+    s.p.map(t => `<p>${escapeHtml(t)}</p>`).join('')
   ).join('');
   const faqs = g.faqs.map(f =>
     `<details><summary>${escapeHtml(f.q)}</summary><p>${escapeHtml(f.a)}</p></details>`
