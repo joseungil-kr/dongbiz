@@ -111,7 +111,7 @@ test('legacy cached empty ranking is ignored and failures are not re-cached', as
   let calls = 0;
   const app = load('src/index.ts', async () => { calls++; return new Response('blocked', { status: 429 }); }).default;
   const res = await app.fetch(new Request(`https://local.test/api/gap?placeId=${id}&keyword=test`), { CACHE: cache }, { waitUntil() {} });
-  assert.equal(res.status, 503); assert.equal(calls, 1);
+  assert.equal(res.status, 503); assert.equal(calls, 2); // map request then legacy widget fallback
   assert.equal((await res.json()).code, 'RATE_LIMITED');
 });
 
@@ -130,6 +130,9 @@ test('normal Step 1 to Step 2 succeeds without fetching own detail twice', async
   ] });
   const app = load('src/index.ts', async url => {
     calls.push(url);
+    if (url.includes('pcmap-api')) return new Response(JSON.stringify([{ data: { restaurants: { businesses: {
+      total: 2, siteSort: 'rel.dsc', items: [{ id, name: 'Test Store' }, { id: otherId, name: 'Other Store' }]
+    } } } }]));
     if (url.includes('query=keyword')) return new Response(ranking);
     if (url.includes('search.naver')) return new Response(`https://map.naver.com/p/entry/place/${id}`);
     if (url.endsWith('/feed')) return new Response(feed);
@@ -138,7 +141,7 @@ test('normal Step 1 to Step 2 succeeds without fetching own detail twice', async
   const env = { CACHE: kv() };
   const background = [];
   const ctx = { waitUntil(p) { background.push(p); } };
-  const first = await app.fetch(new Request('https://local.test/api/place?query=Test'), env, ctx);
+  const first = await app.fetch(new Request('https://local.test/api/place?query=' + id), env, ctx);
   assert.equal(first.status, 200);
   assert.equal((await first.json()).myStore.placeId, id);
   const second = await app.fetch(new Request(`https://local.test/api/gap?placeId=${id}&keyword=keyword`), env, ctx);
@@ -150,7 +153,8 @@ test('normal Step 1 to Step 2 succeeds without fetching own detail twice', async
   await Promise.all(background);
 });
 
-(async () => {
+module.exports = { load, kv, detail, feed, id };
+if (require.main === module) (async () => {
   for (const [name, fn] of tests) { await fn(); console.log('PASS ' + name); }
   console.log(`${tests.length} regression checks passed; no external requests.`);
 })().catch(err => { console.error(err); process.exitCode = 1; });

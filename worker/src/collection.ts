@@ -21,8 +21,8 @@ export function collectionFailure(code: CollectionCode, stage: string, status?: 
   return new CollectionError(code, stage, status);
 }
 
-export async function naverHtml(url: string, stage: string, headers: HeadersInit = {}, redirectOnly = false): Promise<string> {
-  const requestKey = `${redirectOnly ? 'redirect:' : 'html:'}${url}`;
+export async function naverHtml(url: string, stage: string, headers: HeadersInit = {}, redirectOnly = false, body?: string): Promise<string> {
+  const requestKey = `${redirectOnly ? 'redirect:' : 'html:'}${url}:${body || ''}`;
   const existing = pending.get(requestKey);
   if (existing) return existing;
   const host = new URL(url).hostname;
@@ -34,7 +34,8 @@ export async function naverHtml(url: string, stage: string, headers: HeadersInit
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 15000);
     try {
-      const res = await fetch(url, { headers, signal: controller.signal, redirect: redirectOnly ? 'manual' : 'follow' });
+      const res = await fetch(url, { headers, signal: controller.signal, redirect: redirectOnly ? 'manual' : 'follow',
+        ...(body ? { method: 'POST', body } : {}) });
       if (redirectOnly && res.status >= 300 && res.status < 400) {
         const location = res.headers.get('location');
         await res.body?.cancel();

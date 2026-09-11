@@ -2,6 +2,7 @@
 import { cors } from 'hono/cors';
 import { cachedPlace } from './place-cache';
 import { CollectionError } from './collection';
+import { isStoreName, searchPlaceCandidates, collectSearchListing, SearchListing } from './place-search';
 import { basicAuth } from 'hono/basic-auth';
 import { scrapeFullPlaceMetrics, getOrganicRanking, getPlaceList, SortMode, PlaceListItem } from './scraper';
 import { notify, logDiagnosisToSheet, sendCustomerEmail, NotifyEnv } from './notify';
@@ -81,13 +82,13 @@ function fmtKST(utcStr: string | null | undefined): string {
 }
 
 const DAILY_GAP_LIMIT = 3;
-async function checkDailyGapLimit(env: Env, ip: string): Promise<boolean> {
+async function checkDailyGapLimit(env: Env, ip: string, consume = false): Promise<boolean> {
   if (!env.CACHE) return true; // 캐시 미바인딩 시 제한 없이 통과(§6 패턴과 일관: 기능은 항상 동작)
   const today = toKST().toISOString().slice(0, 10); // KST 자정(24:00) 기준 날짜 경계
   const key = `gaplimit:${today}:${ip}`;
   const count = Number(await env.CACHE.get(key)) || 0;
   if (count >= DAILY_GAP_LIMIT) return false;
-  await env.CACHE.put(key, String(count + 1), { expirationTtl: 60 * 60 * 25 });
+  if (consume) await env.CACHE.put(key, String(count + 1), { expirationTtl: 60 * 60 * 25 });
   return true;
 }
 
@@ -285,12 +286,16 @@ function calcStats(competitors: any[], key: string, isScoreField = false) {
 
 // [1단계] 내 매장 진단
 app.get('/api/place', async (c) => {
-  const query = c.req.query('query');
+  const query = c.req.query('query')?.trim();
   if (!query) {
     return c.json({ error: '전화번호나 상호를 입력해주세요.' }, 400);
   }
 
   try {
+    if (isStoreName(query)) {
+      const candidates = await cached(c.env, `candidates:v1:${query}`, KEYWORD_TTL, () => searchPlaceCandidates(query));
+      return c.json({ success: true, requiresSelection: true, candidates });
+    }
     const myStore = await cachedPlace(c.env, query, true);
     await upsertPlace(c.env.DB, myStore);
 
@@ -303,13 +308,13 @@ app.get('/api/place', async (c) => {
   }
 });
 
-// [2·3단계] 키워드 기반 Gap 분석 — 사용자가 직접 입력한 키워드로 상위 14위 수집.
+// [2·3단계] 키워드 기반 Gap 분석 — 지도 목록 최대 350곳에서 위치 확인, 상위 경쟁사 지표 비교.
 // competitorId가 있으면(키워드 대신/추가로) 순위 자동수집을 건너뛰고 그 업체 1곳과 바로 비교한다
 // (경쟁사 직접 지목, §2 3단계 확정). 만능 리졸버(scrapeFullPlaceMetrics)를 그대로 재사용하므로
 // 상호명/전화번호/naver.me 링크 뭘 넣어도 동작한다.
 app.get('/api/gap', async (c) => {
   const placeId = c.req.query('placeId');
-  const keyword = c.req.query('keyword');
+  const keyword = c.req.query('keyword')?.trim().replace(/\s+/g, ' ');
   const competitorQuery = c.req.query('competitorId');
   if (!placeId || (!keyword && !competitorQuery)) {
     return c.json({ error: 'placeId와 keyword(또는 competitorId)가 필요합니다.' }, 400);
@@ -333,6 +338,7 @@ app.get('/api/gap', async (c) => {
     let competitors: any[];
     let boundaryStore: any;
     let displayLabel: string; // targetKeyword 자리에 들어가는 표시용 문자열 (raw_data·화면 제목 등에 재사용)
+    let rankObservation: any = null;
 
     if (competitorQuery) {
       // 경쟁사 직접 지목 모드: 순위 자동수집 없이 지목한 업체 1곳만 비교
@@ -346,14 +352,37 @@ app.get('/api/gap', async (c) => {
       boundaryStore = competitor; // "진입선" = 지목한 그 업체의 실측값
       displayLabel = `'${competitor.name}'와 직접 비교`;
     } else {
-      // 오가닉 1~14위 (키워드 단위 캐시)
-      ranking = await cached(c.env, `rank:${keyword}`, KEYWORD_TTL, () => getOrganicRanking(keyword!, 14));
+      // Map list observation is separate from the legacy search widget.
+      const category = /미용실|헤어|살롱/.test(keyword! + myStore.category) ? 'hairshop'
+        : /맛집|밥집|식당|고기|횟집|카페|음식|한식|중식|일식|양식|백숙|삼계탕/.test(keyword! + myStore.category) ? 'restaurant' : 'place';
+      const listKey = `${CACHE_VERSION}:map-list:v1:${category}:${keyword}`;
+      let listing = await c.env.CACHE?.get<SearchListing>(listKey, 'json');
+      try {
+        if (!listing) {
+          listing = await collectSearchListing(keyword!, category);
+          // A partial failure is usable with an explicit warning, never a six-hour successful cache.
+          if (listing.stopReason !== 'collection_failed') await c.env.CACHE?.put(listKey, JSON.stringify(listing), { expirationTtl: KEYWORD_TTL });
+        }
+        ranking = listing.items.map(item => item.placeId);
+        rankObservation = { ...listing, category };
+      } catch (err) {
+        // Keep existing diagnoses available when the separate map endpoint is blocked.
+        const widget = await cached(c.env, `widget:v1:${keyword}`, KEYWORD_TTL, async () => ({
+          ids: await getOrganicRanking(keyword!, 14), collectedAt: new Date().toISOString(),
+        }));
+        ranking = widget.ids;
+        rankObservation = { source: 'naver-search-widget', collectedAt: widget.collectedAt,
+          complete: false, stopReason: 'collection_failed', limit: 350, pages: 0,
+          errorCode: err instanceof CollectionError ? err.code : 'UNKNOWN', items: [] };
+      }
       if (!ranking || ranking.length === 0) {
         return c.json({ error: `"${keyword}" 키워드의 검색 결과를 찾을 수 없습니다.` }, 404);
       }
 
       const myRankIndex = ranking.indexOf(placeId);
       myRank = myRankIndex >= 0 ? myRankIndex + 1 : null;
+      rankObservation = { ...rankObservation, searched: ranking.length,
+        status: myRank ? 'found' : rankObservation.stopReason === 'collection_failed' ? 'unconfirmed' : 'not_found_in_range' };
 
       const top10Ids = ranking.slice(0, TOP_N).filter(id => id !== placeId);
       if (top10Ids.length === 0) {
@@ -426,6 +455,8 @@ app.get('/api/gap', async (c) => {
       myStore,
       myRank,
       rankSearched: competitorQuery ? 1 : ranking.length,
+      rankObservation,
+      comparisonCount: competitors.length,
       top10Competitors: competitors,
       stats,
       grade,
@@ -451,12 +482,13 @@ app.get('/api/gap', async (c) => {
         ).run();
       } catch (dbErr) {
         console.error('DB Insert Error:', dbErr);
+        return c.json({ error: '분석 결과 저장에 실패했습니다. 검색 횟수는 차감되지 않았습니다.' }, 503);
       }
     }
 
     // 신규 진단 완료 알림 + 콜드콜 리스트 적재 (§8.2-A). 응답 지연 없이 백그라운드 처리.
     const bgTasks: Promise<any>[] = [
-      notify(c.env, `📊 [신규 진단] ${myStore.name} (${myStore.placeId})\n${competitorQuery ? '비교 대상' : '키워드'}: ${displayLabel}\n${competitorQuery ? '1:1 직접비교' : (myRank ? `순위: ${myRank}위` : `순위: ${ranking.length}위 밖`)} / 등급: ${grade}\n연락처: ${myStore.phone || '미등록'}`),
+      notify(c.env, `📊 [신규 진단] ${myStore.name} (${myStore.placeId})\n${competitorQuery ? '비교 대상' : '키워드'}: ${displayLabel}\n${competitorQuery ? '1:1 직접비교' : (myRank ? `수집 목록 위치: ${myRank} (${rankObservation?.source})` : `수집 ${ranking.length}곳 내 미발견`)} / 등급: ${grade}\n연락처: ${myStore.phone || '미등록'}`),
       logDiagnosisToSheet(c.env, {
         timestamp: new Date().toISOString(),
         placeName: myStore.name,
@@ -484,10 +516,17 @@ app.get('/api/gap', async (c) => {
       bgTasks.push((async () => {
         const names = [myStore.name, ...competitors.map((comp: any) => comp.name)].filter(Boolean);
         const nameVolumes = await getKeywordVolumes(c.env, names, { cache: false, context: 'gap-store-name', relatedTo: displayLabel });
-        await logRankSnapshots(c.env.DB, displayLabel, ranking, myStore, myRank, competitors, 'user', nameVolumes);
+        // Map observation (including the full ordered list) is saved in search_histories.raw_data.
+        // Do not blend this different source into legacy widget-only rank snapshots.
+        if (rankObservation?.source !== 'naver-map') await logRankSnapshots(c.env.DB, displayLabel, ranking, myStore, myRank, competitors, 'user', nameVolumes);
       })());
     }
     c.executionCtx.waitUntil(Promise.all(bgTasks));
+
+    // Only successful complete analyses consume the daily allowance.
+    if (!bypassed && (!rankObservation || rankObservation.stopReason !== 'collection_failed')) {
+      await checkDailyGapLimit(c.env, c.req.header('CF-Connecting-IP') || 'unknown', true);
+    }
 
     return c.json(responsePayload);
   } catch (err: any) {
@@ -1530,7 +1569,7 @@ app.get("/api/test-graphql2", async (c) => {
         ? `<a href="/admin/${escapeHtml(r.share_id)}/report" target="_blank"><b>${escapeHtml(r.name || r.place_id)}</b></a>`
         : `<b>${escapeHtml(r.name || r.place_id)}</b>`}<br><span style="color:#94A3B8">${escapeHtml(r.category || '')}</span></td>
       <td>${escapeHtml(r.target_keyword)}</td>
-      <td>${r.my_rank ? r.my_rank + '위' : '순위밖'}</td>
+      <td>${r.my_rank ? r.my_rank + '위' : '미발견/미확인'}</td>
       <td><span class="badge grade-${escapeHtml(r.grade_reviews || 'B')}">${escapeHtml(r.grade_reviews || '-')}</span></td>
       <td>${r.my_reviews ?? '-'} / 평균 ${r.top10_avg_reviews ?? '-'}</td>
       <td><a href="/admin/${escapeHtml(r.share_id)}/report" target="_blank"><b>개선리포트</b></a> · <a href="/admin/${escapeHtml(r.share_id)}">원본데이터</a> · <a href="/share/${escapeHtml(r.share_id)}" target="_blank">공유링크</a></td>
@@ -2064,7 +2103,7 @@ app.get('/admin/:shareId', async (c) => {
   ${ADMIN_NAV}
   <div class="card">
     <h1 style="margin:0 0 8px;">${escapeHtml(my.name)} <span class="badge grade-${escapeHtml(data.grade || 'B')}">${escapeHtml(data.grade || '-')}</span></h1>
-    <p style="font-size:13px;color:#475569;margin:4px 0;">키워드: <b>${escapeHtml(data.targetKeyword)}</b> · 순위: <b>${data.myRank ? data.myRank + '위' : '순위밖(' + data.rankSearched + '위 밖)'}</b> · 진단일시: ${escapeHtml(fmtKST(String(row.created_at || '')))}</p>
+    <p style="font-size:13px;color:#475569;margin:4px 0;">키워드: <b>${escapeHtml(data.targetKeyword)}</b> · 순위: <b>${data.myRank ? data.myRank + '위 (수집 목록)' : '수집 ' + data.rankSearched + '곳 내 미발견/미확인'}</b> · 진단일시: ${escapeHtml(fmtKST(String(row.created_at || '')))}</p>
     <p style="font-size:13px;color:#475569;margin:4px 0;">연락처: <b>${escapeHtml(my.phone || '미등록')}</b> · 주소: ${escapeHtml(my.roadAddress || '미등록')}</p>
     <p style="font-size:13px;margin:8px 0 0;"><a href="/share/${escapeHtml(shareId)}" target="_blank">공유링크</a></p>
   </div>

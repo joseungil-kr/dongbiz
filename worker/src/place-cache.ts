@@ -28,6 +28,7 @@ export async function cachedPlace(env: CacheEnv, query: string, includeFeed = fa
     const hit = await env.CACHE?.get(key, 'json');
     if (hit) return hit;
     const fresh = await scrapeFullPlaceMetrics(id, includeFeed);
+    fresh.collectedAt = new Date().toISOString();
     await env.CACHE?.put(key, JSON.stringify(fresh), { expirationTtl: TTL });
     if (includeFeed) {
       await env.CACHE?.put(`place:v10:${id}:home`, JSON.stringify(fresh), { expirationTtl: TTL });
