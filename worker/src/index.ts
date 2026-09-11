@@ -1437,7 +1437,21 @@ app.get("/api/test-graphql2", async (c) => {
   } catch(e:any){ return c.json({error: e.message}); }
 });
 
-  app.get("/api/test-graphql", async (c) => {
+  app.get("/api/test-html", async (c) => {
+  const res = await fetch("https://m.place.naver.com/place/1994640103/home", {
+    headers: { "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15" }
+  });
+  const html = await res.text();
+  const apolloMatch = html.match(/window\.__APOLLO_STATE__\s*=\s*(\{[\s\S]*?\});/);
+  if(!apolloMatch) return c.json({ error: "No apollo match", length: html.length });
+  const state = JSON.parse(apolloMatch[1]);
+  return c.json({
+    baseKeyCount: Object.keys(state).filter(k => k.startsWith("PlaceDetailBase:")).length,
+    rootQueryKeys: Object.keys(state.ROOT_QUERY || {})
+  });
+});
+
+  app.get(/api/test-graphql, async (c) => {
   const placeId = c.req.query("id") || "1994640103";
   const query = `query getPlaceDetail($id: String!) { placeDetail(input: {id: $id, isNx: false, deviceType: "mobile", checkRedirect: true}) { id name businessType base { visitorReviewsTotal cafeBlogReviewsTotal saveCount bookmarkCount } reviewStats { visitorReviewsTotal blogReviewsTotal } } }`;
   
@@ -2453,6 +2467,7 @@ export default {
     }
   },
 };
+
 
 
 
