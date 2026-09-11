@@ -1451,7 +1451,27 @@ app.get("/api/test-graphql2", async (c) => {
   });
 });
 
-  app.get("/api/test-graphql", async (c) => {
+  app.get("/api/test-list", async (c) => {
+  const keyword = encodeURIComponent("안산 삼계탕");
+  const url = `https://pcmap.place.naver.com/restaurant/list?query=${keyword}`;
+  const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36", "Referer": "https://map.naver.com/" }});
+  const html = await res.text();
+  const start = html.indexOf("window.__APOLLO_STATE__ = ");
+  if (start < 0) return c.json({ error: "no apollo state" });
+  const from = html.indexOf("{", start);
+  let depth = 0, end = -1, inStr = false, esc = false;
+  for (let i = from; i < html.length; i++) {
+    const ch = html[i];
+    if (inStr) { if (esc) esc = false; else if (ch === "\\") esc = true; else if (ch === '"') inStr = false; continue; }
+    if (ch === '"') inStr = true; else if (ch === "{") depth++; else if (ch === "}") depth--;
+    if (depth === 0) { end = i + 1; break; }
+  }
+  const state = JSON.parse(html.slice(from, end));
+  const placeKey = Object.keys(state).find(k => k.startsWith("PlaceSearchItem:"));
+  return c.json(state[placeKey]);
+});
+
+  app.get(/api/test-graphql, async (c) => {
   const placeId = c.req.query("id") || "1994640103";
   const query = `query getPlaceDetail($id: String!) { placeDetail(input: {id: $id, isNx: false, deviceType: "mobile", checkRedirect: true}) { id name businessType base { visitorReviewsTotal cafeBlogReviewsTotal saveCount bookmarkCount } reviewStats { visitorReviewsTotal blogReviewsTotal } } }`;
   
@@ -2467,6 +2487,7 @@ export default {
     }
   },
 };
+
 
 
 
