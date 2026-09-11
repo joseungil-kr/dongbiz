@@ -1451,7 +1451,7 @@ app.get("/api/test-graphql2", async (c) => {
   });
 });
 
-  app.get(/api/test-graphql, async (c) => {
+  app.get("/api/test-graphql", async (c) => {
   const placeId = c.req.query("id") || "1994640103";
   const query = `query getPlaceDetail($id: String!) { placeDetail(input: {id: $id, isNx: false, deviceType: "mobile", checkRedirect: true}) { id name businessType base { visitorReviewsTotal cafeBlogReviewsTotal saveCount bookmarkCount } reviewStats { visitorReviewsTotal blogReviewsTotal } } }`;
   
@@ -2467,6 +2467,7 @@ export default {
     }
   },
 };
+
 
 
 
