@@ -614,7 +614,7 @@
         await task();
       } catch (err) {
         // 검색 한도 초과처럼 입력 문제가 아닌 에러는 "올바른 입력인지 확인해주세요" 안 붙임
-        alert(err.message + (err.message.includes('한도') ? '' : '\n(올바른 입력인지 확인해주세요)'));
+        alert(err.message + (err.message.includes('한도') || err.message.includes('네이버') ? '' : '\n(올바른 입력인지 확인해주세요)'));
       } finally {
         clearInterval(loadingInterval);
         btn.innerHTML = originalText;

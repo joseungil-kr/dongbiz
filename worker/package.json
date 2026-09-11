@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
+    "test:collection": "node tests/collection.cjs",
     "dev": "wrangler dev",
     "deploy": "wrangler deploy"
   },

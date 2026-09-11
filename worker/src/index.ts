@@ -1,5 +1,7 @@
 ﻿import { Hono } from 'hono';
 import { cors } from 'hono/cors';
+import { cachedPlace } from './place-cache';
+import { CollectionError } from './collection';
 import { basicAuth } from 'hono/basic-auth';
 import { scrapeFullPlaceMetrics, getOrganicRanking, getPlaceList, SortMode, PlaceListItem } from './scraper';
 import { notify, logDiagnosisToSheet, sendCustomerEmail, NotifyEnv } from './notify';
@@ -23,6 +25,8 @@ const HEALTHCHECK_PLACE_ID = '2058645213';
 const app = new Hono<{ Bindings: Env }>();
 
 app.use('/api/*', cors());
+// Debug probes must never provide a public, uncached Naver fetch path.
+app.use('/api/test-*', async (c) => c.json({ error: 'Not found' }, 404));
 
 // 관리자 화면 인증. ADMIN_USER/ADMIN_PASS 시크릿 미설정이면 아예 막는다(구멍 방지).
 app.use('/admin/*', async (c, next) => {
@@ -50,9 +54,11 @@ async function cached<T>(env: Env, key: string, ttlSeconds: number, fetcher: () 
   if (!env.CACHE) return fetcher();
   const versionedKey = `${CACHE_VERSION}:${key}`;
   const hit = await env.CACHE.get(versionedKey, 'json');
-  if (hit !== null) return hit as T;
+  if (hit !== null && !(Array.isArray(hit) && hit.length === 0)) return hit as T;
   const fresh = await fetcher();
-  await env.CACHE.put(versionedKey, JSON.stringify(fresh), { expirationTtl: ttlSeconds });
+  if (!(Array.isArray(fresh) && fresh.length === 0)) {
+    await env.CACHE.put(versionedKey, JSON.stringify(fresh), { expirationTtl: ttlSeconds });
+  }
   return fresh;
 }
 
@@ -285,13 +291,14 @@ app.get('/api/place', async (c) => {
   }
 
   try {
-    const myStore = await cached(c.env, `place:${query}`, PLACE_TTL, () => scrapeFullPlaceMetrics(query, true));
+    const myStore = await cachedPlace(c.env, query, true);
     await upsertPlace(c.env.DB, myStore);
 
     return c.json({ success: true, myStore });
   } catch (err: any) {
     console.error('진단 처리 중 오류:', err);
     c.executionCtx.waitUntil(notify(c.env, `⚠️ [진단 실패] query="${query}"\n${err.message || err}`));
+    if (err instanceof CollectionError) return c.json({ error: err.message, code: err.code, stage: err.stage }, 503);
     return c.json({ error: err.message || '매장 정보를 찾을 수 없습니다.' }, 500);
   }
 });
@@ -319,7 +326,7 @@ app.get('/api/gap', async (c) => {
 
   try {
     // 내 매장 (1단계에서 이미 캐시됐다면 재스크랩 없음)
-    const myStore = await cached(c.env, `place:${placeId}`, PLACE_TTL, () => scrapeFullPlaceMetrics(placeId, true));
+    const myStore = await cachedPlace(c.env, placeId, true);
 
     let ranking: string[];
     let myRank: number | null;
@@ -329,7 +336,7 @@ app.get('/api/gap', async (c) => {
 
     if (competitorQuery) {
       // 경쟁사 직접 지목 모드: 순위 자동수집 없이 지목한 업체 1곳만 비교
-      const competitor = await cached(c.env, `place:${competitorQuery}`, PLACE_TTL, () => scrapeFullPlaceMetrics(competitorQuery));
+      const competitor = await cachedPlace(c.env, competitorQuery);
       if (competitor.placeId === placeId) {
         return c.json({ error: '내 매장과 같은 곳입니다. 다른 업체를 입력해주세요.' }, 400);
       }
@@ -353,14 +360,14 @@ app.get('/api/gap', async (c) => {
         return c.json({ error: '비교할 경쟁사가 없습니다.' }, 404);
       }
       competitors = await Promise.all(
-        top10Ids.map(id => cached(c.env, `place:${id}`, PLACE_TTL, () => scrapeFullPlaceMetrics(id)))
+        top10Ids.map(id => cachedPlace(c.env, id))
       );
 
       // TOP_N위 업체 = 1페이지 진입선. 본인이 TOP_N위면 그다음 순위를 진입선으로 사용.
       const boundaryId = ranking[TOP_N - 1] && ranking[TOP_N - 1] !== placeId ? ranking[TOP_N - 1] : ranking[TOP_N];
       boundaryStore = boundaryId
         ? (competitors.find(s => s.placeId === boundaryId)
-          || await cached(c.env, `place:${boundaryId}`, PLACE_TTL, () => scrapeFullPlaceMetrics(boundaryId)))
+          || await cachedPlace(c.env, boundaryId))
         : null;
       displayLabel = keyword!;
     }
@@ -486,6 +493,7 @@ app.get('/api/gap', async (c) => {
   } catch (err: any) {
     console.error('Gap 분석 중 오류:', err);
     c.executionCtx.waitUntil(notify(c.env, `⚠️ [Gap 분석 실패] placeId="${placeId}" keyword="${keyword || competitorQuery}"\n${err.message || err}\n(네이버 구조 변경 또는 차단 가능성 — §7 확인 요망)`));
+    if (err instanceof CollectionError) return c.json({ error: err.message, code: err.code, stage: err.stage }, 503);
     return c.json({ error: err.message || 'Gap 분석에 실패했습니다.' }, 500);
   }
 });
@@ -878,7 +886,7 @@ async function miniSite(c: any, slug?: string) {
   if (!/^[1-9]\d{6,11}$/.test(placeId)) return c.text('잘못된 주소입니다.', 400);
 
   try {
-    const store = await cached(c.env, `place:${placeId}`, PLACE_TTL, () => scrapeFullPlaceMetrics(placeId));
+    const store = await cachedPlace(c.env, placeId);
     const topics = await pickTopics(store);
     if (!slug) return c.html(renderMiniHome(store, topics));
 

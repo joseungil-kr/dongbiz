@@ -5,6 +5,8 @@
  * 기술 함정은 작업지시서.md §7 참조. 여기서 수정한 실수를 반복하지 말 것.
  */
 
+import { naverHtml, collectionFailure } from './collection';
+
 const UA_DESKTOP = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
 const UA_MOBILE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148';
 
@@ -16,10 +18,7 @@ const UA_MOBILE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleW
 export async function getOrganicRanking(keyword: string, limit = 14): Promise<string[]> {
   try {
     const searchUrl = `https://search.naver.com/search.naver?where=nexearch&sm=top_hty&fbm=0&ie=utf8&query=${encodeURIComponent(keyword)}`;
-    const res = await fetch(searchUrl, {
-      headers: { 'User-Agent': UA_DESKTOP }
-    });
-    const html = await res.text();
+    const html = await naverHtml(searchUrl, 'ranking', { 'User-Agent': UA_DESKTOP });
 
     // §7.14→실사용 버그로 확정(2026-09-08): <a href> DOM 순서는 실제 순위와 다를 수 있다
     // (1위 업체가 4위로 잘못 집계된 실제 사례 확인, href 스캔은 순서가 뒤섞이고 무관한
@@ -72,16 +71,17 @@ export async function getOrganicRanking(keyword: string, limit = 14): Promise<st
       seen.add(id);
       ranking.push(id);
     }
+    if (ranking.length === 0) throw collectionFailure('PARSE_CHANGED', 'ranking');
     return ranking;
   } catch (err) {
     console.error('오가닉 순위 추출 에러:', err);
-    return [];
+    throw err;
   }
 }
 
 // includeFeed: 소식(/feed 탭) 조회 여부. 요청 1회가 늘어나므로 실제로 화면에 표시할
 // 내 매장 조회 시에만 true로 켠다. 경쟁사 스크랩(최대 10~14회)에는 굳이 켜지 않는다.
-export async function scrapeFullPlaceMetrics(queryOrId: string, includeFeed = false): Promise<any> {
+export async function resolvePlaceId(queryOrId: string): Promise<string> {
   // 1단계: 플레이스 ID 만능 식별
   let placeId = queryOrId.toString().trim();
 
@@ -89,8 +89,9 @@ export async function scrapeFullPlaceMetrics(queryOrId: string, includeFeed = fa
     // 순수 ID
   }
   else if (placeId.includes('naver.me')) {
-    const headRes = await fetch(placeId, { redirect: 'manual' });
-    const location = headRes.headers.get('location') || '';
+    const shortUrl = new URL(/^https?:\/\//i.test(placeId) ? placeId : `https://${placeId}`);
+    if (shortUrl.hostname !== 'naver.me' || shortUrl.protocol !== 'https:') throw new Error('올바른 네이버 공유 주소를 입력해주세요.');
+    const location = await naverHtml(shortUrl.href, 'resolve-redirect', {}, true);
     const locMatch = location.match(/place\/(\d+)/);
     if (locMatch) {
       placeId = locMatch[1];
@@ -108,43 +109,44 @@ export async function scrapeFullPlaceMetrics(queryOrId: string, includeFeed = fa
   }
   else {
     const searchUrl = `https://search.naver.com/search.naver?where=nexearch&sm=top_hty&fbm=0&ie=utf8&query=${encodeURIComponent(placeId)}`;
-    const searchRes = await fetch(searchUrl, {
-      headers: {
+    const searchHtml = await naverHtml(searchUrl, 'resolve', {
         'User-Agent': UA_DESKTOP,
         'Accept': 'text/html,application/xhtml+xml',
-      }
     });
-    const searchHtml = await searchRes.text();
     const match = searchHtml.match(/https?:\/\/map\.naver\.com\/p\/(?:search\/[^/]+\/place|entry\/place)\/(\d+)/i) ||
                   searchHtml.match(/https?:\/\/map\.naver\.com\/v5\/entry\/place\/(\d+)/i) ||
                   searchHtml.match(/data-cid="(\d+)"/i) ||
                   searchHtml.match(/place\/(\d+)/i);
     if (!match) {
-      throw new Error(`스마트플레이스를 찾을 수 없습니다: ${queryOrId}`);
+      throw collectionFailure('PARSE_CHANGED', 'resolve');
     }
     placeId = match[1];
   }
 
+  return placeId;
+}
+
+export async function scrapeFullPlaceMetrics(queryOrId: string, includeFeed = false): Promise<any> {
+  const placeId = await resolvePlaceId(queryOrId);
   // 2단계: 플레이스 상세 홈 HTML 패치
   const homeUrl = `https://m.place.naver.com/place/${placeId}/home`;
-  const res = await fetch(homeUrl, {
-    headers: {
+  const html = await naverHtml(homeUrl, 'detail', {
       'User-Agent': UA_MOBILE,
       'Accept': 'text/html,application/xhtml+xml',
-    }
   });
-
-  const html = await res.text();
   const apolloMatch = html.match(/window\.__APOLLO_STATE__\s*=\s*(\{[\s\S]*?\});/);
   if (!apolloMatch) {
-    throw new Error('플레이스 상태 데이터를 추출할 수 없습니다.');
+    throw collectionFailure('PARSE_CHANGED', 'detail');
   }
 
-  const state = JSON.parse(apolloMatch[1]);
+  let state: any;
+  try { state = JSON.parse(apolloMatch[1]); }
+  catch { throw collectionFailure('PARSE_CHANGED', 'detail-json'); }
   const keys = Object.keys(state);
 
   const baseKey = keys.find(k => k.startsWith(`PlaceDetailBase:${placeId}`));
   const base = state[baseKey || ''] || {};
+  if (!base.name) throw collectionFailure('PARSE_CHANGED', 'detail-base');
 
   const reviewStatsKey = keys.find(k => k.startsWith(`VisitorReviewStatsResult:${placeId}`));
   const reviewStats = state[reviewStatsKey || ''] || {};
@@ -259,13 +261,15 @@ export async function scrapeFullPlaceMetrics(queryOrId: string, includeFeed = fa
   // 별도 /feed 탭에만 있으며, 키 접두사는 'Feed:{placeId}_{feedId}', 날짜는 createdString(YYYYMMDD).
   if (includeFeed) {
     try {
-      const feedRes = await fetch(`https://m.place.naver.com/place/${placeId}/feed`, {
-        headers: { 'User-Agent': UA_MOBILE, 'Accept': 'text/html,application/xhtml+xml' }
+      const feedHtml = await naverHtml(`https://m.place.naver.com/place/${placeId}/feed`, 'feed', {
+        'User-Agent': UA_MOBILE, 'Accept': 'text/html,application/xhtml+xml'
       });
-      const feedHtml = await feedRes.text();
       const feedApolloMatch = feedHtml.match(/window\.__APOLLO_STATE__\s*=\s*(\{[\s\S]*?\});/);
+      if (!feedApolloMatch) throw collectionFailure('PARSE_CHANGED', 'feed');
       if (feedApolloMatch) {
-        const feedState = JSON.parse(feedApolloMatch[1]);
+        let feedState: any;
+        try { feedState = JSON.parse(feedApolloMatch[1]); }
+        catch { throw collectionFailure('PARSE_CHANGED', 'feed-json'); }
         const feedItems = Object.keys(feedState)
           .filter(k => k.startsWith('Feed:'))
           .map(k => feedState[k])
@@ -279,6 +283,7 @@ export async function scrapeFullPlaceMetrics(queryOrId: string, includeFeed = fa
       }
     } catch (err) {
       console.error('소식(feed) 조회 에러:', err);
+      throw err;
     }
   }
 
@@ -404,18 +409,10 @@ export async function getPlaceList(
     'Accept-Language': 'ko-KR,ko;q=0.9',
   };
 
-  // 429는 잠깐 쉬면 풀린다. 한 번만 더 시도하고, 그래도 막히면 호출부가 알 수 있게 던진다
-  // — 조용히 빈 배열을 돌려주면 "수집 완료"라고 표시되면서 데이터만 비는 사고가 난다(실제로 겪음).
-  let res = await fetch(url, { headers });
-  if (res.status === 429) {
-    await new Promise(resolve => setTimeout(resolve, 15000));
-    res = await fetch(url, { headers });
-  }
-  if (!res.ok) throw new Error(`pcmap 목록 조회 실패 (HTTP ${res.status})`);
-
-  const html = await res.text();
+  // 차단 시 즉시 재시도하지 않는다. 공통 전송 계층에서 오류 분류와 일시 중단을 담당한다.
+  const html = await naverHtml(url, 'list', headers);
   const start = html.indexOf('window.__APOLLO_STATE__ = ');
-  if (start < 0) throw new Error('APOLLO_STATE 없음 — 차단되었거나 구조가 바뀌었다');
+  if (start < 0) throw collectionFailure('PARSE_CHANGED', 'list');
 
   // 중괄호 균형으로 JSON 끝을 찾는다. 정규식으로 자르면 본문에 }가 섞여 깨진다.
   const from = html.indexOf('{', start);
@@ -432,9 +429,11 @@ export async function getPlaceList(
     else if (ch === '{') depth++;
     else if (ch === '}' && --depth === 0) { end = i + 1; break; }
   }
-  if (end < 0) throw new Error('APOLLO_STATE 파싱 실패');
+  if (end < 0) throw collectionFailure('PARSE_CHANGED', 'list-json');
 
-  const state = JSON.parse(html.slice(from, end)) as Record<string, any>;
+  let state: Record<string, any>;
+  try { state = JSON.parse(html.slice(from, end)); }
+  catch { throw collectionFailure('PARSE_CHANGED', 'list-json'); }
 
   // ⚠️ §7.15 교훈: 표시 순서를 추측하지 않는다. 여기서는 객체 키 순서가 실제 순위와
   // 일치함을 상위 6곳으로 실측 확인했으나, 권위 있는 순서 배열을 찾기 전까지
