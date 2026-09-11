@@ -1,4 +1,4 @@
-import { Hono } from 'hono';
+﻿import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { basicAuth } from 'hono/basic-auth';
 import { scrapeFullPlaceMetrics, getOrganicRanking, getPlaceList, SortMode, PlaceListItem } from './scraper';
@@ -1426,7 +1426,34 @@ const ADMIN_NAV = `<nav class="nav">
 </nav>`;
 
 // 관리자: 진단 리스트 (최신 100건). §6 Phase C 신규 요청 — 관리자 자신이 raw데이터를 검증할 수 있어야 함.
-app.get('/admin', async (c) => {
+app.get("/admin/test/graphql", async (c) => {
+  const placeId = c.req.query("id") || "1994640103";
+  const query = `query getPlaceDetail($id: String!) { placeDetail(input: {id: $id, isNx: false, deviceType: "mobile", checkRedirect: true}) { id name businessType base { visitorReviewsTotal cafeBlogReviewsTotal saveCount bookmarkCount } reviewStats { visitorReviewsTotal blogReviewsTotal } } }`;
+  
+  try {
+    const res = await fetch("https://m.place.naver.com/graphql", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1",
+        "Referer": `https://m.place.naver.com/place/${placeId}/home`,
+        "Accept": "application/json"
+      },
+      body: JSON.stringify([{"operationName":"getPlaceDetail","variables":{"id":placeId},"query":query}])
+    });
+    
+    const text = await res.text();
+    return c.json({
+      status: res.status,
+      headers: Object.fromEntries(res.headers.entries()),
+      body: text.substring(0, 500)
+    });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+  app.get('/admin', async (c) => {
   const db = c.env.DB;
   if (!db) return c.text('DB 미설정', 500);
 
@@ -2415,3 +2442,4 @@ export default {
     }
   },
 };
+
