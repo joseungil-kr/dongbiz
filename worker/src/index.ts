@@ -1426,7 +1426,18 @@ const ADMIN_NAV = `<nav class="nav">
 </nav>`;
 
 // 관리자: 진단 리스트 (최신 100건). §6 Phase C 신규 요청 — 관리자 자신이 raw데이터를 검증할 수 있어야 함.
-app.get("/api/test-graphql", async (c) => {
+app.get("/api/test-graphql2", async (c) => {
+  try {
+    const res = await fetch("https://m.place.naver.com/graphql", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify([{"operationName":"getPlaceDetail","variables":{"id":"1994640103"},"query":"query getPlaceDetail($id:String!){placeDetail(input:{id:$id,isNx:false}){id}}" }])
+    });
+    return c.json({ status: res.status, body: await res.text() });
+  } catch(e:any){ return c.json({error: e.message}); }
+});
+
+  app.get(/api/test-graphql, async (c) => {
   const placeId = c.req.query("id") || "1994640103";
   const query = `query getPlaceDetail($id: String!) { placeDetail(input: {id: $id, isNx: false, deviceType: "mobile", checkRedirect: true}) { id name businessType base { visitorReviewsTotal cafeBlogReviewsTotal saveCount bookmarkCount } reviewStats { visitorReviewsTotal blogReviewsTotal } } }`;
   
@@ -2442,6 +2453,7 @@ export default {
     }
   },
 };
+
 
 
 
