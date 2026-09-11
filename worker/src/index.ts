@@ -1494,7 +1494,7 @@ app.get('/admin/analytics', async (c) => {
       <td>${r.snapshot_count}건 (업체 ${r.place_count}개)</td>
       <td>${escapeHtml(fmtKST(r.first_seen))} ~ ${escapeHtml(fmtKST(r.last_seen))}</td>
       <td>${r.cron_count > 0 ? `✅ ${r.cron_count}건` : '<span style="color:#94A3B8">아직 없음</span>'}</td>
-      <td><a href="/admin/analytics/${encodeURIComponent(r.keyword)}">순위 추이 보기 →</a></td>
+      <td><a href="/admin/analytics/${encodeURIComponent(r.keyword)}">순위 추이 보기</a> <button onclick="if(confirm('이 키워드의 모든 관측 데이터를 삭제하시겠습니까?')) fetch('/admin/analytics/${encodeURIComponent(r.keyword)}', {method:'DELETE'}).then(()=>location.reload())" style="margin-left:8px;color:#EF4444;background:none;border:1px solid #EF4444;border-radius:4px;padding:2px 6px;cursor:pointer;font-size:11px;">삭제</button></td>
     </tr>`).join('');
 
   return c.html(`<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><title>동네비즈 관리자 - 지표 분석</title><style>${ADMIN_STYLE}</style></head>
@@ -1950,6 +1950,14 @@ app.get('/admin/analytics/:keyword', async (c) => {
     });
   </script>
 </body></html>`);
+});
+
+app.delete('/admin/analytics/:keyword', async (c) => {
+  const keyword = c.req.param('keyword');
+  const db = c.env.DB;
+  if (!db) return c.text('DB missing', 500);
+  await db.prepare('DELETE FROM rank_snapshots WHERE keyword = ?').bind(keyword).run();
+  return c.json({ success: true });
 });
 
 // 관리자: 진단 1건 상세 — 내 매장 + 경쟁사(top10) raw 데이터 전체를 검증용으로 노출.
