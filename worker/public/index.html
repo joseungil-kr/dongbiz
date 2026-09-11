@@ -38,8 +38,8 @@
     :root { color-scheme: only light; }
     /* 2단계 입력 카드: 1단계 결과와 같은 흰 카드라 페이지의 일부처럼 묻혀서 놓치는 문제 →
        파란 테두리 + 옅은 배경으로 분리하고, 나타날 때 3번만 맥박쳐서 시선을 끈다. */
-        .step1-highlight {
-      background: linear-gradient(180deg, #E7F8EE 0%, #FFFFFF 55%);
+            .step1-highlight {
+      background: linear-gradient(180deg, rgba(3, 199, 90, 0.05) 0%, #FFFFFF 55%);
       border: 2px solid #03C75A;
     }
     .step-highlight {
@@ -112,7 +112,7 @@
     </p>
 
     <!-- [1단계] 토스형 입력 폼 -->
-    <div class="w-full max-w-2xl step1-highlight p-6 md:p-8 rounded-3xl shadow-xl shadow-green-200/50 mb-8">
+    <div class="w-full max-w-2xl step1-highlight p-6 md:p-8 rounded-3xl shadow-xl shadow-green-100/40 mb-8">
       <div class="flex flex-col sm:flex-row gap-3">
         <div class="flex-1 relative text-left">
           <label class="block text-xs font-bold text-slate-500 mb-1.5 ml-1">상호 / 전화번호 / 지도공유주소 / 플레이스번호</label>
@@ -1332,6 +1332,7 @@
   </script>
 </body>
 </html>
+
 
 
 
