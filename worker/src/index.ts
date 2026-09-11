@@ -433,7 +433,7 @@ app.get('/api/gap', async (c) => {
       ['visitorReviewsScore', true],
       ['saveCount', true], // 공개되지 않은 업종/업체는 0이 아니라 표본에서 제외한다.
     ];
-    const stats: Record<string, { avg: number; median: number; boundary: number | null }> = {};
+    const stats: Record<string, { avg: number; median: number; boundary: number | null; count?: number }> = {};
     for (const [key, isScore] of metricKeys) {
       const s = calcStats(competitors, key, isScore);
       stats[key] = {
@@ -441,6 +441,26 @@ app.get('/api/gap', async (c) => {
         boundary: boundaryStore ? (Number(boundaryStore.seoMetrics[key]) || (isScore ? null : 0)) : null,
       };
     }
+    const photoReviewRatio = (store: any) => {
+      const total = Number(store?.seoMetrics?.visitorReviewsTotal) || 0;
+      return total > 0 ? Math.min(100, (Number(store.seoMetrics.reviewMediasTotal) || 0) / total * 100) : null;
+    };
+    const photoRatios = competitors.map(photoReviewRatio).filter((v): v is number => v !== null);
+    const ratioAvg = photoRatios.length ? photoRatios.reduce((a, b) => a + b, 0) / photoRatios.length : 0;
+    const sortedRatios = [...photoRatios].sort((a, b) => a - b);
+    stats.photoReviewRatio = {
+      avg: Math.round(ratioAvg * 10) / 10,
+      median: sortedRatios.length ? Math.round(sortedRatios[Math.floor(sortedRatios.length / 2)] * 10) / 10 : 0,
+      boundary: photoReviewRatio(boundaryStore),
+      count: photoRatios.length,
+    };
+    const distances = competitors.map(s => s.rankFactors?.distanceFromMeKm).filter((v: any) => Number.isFinite(v));
+    stats.distanceFromMeKm = {
+      avg: distances.length ? Math.round(distances.reduce((a: number, b: number) => a + b, 0) / distances.length * 10) / 10 : 0,
+      median: 0,
+      boundary: null,
+      count: distances.length,
+    };
 
     // A/B/C 등급: 상위 평균(1위 단독 아님) 대비 방문자 리뷰 백분율
     const reviewRatio = myStore.seoMetrics.visitorReviewsTotal / Math.max(stats.visitorReviewsTotal.avg, 1);
