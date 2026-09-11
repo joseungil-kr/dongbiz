@@ -149,6 +149,7 @@ test('normal Step 1 to Step 2 succeeds without fetching own detail twice', async
   const data = await second.json();
   assert.equal(data.myRank, 1); assert.equal(data.top10Competitors.length, 1);
   assert.equal(data.grade, 'A'); assert.equal(data.stats.visitorReviewsTotal.avg, 12);
+  assert.equal(data.stats.saveCount.count, 0); // 비공개 저장수는 0으로 평균에 섞지 않는다.
   assert.equal(calls.filter(url => url.endsWith(`/place/${id}/home`)).length, 1);
   await Promise.all(background);
 });

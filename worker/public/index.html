@@ -293,6 +293,7 @@
           <div class="w-full bg-white rounded-xl border border-slate-200/60 p-2 flex justify-center mb-3" style="height: 250px;">
             <canvas id="radarChart"></canvas>
           </div>
+          <p id="radarNote" class="hidden text-[11px] text-slate-500 text-center mb-3"></p>
           <div class="flex items-center justify-center gap-3">
             <span id="rankBadge" class="text-sm font-bold px-4 py-2 rounded-full"></span>
             <span id="gradeBadge" class="text-lg font-black px-4 py-2 rounded-full"></span>
@@ -1106,27 +1107,41 @@
       }
     }
 
-    function drawRadarChart(my, stats, compareLabel) {
+    function drawRadarChart(my, stats, compareLabel, includeSaves = false) {
       const ctx = document.getElementById('radarChart').getContext('2d');
       if (radarChartInstance) radarChartInstance.destroy();
 
       const maxVisitor = Math.max(my.seoMetrics.visitorReviewsTotal, stats.visitorReviewsTotal.avg, 1);
       const maxBlog = Math.max(my.seoMetrics.cafeBlogReviewsTotal, stats.cafeBlogReviewsTotal.avg, 1);
       const maxVote = Math.max(my.seoMetrics.totalVoteCount, stats.totalVoteCount.avg, 1);
+      const maxSave = includeSaves ? Math.max(my.seoMetrics.saveCount, stats.saveCount.avg, 1) : 1;
+      const labels = ['영수증 리뷰', '블로그 리뷰', '키워드 투표수', '소비자 평점'];
+      const mine = [
+        (my.seoMetrics.visitorReviewsTotal / maxVisitor) * 100,
+        (my.seoMetrics.cafeBlogReviewsTotal / maxBlog) * 100,
+        (my.seoMetrics.totalVoteCount / maxVote) * 100,
+        (Number(my.seoMetrics.visitorReviewsScore || 4) / 5) * 100
+      ];
+      const theirs = [
+        (stats.visitorReviewsTotal.avg / maxVisitor) * 100,
+        (stats.cafeBlogReviewsTotal.avg / maxBlog) * 100,
+        (stats.totalVoteCount.avg / maxVote) * 100,
+        (Number(stats.visitorReviewsScore.avg || 4) / 5) * 100
+      ];
+      if (includeSaves) {
+        labels.push('저장수');
+        mine.push((my.seoMetrics.saveCount / maxSave) * 100);
+        theirs.push((stats.saveCount.avg / maxSave) * 100);
+      }
 
       radarChartInstance = new Chart(ctx, {
         type: 'radar',
         data: {
-          labels: ['영수증 리뷰', '블로그 리뷰', '키워드 투표수', '소비자 평점'],
+          labels,
           datasets: [
             {
               label: '내 매장',
-              data: [
-                (my.seoMetrics.visitorReviewsTotal / maxVisitor) * 100,
-                (my.seoMetrics.cafeBlogReviewsTotal / maxBlog) * 100,
-                (my.seoMetrics.totalVoteCount / maxVote) * 100,
-                (Number(my.seoMetrics.visitorReviewsScore || 4) / 5) * 100
-              ],
+              data: mine,
               backgroundColor: 'rgba(59, 130, 246, 0.2)',
               borderColor: 'rgba(59, 130, 246, 1)',
               pointBackgroundColor: 'rgba(59, 130, 246, 1)',
@@ -1134,12 +1149,7 @@
             },
             {
               label: compareLabel || '상위 6개 평균',
-              data: [
-                (stats.visitorReviewsTotal.avg / maxVisitor) * 100,
-                (stats.cafeBlogReviewsTotal.avg / maxBlog) * 100,
-                (stats.totalVoteCount.avg / maxVote) * 100,
-                (Number(stats.visitorReviewsScore.avg || 4) / 5) * 100
-              ],
+              data: theirs,
               backgroundColor: 'rgba(226, 232, 240, 0.2)',
               borderColor: 'rgba(148, 163, 184, 1)',
               pointBackgroundColor: 'rgba(148, 163, 184, 1)',
@@ -1274,7 +1284,14 @@
       // 1:1 직접비교 땐 "상위 6개 평균" 대신 그 경쟁사 이름 자체를 비교축으로 쓴다.
       const compareName = data.isDirectCompare ? (data.top10Competitors[0]?.name || '경쟁사') : null;
       document.getElementById('radarPanelTitle').innerText = compareName ? `내 매장 vs ${compareName}` : `내 매장 vs 경쟁사 ${foundCount}곳 평균`;
-      drawRadarChart(my, stats, compareName || `경쟁사 ${foundCount}곳 평균`);
+      const saveCount = stats.saveCount?.count || 0;
+      const includeSaves = data.rankObservation?.category === 'restaurant'
+        && my.seoMetrics.saveCount != null
+        && saveCount >= Math.ceil(foundCount * 0.75);
+      drawRadarChart(my, stats, compareName || `경쟁사 ${foundCount}곳 평균`, includeSaves);
+      const radarNote = document.getElementById('radarNote');
+      radarNote.classList.toggle('hidden', !includeSaves);
+      radarNote.textContent = includeSaves ? `저장수는 공개된 ${saveCount}/${foundCount}곳 기준 평균입니다.` : '';
 
       const boundaryResults = [
         boundaryCard('영수증(방문자) 리뷰', '건', my.seoMetrics.visitorReviewsTotal, stats.visitorReviewsTotal.avg, stats.visitorReviewsTotal.boundary,
@@ -1286,6 +1303,10 @@
         boundaryCard('등록 사진 수', '장', my.seoMetrics.photoCount, stats.photoCount.avg, stats.photoCount.boundary,
           '네이버가 집계하는 대표 사진 총 개수입니다. 실제 업로드한 사진 수와 약간 차이가 날 수 있습니다.', compareName),
       ];
+      if (includeSaves) boundaryResults.push(
+        boundaryCard('저장수', '회', my.seoMetrics.saveCount, stats.saveCount.avg, stats.saveCount.boundary,
+          `네이버에 공개된 저장수 하한값입니다. 경쟁사 ${saveCount}/${foundCount}곳의 공개값만 평균에 포함하며, 비공개 값은 0으로 계산하지 않습니다.`, compareName)
+      );
       document.getElementById('boundaryCards').innerHTML = boundaryResults.map(r => r.html).join('');
 
       // 결핍 요약 문구: 키워드 미스매치(구조적으로 매칭 불가능해 삭제)를 대신해

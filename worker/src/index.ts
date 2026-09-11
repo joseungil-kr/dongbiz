@@ -273,15 +273,15 @@ function keywordMatch(keyword: string, name: string | null, category: string | n
 }
 
 // 지표별 평균/중앙값 계산 (§7.6 평균 왜곡 방어)
-function calcStats(competitors: any[], key: string, isScoreField = false) {
+function calcStats(competitors: any[], key: string, skipMissing = false) {
   const raw = competitors.map(s => s.seoMetrics[key]);
-  const filtered = isScoreField ? raw.filter((v: any) => v !== null && v !== undefined) : raw;
+  const filtered = skipMissing ? raw.filter((v: any) => v !== null && v !== undefined) : raw;
   const values = filtered.map((v: any) => Number(v) || 0).sort((a: number, b: number) => a - b);
-  if (values.length === 0) return { avg: 0, median: 0 };
+  if (values.length === 0) return { avg: 0, median: 0, count: 0 };
   const avg = values.reduce((a: number, b: number) => a + b, 0) / values.length;
   const mid = Math.floor(values.length / 2);
   const median = values.length % 2 === 0 ? (values[mid - 1] + values[mid]) / 2 : values[mid];
-  return { avg: Math.round(avg * 100) / 100, median: Math.round(median * 100) / 100 };
+  return { avg: Math.round(avg * 100) / 100, median: Math.round(median * 100) / 100, count: values.length };
 }
 
 // [1단계] 내 매장 진단
@@ -421,6 +421,7 @@ app.get('/api/gap', async (c) => {
       ['totalVoteCount', false],
       ['photoCount', false],
       ['visitorReviewsScore', true],
+      ['saveCount', true], // 공개되지 않은 업종/업체는 0이 아니라 표본에서 제외한다.
     ];
     const stats: Record<string, { avg: number; median: number; boundary: number | null }> = {};
     for (const [key, isScore] of metricKeys) {
