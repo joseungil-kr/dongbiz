@@ -441,18 +441,18 @@ app.get('/api/gap', async (c) => {
         boundary: boundaryStore ? (Number(boundaryStore.seoMetrics[key]) || (isScore ? null : 0)) : null,
       };
     }
-    const photoReviewRatio = (store: any) => {
+    const mediaPerVisitorReview = (store: any) => {
       const total = Number(store?.seoMetrics?.visitorReviewsTotal) || 0;
-      return total > 0 ? Math.min(100, (Number(store.seoMetrics.reviewMediasTotal) || 0) / total * 100) : null;
+      return total > 0 ? (Number(store.seoMetrics.reviewMediasTotal) || 0) / total : null;
     };
-    const photoRatios = competitors.map(photoReviewRatio).filter((v): v is number => v !== null);
-    const ratioAvg = photoRatios.length ? photoRatios.reduce((a, b) => a + b, 0) / photoRatios.length : 0;
-    const sortedRatios = [...photoRatios].sort((a, b) => a - b);
-    stats.photoReviewRatio = {
-      avg: Math.round(ratioAvg * 10) / 10,
-      median: sortedRatios.length ? Math.round(sortedRatios[Math.floor(sortedRatios.length / 2)] * 10) / 10 : 0,
-      boundary: photoReviewRatio(boundaryStore),
-      count: photoRatios.length,
+    const mediaRates = competitors.map(mediaPerVisitorReview).filter((v): v is number => v !== null);
+    const mediaRateAvg = mediaRates.length ? mediaRates.reduce((a, b) => a + b, 0) / mediaRates.length : 0;
+    const sortedMediaRates = [...mediaRates].sort((a, b) => a - b);
+    stats.reviewMediaPerVisitorReview = {
+      avg: Math.round(mediaRateAvg * 100) / 100,
+      median: sortedMediaRates.length ? Math.round(sortedMediaRates[Math.floor(sortedMediaRates.length / 2)] * 100) / 100 : 0,
+      boundary: mediaPerVisitorReview(boundaryStore),
+      count: mediaRates.length,
     };
     const distances = competitors.map(s => s.rankFactors?.distanceFromMeKm).filter((v: any) => Number.isFinite(v));
     stats.distanceFromMeKm = {
