@@ -166,8 +166,19 @@ export async function scrapeFullPlaceMetrics(queryOrId: string, includeFeed = fa
     };
   });
 
+  // 사진 키는 출처가 접미사로 붙어 있다: _business_N(업체 등록) / _clip_N(클립 영상) / _visitor_N(방문자 리뷰).
+  // ⚠️ _clip_ 은 thumbnailUrl이 clip-service 호스트인데 외부에서 부르면 **404**다(실측).
+  //    그대로 담으면 공유 OG 이미지·진단 화면 대표사진이 깨진다 — 실제로 2번째 항목이 그랬다.
+  // 업체가 직접 등록한 사진을 앞에 두고, 방문자 사진을 뒤에 붙인다. 클립은 버린다.
+  // photoKeys는 사진 수(photoCount) 폴백으로도 쓰이므로 **거르지 않는다** — 여기서 빼면
+  // 지표가 조용히 달라진다. 표시용 목록에서만 클립을 제외한다.
   const photoKeys = keys.filter(k => k.startsWith(`PlaceDetailTopPhotoItem:${placeId}`));
-  const samplePhotos = photoKeys.map(k => state[k]?.thumbnailUrl).filter(Boolean);
+  const photoRank = (k: string) => (k.includes('_business_') ? 0 : 1);
+  const samplePhotos = photoKeys
+    .filter(k => !k.includes('_clip_'))
+    .sort((a, b) => photoRank(a) - photoRank(b))
+    .map(k => state[k]?.thumbnailUrl)
+    .filter(Boolean);
 
   // ROOT_QUERY에서 keywordList, description, 이미지 총 개수, 소식 추출 (§7.1 __ref 포인터 해석)
   let keywordList: string[] = [];
@@ -294,6 +305,8 @@ export async function scrapeFullPlaceMetrics(queryOrId: string, includeFeed = fa
       visitorReviewsTotal: base.visitorReviewsTotal || 0,
       visitorReviewsScore: base.visitorReviewsScore || null,
       cafeBlogReviewsTotal: cafeBlogReviewsTotal, // §7.8: fsasReviews.total 우선 사용
+      saveCount: parseSaveCount(base.saveCount) ?? null,
+      bookmarkCount: parseSaveCount(base.bookmarkCount) ?? null,
       textReviewsTotal: base.visitorReviewsTextReviewTotal || 0,
       hasTalktalk: Boolean(base.talktalkUrl),
       hasSmartCall: Boolean(base.virtualPhone),
@@ -323,4 +336,137 @@ export async function scrapeFullPlaceMetrics(queryOrId: string, includeFeed = fa
     paymentMethods: base.paymentInfo || [],
     samplePhotos: samplePhotos.slice(0, 5)
   };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// pcmap 목록 수집 (§9.10). 리버스 엔지니어링용 "너비" 수집기.
+//
+// 통합검색 위젯은 상위 6곳만 보여주고(§7.10) 지표도 개별 페이지를 다시 긁어야 얻는다.
+// pcmap 목록은 **한 번의 요청으로 50곳 이상 + 지표까지** 준다. 표본이 9배가 되고
+// 요청 수는 1/8로 준다. 광고도 타입으로 분리돼 있어 §7.5의 취약한 패턴 판별이 필요 없다.
+//
+// ⚠️ 실측 경고: 빠르게 6회 연달아 호출했더니 **429**를 맞았다(2026-09-09). 호출 간격을
+// 반드시 두고, 한 실행에서 몰아치지 말 것. 페이지에 ncaptcha 스크립트도 박혀 있다(§7.7).
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** 정렬 축. 업종마다 지원 목록이 다르다 — restaurant만 saved, hairshop은 revisit이 있다. */
+export type SortMode = 'popular' | 'saved' | 'trendy' | 'revisit' | 'reviewTotalCount';
+
+export interface PlaceListItem {
+  placeId: string;
+  name: string;
+  category: string | null;
+  rank: number;
+  isAd: boolean;
+  saveCountRaw: string | null;   // "24,000+" 원문
+  saveCountMin: number | null;   // 24000 — 분석용 하한값
+  visitorReviewCount: number | null;
+  blogCafeReviewCount: number | null;
+  totalReviewCount: number | null;
+  imageCount: number | null;
+  hasBooking: boolean | null;
+  hasTalktalk: boolean | null;
+  roadAddress: string | null;
+}
+
+/**
+ * "~100" / "24,000+" / "700+" 형태를 분석 가능한 하한값으로 바꾼다.
+ * 반올림된 구간값이라 정확한 수가 아니다 — 비교·추세용으로만 쓸 것.
+ */
+function parseSaveCount(raw: unknown): number | null {
+  if (raw == null) return null;
+  const digits = String(raw).replace(/[^\d]/g, '');
+  return digits ? Number(digits) : null;
+}
+
+function toInt(v: unknown): number | null {
+  if (v == null) return null;
+  const n = Number(String(v).replace(/,/g, ''));
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * 키워드 1개의 목록을 정렬 축 1개로 수집한다.
+ * `category`는 pcmap 경로다 — 'restaurant' | 'hairshop' | 'place' 등.
+ */
+export async function getPlaceList(
+  keyword: string,
+  { category = 'restaurant', sort = 'popular' as SortMode, limit = 50 } = {},
+): Promise<PlaceListItem[]> {
+  const params = new URLSearchParams({ query: keyword });
+  // popular는 기본값이라 파라미터를 붙이지 않는다(붙이면 빈 결과가 오는 경우가 있다).
+  if (sort !== 'popular') params.set('sortingOrder', sort);
+
+  const url = `https://pcmap.place.naver.com/${category}/list?${params}`;
+  const headers = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Referer': 'https://map.naver.com/',
+    'Accept-Language': 'ko-KR,ko;q=0.9',
+  };
+
+  // 429는 잠깐 쉬면 풀린다. 한 번만 더 시도하고, 그래도 막히면 호출부가 알 수 있게 던진다
+  // — 조용히 빈 배열을 돌려주면 "수집 완료"라고 표시되면서 데이터만 비는 사고가 난다(실제로 겪음).
+  let res = await fetch(url, { headers });
+  if (res.status === 429) {
+    await new Promise(resolve => setTimeout(resolve, 15000));
+    res = await fetch(url, { headers });
+  }
+  if (!res.ok) throw new Error(`pcmap 목록 조회 실패 (HTTP ${res.status})`);
+
+  const html = await res.text();
+  const start = html.indexOf('window.__APOLLO_STATE__ = ');
+  if (start < 0) throw new Error('APOLLO_STATE 없음 — 차단되었거나 구조가 바뀌었다');
+
+  // 중괄호 균형으로 JSON 끝을 찾는다. 정규식으로 자르면 본문에 }가 섞여 깨진다.
+  const from = html.indexOf('{', start);
+  let depth = 0, end = -1, inStr = false, esc = false;
+  for (let i = from; i < html.length; i++) {
+    const ch = html[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (ch === '\\') esc = true;
+      else if (ch === '"') inStr = false;
+      continue;
+    }
+    if (ch === '"') inStr = true;
+    else if (ch === '{') depth++;
+    else if (ch === '}' && --depth === 0) { end = i + 1; break; }
+  }
+  if (end < 0) throw new Error('APOLLO_STATE 파싱 실패');
+
+  const state = JSON.parse(html.slice(from, end)) as Record<string, any>;
+
+  // ⚠️ §7.15 교훈: 표시 순서를 추측하지 않는다. 여기서는 객체 키 순서가 실제 순위와
+  // 일치함을 상위 6곳으로 실측 확인했으나, 권위 있는 순서 배열을 찾기 전까지
+  // **깊은 순위는 신뢰하지 말 것**. 광고(RestaurantAdSummary 등)는 순위에서 제외한다.
+  const items: PlaceListItem[] = [];
+  for (const value of Object.values(state)) {
+    if (!value || typeof value !== 'object') continue;
+    const type = (value as any).__typename;
+    if (typeof type !== 'string' || !('saveCount' in value || 'visitorReviewCount' in value)) continue;
+    const isAd = /Ad(Summary|Item)$/.test(type);
+    if (!(value as any).id || !(value as any).name) continue;
+
+    items.push({
+      placeId: String((value as any).id),
+      name: (value as any).name,
+      category: (value as any).category ?? null,
+      rank: 0, // 아래에서 오가닉만 다시 매긴다
+      isAd,
+      saveCountRaw: (value as any).saveCount ?? null,
+      saveCountMin: parseSaveCount((value as any).saveCount),
+      visitorReviewCount: toInt((value as any).visitorReviewCount),
+      blogCafeReviewCount: toInt((value as any).blogCafeReviewCount),
+      totalReviewCount: toInt((value as any).totalReviewCount),
+      imageCount: toInt((value as any).imageCount),
+      hasBooking: (value as any).hasBooking ?? null,
+      hasTalktalk: (value as any).talktalkUrl ? true : false,
+      roadAddress: (value as any).roadAddress ?? null,
+    });
+  }
+
+  let organicRank = 0;
+  for (const item of items) if (!item.isAd) item.rank = ++organicRank;
+
+  return items.filter(i => !i.isAd).slice(0, limit);
 }

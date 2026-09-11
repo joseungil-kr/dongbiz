@@ -67,6 +67,10 @@ CREATE TABLE IF NOT EXISTS rank_snapshots (
     name_contains_keyword BOOLEAN,
     category_matches_keyword BOOLEAN,
     distance_from_me_km REAL,               -- 스냅샷을 유발한 내 매장 기준 거리(참고용)
+    name_search_volume INTEGER,             -- 상호명 월간 검색량(PC+모바일). 직접 검색 유입 추정용(§6.5.10).
+                                            -- /api/gap 경로에서만 채운다 — cron은 subrequest 한도 때문에 NULL.
+    name_volume_under_ten BOOLEAN,          -- 위 값이 "< 10" 상한을 더한 근사치인지. TRUE면 실측이 아니다.
+                                            -- NULL(미측정)과 "< 10"(측정했으나 하한 미만)을 구분하기 위해 따로 둔다.
     source TEXT DEFAULT 'user',             -- 'user'(사용자 진단) | 'cron'(자동 재수집)
     collected_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
@@ -101,3 +105,54 @@ CREATE INDEX IF NOT EXISTS idx_rank_snapshots_keyword_place ON rank_snapshots(ke
 CREATE INDEX IF NOT EXISTS idx_rank_snapshots_collected ON rank_snapshots(collected_at);
 CREATE INDEX IF NOT EXISTS idx_keyword_rank_stats_keyword ON keyword_rank_stats(keyword);
 CREATE INDEX IF NOT EXISTS idx_keyword_rank_stats_collected ON keyword_rank_stats(collected_at);
+
+-- 6. 리포트 메일 신청 (§6.7). "카톡/문자 주세요" CTA가 전환 0건이라 이메일 수집으로 교체하며 신설.
+-- 메일은 Apps Script 웹훅(SHEETS_WEBHOOK_URL)이 대신 보낸다 — Workers는 자체 발송 수단이 없다.
+CREATE TABLE IF NOT EXISTS report_leads (
+    id TEXT PRIMARY KEY,
+    share_id TEXT NOT NULL,
+    place_id TEXT,
+    place_name TEXT,
+    keyword TEXT,
+    email TEXT NOT NULL,
+    sent BOOLEAN DEFAULT 0,           -- 웹훅 호출 성공 여부. 실패해도 리드는 남긴다.
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 7. 키워드 검색량 시계열 (§9.12). 검색광고 API를 새로 탈 때마다 한 행씩 남긴다.
+-- 화면에 뿌리고 버리면 "검색량이 오른 뒤 순위가 올랐나"를 영영 물어볼 수 없다.
+-- related_to에 원 상호를 남기므로, 사람 판단(변형 체크박스)을 저장하지 않아도
+-- 분석 시점에 "이 매장의 변형 후보 전체"를 복원해 다시 고를 수 있다.
+CREATE TABLE IF NOT EXISTS keyword_volumes (
+    id TEXT PRIMARY KEY,
+    keyword TEXT NOT NULL,
+    norm_keyword TEXT NOT NULL,       -- 공백 제거 + 대문자. 검색광고 API의 매칭 기준과 동일
+    pc INTEGER, mobile INTEGER, total INTEGER,
+    is_under_ten BOOLEAN,             -- "< 10" 상한을 더한 근사치인지 (§6.6.1)
+    competition TEXT,                 -- 낮음 | 중간 | 높음
+    context TEXT,                     -- gap-keyword | gap-store-name | report | brand-variant
+    related_to TEXT,                  -- 파생 출처(변형이면 원 상호, 진단이면 대상 키워드)
+    measured_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_keyword_volumes_norm ON keyword_volumes(norm_keyword, measured_at);
+
+-- 8. 업체 텍스트 원문 (§9.13). "검색 키워드가 그 업체의 대표키워드/상세설명/메뉴명에 들어 있나"를
+-- 보려면 텍스트 자체가 있어야 한다. rank_snapshots는 name_contains_keyword 같은 파생 불린만
+-- 갖고 있어서, 매칭 규칙을 고치면 과거 데이터를 다시 해석할 방법이 없다. 그래서 원문을 남기고
+-- 매칭은 조회 시점에 계산한다.
+--
+-- 스냅샷마다 복제하지 않고 업체당 한 행만 둔다 — 이 텍스트는 몇 달에 한 번 바뀌는 값이라
+-- 매일 복제하면 rank_snapshots만큼 커지면서 정보량은 그대로다.
+-- ⚠️ 그래서 "언제 바뀌었나"는 이 테이블로 알 수 없다. 대표키워드 변경 → 순위 변동의 인과를
+--    보려면 워치리스트 매장을 골라 별도로 변경 전후를 기록해야 한다.
+CREATE TABLE IF NOT EXISTS place_texts (
+    place_id TEXT PRIMARY KEY,
+    place_name TEXT,
+    category TEXT,
+    keyword_list TEXT,       -- JSON 배열. 업체가 직접 입력한 대표키워드. **순서가 곧 입력 순서**라 의미가 있다
+    description TEXT,        -- 상세설명 원문
+    menu_names TEXT,         -- JSON 배열. 메뉴명만 (가격/설명은 seoMetrics 쪽에 이미 있음)
+    rep_keywords TEXT,       -- JSON [{keyword,count}]. 네이버가 방문자 리뷰에서 뽑은 투표 키워드.
+                             -- keyword_list와 절대 섞지 말 것 — 전자는 업체가 조작 가능, 이건 아니다.
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);

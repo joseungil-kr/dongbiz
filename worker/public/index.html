@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="ko">
 <head>
   <meta charset="UTF-8" />
@@ -74,16 +74,24 @@
 </head>
 <body class="bg-[#F8FAFC] text-slate-900 min-h-screen flex flex-col justify-between">
   <!-- 상단 네비게이션 -->
-  <header class="w-full max-w-6xl mx-auto px-6 py-6 flex justify-between items-center">
-    <a href="/" class="flex items-center gap-2">
-      <div class="w-9 h-9 rounded-xl bg-blue-600 flex items-center justify-center text-white font-black text-lg shadow-md shadow-blue-500/20">동</div>
-      <span class="text-xl font-bold tracking-tight text-slate-900">동네비즈</span>
-    </a>
-    <div class="flex items-center gap-2">
-      <button onclick="shareCurrentPage()" title="카톡이나 문자로 이 페이지를 공유하실 수 있습니다" class="text-sm font-bold text-slate-700 hover:text-blue-600 px-4 py-2.5 rounded-xl border border-slate-200 hover:border-blue-200 transition flex items-center gap-2">
-        <i class="fa-solid fa-link text-sm"></i> 공유하기
-      </button>
-      <button class="hidden text-sm font-semibold bg-slate-900 text-white px-4 py-2 rounded-xl hover:bg-slate-800 transition">대행 파트너 문의</button>
+  <!-- 상단 고정 메뉴 (§6.10). /ads·/blog의 .site-head와 **픽셀 단위로 동일**해야 한다 —
+       max-width·좌우패딩·상하패딩·로고크기·버튼 최소폭이 하나라도 다르면 페이지를 옮길 때마다
+       상단이 미세하게 흔들린다. 값을 바꿀 땐 pages.ts의 .site-head-in도 같이 바꿀 것. -->
+  <header class="sticky top-0 z-50 w-full bg-white/[.88] backdrop-blur-xl border-b border-slate-900/[.07]">
+    <div class="max-w-[1180px] mx-auto flex items-center gap-[26px]" style="padding:11px 28px">
+      <a href="/" class="flex items-center gap-[9px]">
+        <span class="w-[34px] h-[34px] rounded-[11px] bg-blue-600 flex items-center justify-center text-white font-black text-[17px] shadow-lg shadow-blue-600/25">동</span>
+        <span class="text-[19px] font-extrabold tracking-[-0.04em] text-slate-900">동네비즈</span>
+      </a>
+      <nav class="flex items-center gap-[2px] ml-auto">
+        <a href="/" class="text-sm font-bold px-[14px] py-2 rounded-full bg-slate-900 text-white">플레이스분석</a>
+        <a href="/ads" class="text-sm font-bold px-[14px] py-2 rounded-full text-slate-500 hover:bg-slate-900/5 hover:text-slate-900 transition">광고컨설팅</a>
+        <!-- <a href="/blog" class="text-sm font-bold px-[14px] py-2 rounded-full text-slate-500 hover:bg-slate-900/5 hover:text-slate-900 transition">블로그배포</a> -->
+      </nav>
+      <!-- 서브페이지의 [상담 문의]와 같은 모양·같은 최소폭. 라벨 글자 수가 달라도 폭이 안 변한다. -->
+      <button onclick="shareCurrentPage()" title="카톡이나 문자로 이 페이지를 공유하실 수 있습니다"
+        class="hidden sm:inline-flex items-center justify-center min-w-[98px] text-[13.5px] font-extrabold rounded-full bg-blue-600 text-white transition hover:bg-blue-700"
+        style="padding:9px 18px">공유</button>
     </div>
   </header>
 
@@ -175,6 +183,8 @@
             <ul class="space-y-2.5 text-[13px]">
               <li class="flex justify-between items-center"><span class="text-slate-500">방문자(영수증) 총 리뷰 <i class="fa-regular fa-circle-question text-slate-300 text-[10px]" title="방문자 리뷰(영수증리뷰+예약리뷰)의 합계 숫자입니다. 후기를 적지 않고 평가만 진행한 경우까지 집계하므로 네이버 통계와 다를 수 있습니다."></i></span> <span id="guiRevV" class="font-bold text-slate-900 bg-slate-100 px-2 py-0.5 rounded"></span></li>
               <li class="flex justify-between items-center"><span class="text-slate-500">블로그/카페 총 리뷰 <i class="fa-regular fa-circle-question text-slate-300 text-[10px]" title="네이버 검색에 노출된 블로그·카페 후기 글의 총 개수입니다."></i></span> <span id="guiRevB" class="font-bold text-slate-900 bg-slate-100 px-2 py-0.5 rounded"></span></li>
+              <li id="guiSaveRow" class="hidden flex justify-between items-center"><span class="text-slate-500">저장수 <i class="fa-regular fa-circle-question text-slate-300 text-[10px]" title="사용자들이 네이버 지도에서 '저장'을 누른 횟수입니다."></i></span> <span id="guiSave" class="font-bold text-slate-900 bg-slate-100 px-2 py-0.5 rounded"></span></li>
+              <li id="guiBookmarkRow" class="hidden flex justify-between items-center"><span class="text-slate-500">즐겨찾기 <i class="fa-regular fa-circle-question text-slate-300 text-[10px]" title="예전 네이버 지도 즐겨찾기(별표) 숫자입니다."></i></span> <span id="guiBookmark" class="font-bold text-slate-900 bg-slate-100 px-2 py-0.5 rounded"></span></li>
               <li class="flex justify-between items-center"><span class="text-slate-500">방문자 평점 스코어 <i class="fa-regular fa-circle-question text-slate-300 text-[10px]" title="방문자 리뷰의 평균 평점입니다. 5점 만점이며, 매장이 비공개로 설정한 경우 표시되지 않습니다."></i></span> <span id="guiScore" class="font-bold text-rose-600 bg-rose-50 px-2 py-0.5 rounded"></span></li>
               <li class="flex justify-between items-center"><span class="text-slate-500">정성 텍스트 리뷰 수 <i class="fa-regular fa-circle-question text-slate-300 text-[10px]" title="평점만 남기지 않고 실제 글로 작성된 방문자 후기 수입니다."></i></span> <span id="guiRevT" class="font-bold text-slate-900 bg-slate-100 px-2 py-0.5 rounded"></span></li>
               <li class="flex justify-between items-center"><span class="text-slate-500">키워드 투표 참여수 <i class="fa-regular fa-circle-question text-slate-300 text-[10px]" title="방문자가 리뷰 작성 시 선택한 키워드(예: 친절해요, 맛있어요)의 총 투표 참여 횟수입니다."></i></span> <span id="guiVote" class="font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded"></span></li>
@@ -237,6 +247,9 @@
         </button>
       </div>
       <div id="keywordChips" class="mt-3 flex flex-wrap gap-2 text-left"></div>
+
+      <!-- 검색량 안내 (§6.5.9): 구간으로 뭉뚱그린 한 문장만. 실수치는 관리자 리포트 전용. -->
+      <div id="keywordVolumeHint" class="hidden mt-3 text-left text-xs font-semibold text-blue-800 bg-blue-50 border border-blue-100 rounded-xl px-3 py-2.5 leading-relaxed"></div>
 
       <div class="mt-4 pt-4 border-t border-slate-100">
         <button type="button" onclick="document.getElementById('compareRow').classList.toggle('hidden')" class="text-xs font-semibold text-slate-500 hover:text-blue-600 transition">
@@ -364,15 +377,30 @@
         </div>
       </div>
 
-      <!-- 상담 유도 CTA: 결핍 진단 다음, PDF 리포트를 미끼로 카톡/문자 문의를 받는다 (Phase C 확정) -->
-      <div class="mt-8 pt-8 border-t border-slate-200">
-        <div class="bg-blue-50/50 rounded-2xl p-6 border border-blue-100 text-center">
-          <h3 class="text-lg font-black text-slate-900 mb-1">내 매장 맞춤 개선 리포트, 무료로 받아보세요</h3>
-          <p class="text-sm text-slate-600 mb-4">아래 연락처로 카톡이나 문자 주시면, 방금 보신 분석을 바탕으로 실제 개선점을 정리한 <b>PDF 리포트</b>를 보내드립니다.</p>
-          <button id="ctaCallBtn" onclick="requestConsult()" class="inline-flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white font-bold text-base px-8 py-4 rounded-2xl shadow-lg transition transform active:scale-95">
-            <i class="fa-solid fa-comment-dots"></i> <span id="ctaPhoneText">연락처 보기</span>
-          </button>
-          <p class="text-xs text-slate-400 mt-3">조강사 · 카톡 또는 문자로 편하게 문의해주세요</p>
+      <!-- 리포트 메일 신청 (§6.7). 기존 "연락처 보기 → tel:" CTA는 전환 0건이었다.
+           원인 둘: ① 상담하면 돈 낼까 하는 두려움 ② 내가 먼저 연락해야 하는 부담.
+           그래서 ①은 문구로, ②는 이메일 한 칸으로 없앤다. -->
+      <div id="reportRequestBox" class="mt-8 pt-8 border-t border-slate-200">
+        <div class="bg-blue-50/50 rounded-2xl p-6 border border-blue-100">
+          <h3 class="text-lg font-black text-slate-900 mb-1 text-center">항목별 개선 방법, 메일로 바로 보내드립니다</h3>
+          <p class="text-sm text-slate-600 mb-1 text-center">방금 보신 진단에 <b>무엇을 어떻게 고치면 되는지</b>를 항목마다 붙인 리포트입니다.</p>
+          <p class="text-xs text-slate-500 mb-4 text-center">이메일만 남기면 바로 발송됩니다. <b class="text-slate-700">전액 무료이고, 영업 전화도 드리지 않습니다.</b></p>
+
+          <form id="reportEmailForm" onsubmit="requestReportEmail(event)" class="max-w-md mx-auto">
+            <div class="flex flex-col sm:flex-row gap-2">
+              <input type="email" id="reportEmail" required placeholder="name@example.com" autocomplete="email"
+                class="flex-1 px-4 py-3.5 rounded-xl border-2 border-blue-200 bg-white text-base font-semibold text-slate-900 placeholder:text-slate-400 placeholder:font-normal focus:outline-none focus:ring-2 focus:ring-blue-600 transition" />
+              <button type="submit" id="reportEmailBtn"
+                class="px-6 py-3.5 bg-slate-900 hover:bg-slate-800 text-white font-bold text-base rounded-xl shadow-lg transition transform active:scale-95 whitespace-nowrap">
+                무료로 받기
+              </button>
+            </div>
+            <label class="flex items-start gap-2 mt-3 text-xs text-slate-500 cursor-pointer">
+              <input type="checkbox" id="reportAgree" required class="mt-0.5 accent-blue-600" />
+              <span>리포트 발송을 위한 이메일 수집에 동의합니다. 발송 목적 외에는 사용하지 않습니다.</span>
+            </label>
+            <p id="reportEmailMsg" class="hidden mt-3 text-sm font-bold text-center"></p>
+          </form>
         </div>
       </div>
 
@@ -464,6 +492,9 @@
     // 맞춤개선 리포트 모드. /admin/:shareId/report 에서만 서버가 이 값을 스크립트로 주입한다
     // (일반 공개 페이지·공유링크에서는 절대 세팅 안 됨 — 주석은 관리자만 봐야 하므로).
     const IS_REPORT = typeof window.__REPORT_SHARE_ID__ !== 'undefined';
+    // 관리자 리포트(/admin/:shareId/report)에서만 true. 고객 리포트(/report/:shareId)는 같은
+    // 화면을 쓰지만 검색량 표·실제 연락처는 보면 안 되므로 이 플래그로 가른다.
+    const IS_ADMIN_REPORT = window.__REPORT_ADMIN__ === true;
 
     // 사용자(조승일)가 직접 첨삭 확정한 항목별 개선 주석. 판정 로직(뱃지·등급)은 이미 있는
     // 렌더링 함수가 그대로 하고, 리포트 모드일 때 이 문구만 각 항목 아래에 덧붙인다.
@@ -509,16 +540,41 @@
     }
     const bypassQS = bypassToken ? `&bypass=${encodeURIComponent(bypassToken)}` : '';
 
-    // 스팸 스크래퍼 방지: 전화번호를 뒤집어 저장해뒀다가 클릭 시에만 복원한다.
-    const OBS_PHONE_REV = '5550-0942-010';
-    function realPhone() { return OBS_PHONE_REV.split('').reverse().join(''); }
+    // 리포트 메일 신청 (§6.7). 진단 결과가 저장돼 있어야(shareId) 보낼 내용이 생긴다.
+    async function requestReportEmail(e) {
+      e.preventDefault();
+      const email = document.getElementById('reportEmail').value.trim();
+      const btn = document.getElementById('reportEmailBtn');
+      const msg = document.getElementById('reportEmailMsg');
+      const show = (text, ok) => {
+        msg.textContent = text;
+        msg.className = `mt-3 text-sm font-bold text-center ${ok ? 'text-blue-700' : 'text-rose-600'}`;
+      };
 
-    // 상담 CTA 클릭: 번호 노출 + 조용히 로그만 남기고(§9.9) tel: 링크로 이동
-    function requestConsult() {
-      const phone = realPhone();
-      document.getElementById('ctaPhoneText').innerText = phone;
-      fetch(`/api/lead-click?placeId=${encodeURIComponent(currentPlace?.placeId || '')}&name=${encodeURIComponent(currentPlace?.name || '')}&keyword=${encodeURIComponent(document.getElementById('keywordInput')?.value || '')}&shareId=${encodeURIComponent(currentShareId || '')}`).catch(() => {});
-      window.location.href = 'tel:' + phone.replace(/-/g, '');
+      if (!currentShareId) { show('진단 결과를 먼저 불러와주세요.', false); return; }
+
+      btn.disabled = true;
+      btn.textContent = '보내는 중...';
+      try {
+        const res = await fetch('/api/report-email', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ shareId: currentShareId, email }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || '발송에 실패했습니다.');
+        // 발송이 실패해도 접수는 된 상태다(운영자에게 알림이 갔으므로 수동 발송 가능).
+        // 그때 "보내드렸습니다"라고 하면 거짓말이 되므로 문구를 나눈다.
+        document.getElementById('reportEmailForm').innerHTML = data.sent
+          ? `<p class="text-center text-base font-bold text-blue-700">📬 ${email} 로 보내드렸습니다.</p>
+             <p class="text-center text-xs text-slate-500 mt-2">몇 분 안에 도착합니다. 안 보이면 스팸함도 확인해주세요.</p>`
+          : `<p class="text-center text-base font-bold text-blue-700">✅ ${email} 로 접수됐습니다.</p>
+             <p class="text-center text-xs text-slate-500 mt-2">확인 후 순서대로 보내드리고 있습니다. 조금만 기다려주세요.</p>`;
+      } catch (err) {
+        show(err.message, false);
+        btn.disabled = false;
+        btn.textContent = '무료로 받기';
+      }
     }
 
     // 공유하기: shareId가 있으면 크롤러용 OG 페이지(/share/:id)를, 없으면 홈 주소를 복사한다.
@@ -649,6 +705,10 @@
         currentShareId = data.shareId || shareId;
         renderPlace(currentPlace);
         renderKeywordChips(currentPlace);
+        // 상호도 채운다. 비워두면 "이게 어느 매장 결과인지"를 알려고 스크롤을 내려야 한다
+        // (리포트 모드에서 이미 겪은 것과 같은 문제, §6.5.9b). 다만 여기서는 읽기전용으로
+        // 만들지 않는다 — 공유링크를 받은 사람이 자기 매장을 바로 진단해보는 경로이기도 하다.
+        document.getElementById('storeInput').value = currentPlace?.name || '';
         document.getElementById('keywordInput').value = data.targetKeyword || '';
         document.getElementById('step1Result').classList.remove('hidden');
         document.getElementById('step2Input').classList.remove('hidden');
@@ -666,16 +726,21 @@
     // 인쇄→PDF 버튼을 추가한다.
     function applyReportMode() {
       document.querySelector('header')?.classList.add('hidden');
-      document.getElementById('step2Input')?.classList.add('hidden');
       document.getElementById('homeContent')?.classList.add('hidden');
+
+      // 입력창을 숨기거나 비우면 "무슨 매장·무슨 키워드 결과인지"를 알려고 스크롤을 내려야 한다.
+      // 리포트는 읽는 문서이므로 값은 그대로 두고 조작 수단만 걷어낸다.
+      const storeInput = document.getElementById('storeInput');
+      if (storeInput) { storeInput.value = currentPlace?.name || ''; storeInput.readOnly = true; }
+      const kwdInput = document.getElementById('keywordInput');
+      if (kwdInput) kwdInput.readOnly = true;
+      document.getElementById('gapBtn')?.classList.add('hidden');
+      document.getElementById('keywordChips')?.classList.add('hidden');
+      document.getElementById('compareRow')?.parentElement?.classList.add('hidden'); // 1:1 비교 토글 블록 전체
       document.querySelectorAll('[onclick="shareCurrentPage()"]').forEach(el => el.classList.add('hidden'));
 
-      const ctaBtn = document.getElementById('ctaCallBtn');
-      if (ctaBtn) {
-        document.getElementById('ctaPhoneText').innerText = realPhone();
-        ctaBtn.removeAttribute('onclick');
-        ctaBtn.style.cursor = 'default';
-      }
+      // 리포트 화면에서는 신청 폼이 의미가 없다 — 이미 받아본 사람이 보는 문서다.
+      document.getElementById('reportRequestBox')?.classList.add('hidden');
 
       const printBtn = document.createElement('button');
       printBtn.textContent = '🖨️ 인쇄 / PDF로 저장';
@@ -760,6 +825,14 @@
 
       setVal('guiRevV', my.seoMetrics.visitorReviewsTotal + '건');
       setVal('guiRevB', my.seoMetrics.cafeBlogReviewsTotal + '건');
+        if (my.seoMetrics.saveCount != null) {
+          document.getElementById('guiSaveRow').classList.remove('hidden');
+          setVal('guiSave', my.seoMetrics.saveCount.toLocaleString() + '+');
+        }
+        if (my.seoMetrics.bookmarkCount != null) {
+          document.getElementById('guiBookmarkRow').classList.remove('hidden');
+          setVal('guiBookmark', my.seoMetrics.bookmarkCount.toLocaleString() + '+');
+        }
       setVal('guiScore', (my.seoMetrics.visitorReviewsScore || '비공개') + ' / 5.0');
       const scoreVal = Number(my.seoMetrics.visitorReviewsScore);
       const scoreEl = document.getElementById('guiScore');
@@ -820,6 +893,155 @@
         if (kwdRow && !(kwdRow.nextElementSibling && kwdRow.nextElementSibling.classList.contains('report-note'))) {
           kwdRow.insertAdjacentHTML('afterend', reportNoteHtml('keywordCount') + reportNoteHtml('keywordMatch'));
         }
+      }
+      if (IS_ADMIN_REPORT) renderReportVolumes();
+    }
+
+    // 관리자 리포트 전용 월간 검색량 표 (§6.5.9). 고객 화면에는 이 데이터가 아예 안 내려간다.
+    // 값은 서버가 /admin/:shareId/report에서 window.__REPORT_VOLUMES__로 주입한다.
+    function renderReportVolumes() {
+      const volumes = window.__REPORT_VOLUMES__;
+      const host = document.getElementById('step2Result');
+      if (!volumes || !host || document.getElementById('reportVolumes')) return;
+
+      const my = currentPlace || {};
+      const rows = [
+        ['진단 키워드', document.getElementById('keywordInput')?.value || ''],
+        ['상호명', my.name || ''],
+        ...(my.keywordList || []).slice(0, 5).map((k, i) => [`대표키워드 ${i + 1}`, k]),
+      ].filter(([, keyword]) => keyword);
+
+      // 검색량이 하나도 안 잡히면(키 미설정·API 장애) 표 자체를 그리지 않는다.
+      if (!rows.some(([, keyword]) => volumes[keyword])) return;
+
+      const cell = (v, under) => (under ? '<span class="text-slate-400">&lt; 10</span>' : v.toLocaleString());
+      const body = rows.map(([label, keyword]) => {
+        const v = volumes[keyword];
+        if (!v) return `<tr class="border-t border-slate-200"><td class="py-1.5 pr-3 text-slate-500 whitespace-nowrap">${label}</td><td class="py-1.5 pr-3 font-semibold">${keyword}</td><td colspan="5" class="py-1.5 text-slate-400">조회 실패</td></tr>`;
+        return `<tr class="border-t border-slate-200">
+          <td class="py-1.5 pr-3 text-slate-500 whitespace-nowrap">${label}</td>
+          <td class="py-1.5 pr-3 font-semibold">${keyword}</td>
+          <td class="py-1.5 pr-3 text-right tabular-nums whitespace-nowrap">${cell(v.pc, v.pcUnderTen)}</td>
+          <td class="py-1.5 pr-3 text-right tabular-nums whitespace-nowrap">${cell(v.mobile, v.mobileUnderTen)}</td>
+          <td class="py-1.5 pr-3 text-right tabular-nums font-bold whitespace-nowrap">${v.isUnderTen ? '<span class="text-slate-400">—</span>' : v.total.toLocaleString()}</td>
+          <td class="py-1.5 pr-3 text-slate-600 whitespace-nowrap">${v.competition || '-'}</td>
+          <td class="py-1.5">${label === '상호명'
+            ? `<button type="button" onclick="loadBrandVolume(this, '${encodeURIComponent(keyword)}')" class="text-[11px] font-bold text-blue-600 hover:text-blue-800 underline">정밀</button>`
+            : ''}</td>
+        </tr>`;
+      }).join('');
+
+      host.insertAdjacentHTML('beforeend', `
+        <div id="reportVolumes" class="mt-8 pt-6 border-t border-slate-200">
+          <h4 class="text-sm font-bold text-slate-800 mb-1">🔍 월간 검색량 (관리자 전용)</h4>
+          <p class="text-[11px] text-slate-500 mb-3">네이버 검색광고 API 기준 · PC+모바일 월간 검색수. 고객 화면에는 표시되지 않는다.</p>
+          <div class="overflow-x-auto">
+            <table class="w-full text-xs text-left">
+              <thead class="text-slate-500"><tr>
+                <th class="pb-2 pr-3 font-semibold">구분</th><th class="pb-2 pr-3 font-semibold">키워드</th>
+                <th class="pb-2 pr-3 font-semibold text-right whitespace-nowrap">PC</th><th class="pb-2 pr-3 font-semibold text-right whitespace-nowrap">모바일</th>
+                <th class="pb-2 pr-3 font-semibold text-right whitespace-nowrap">합계</th><th class="pb-2 pr-3 font-semibold whitespace-nowrap">경쟁도</th>
+                <th class="pb-2 font-semibold whitespace-nowrap">변형 합산</th>
+              </tr></thead>
+              <tbody>${body}</tbody>
+            </table>
+          </div>
+          <p class="text-[11px] text-slate-400 mt-2">&lt; 10 = 월 10회 미만(API가 실수치를 주지 않음). 상담에서는 "검색량이 적다"가 아니라 "경쟁이 없어 선점이 쉽다"로 쓸 것.</p>
+          ${competitorVolumeHtml(volumes, cell)}
+        </div>`);
+    }
+
+    // 경쟁사 상호 검색량 (§6.5.10). 순위와 별개로 "그 업체가 월 몇 번 직접 검색되는가" —
+    // 검색어 유입이 아닌 직접 검색 유입의 추정치라 상담에서 순위 외의 설명축으로 쓴다.
+    function competitorVolumeHtml(volumes, cell) {
+      const names = (window.__REPORT_COMPETITOR_NAMES__ || []).filter(n => volumes[n]);
+      if (names.length === 0) return '';
+      const body = names.map((name, i) => {
+        const v = volumes[name];
+        return `<tr class="border-t border-slate-200">
+          <td class="py-1.5 pr-3 text-slate-500 whitespace-nowrap">${i + 1}위</td>
+          <td class="py-1.5 pr-3 font-semibold">${name}</td>
+          <td class="py-1.5 pr-3 text-right tabular-nums whitespace-nowrap">${cell(v.pc, v.pcUnderTen)}</td>
+          <td class="py-1.5 pr-3 text-right tabular-nums whitespace-nowrap">${cell(v.mobile, v.mobileUnderTen)}</td>
+          <td class="py-1.5 pr-3 text-right tabular-nums font-bold whitespace-nowrap">${v.isUnderTen ? '<span class="text-slate-400">—</span>' : v.total.toLocaleString()}</td>
+          <td class="py-1.5 pr-3 text-slate-600 whitespace-nowrap">${v.competition || '-'}</td>
+          <td class="py-1.5" data-brand-cell="${encodeURIComponent(name)}">
+            <button type="button" onclick="loadBrandVolume(this, '${encodeURIComponent(name)}')" class="text-[11px] font-bold text-blue-600 hover:text-blue-800 underline">정밀</button>
+          </td>
+        </tr>`;
+      }).join('');
+      return `
+        <div class="mt-6 pt-5 border-t border-slate-200">
+          <h4 class="text-sm font-bold text-slate-800 mb-1">🔍 경쟁사 상호 월간 검색량 (관리자 전용)</h4>
+          <p class="text-[11px] text-slate-500 mb-3">상호를 직접 검색하는 양 = 순위와 무관한 직접 검색 유입의 추정치. 순위가 높은데 상호 검색량이 낮으면 순위빨, 반대면 브랜드빨이다.</p>
+          <div class="overflow-x-auto">
+            <table class="w-full text-xs text-left">
+              <thead class="text-slate-500"><tr>
+                <th class="pb-2 pr-3 font-semibold">순위</th><th class="pb-2 pr-3 font-semibold">상호</th>
+                <th class="pb-2 pr-3 font-semibold text-right whitespace-nowrap">PC</th><th class="pb-2 pr-3 font-semibold text-right whitespace-nowrap">모바일</th>
+                <th class="pb-2 pr-3 font-semibold text-right whitespace-nowrap">합계</th><th class="pb-2 pr-3 font-semibold whitespace-nowrap">경쟁도</th>
+                <th class="pb-2 font-semibold whitespace-nowrap">변형 합산</th>
+              </tr></thead>
+              <tbody>${body}</tbody>
+            </table>
+          </div>
+          <p class="text-[11px] text-slate-400 mt-2">'정밀'을 누르면 상호 변형 검색어(지역명 조합·자동완성)를 모아 합산한다. 상호 하나만 재면 실제 직접 검색 유입이 크게 과소평가된다.</p>
+        </div>`;
+    }
+
+    let brandVolumeSeq = 0;
+
+    // 체크된 변형만 다시 더한다.
+    function sumBrandVolume(id) {
+      const row = document.querySelector(`[data-sum-for="${id}"]`);
+      const total = [...row.querySelectorAll('input:checked')].reduce((s, el) => s + Number(el.dataset.v), 0);
+      document.getElementById(id).textContent = total.toLocaleString();
+    }
+
+    // 상호 변형 검색량 합산 (§6.8). 매장 1곳씩 눌러서 조회한다 — 7곳을 한 번에 돌리면
+    // 페이지 로드에 subrequest 28회가 얹혀 한도를 넘긴다.
+    async function loadBrandVolume(btn, encodedName) {
+      const cell = btn.parentElement;
+      // ⚠️ tr은 cell.innerHTML을 갈아치우기 **전에** 잡아야 한다. innerHTML을 바꾸는 순간
+      // 버튼이 DOM에서 떨어져 나가 btn.closest('tr')이 null이 된다(실제로 겪음).
+      const tr = btn.closest('tr');
+      btn.disabled = true;
+      btn.textContent = '조회 중...';
+      try {
+        // 지역 조합은 그 매장 자신의 주소로 만들어야 한다. 내 매장 주소를 전 업체에 돌려쓰면
+        // 서울 업체에 '안산○○' 변형이 붙는다(실제로 겪음).
+        const name = decodeURIComponent(encodedName);
+        const region = (window.__REPORT_REGIONS__?.[name] || currentPlace?.roadAddress || '').split('(')[0];
+        const res = await fetch(`/admin/brand-volume?name=${encodedName}&region=${encodeURIComponent(region)}`);
+        const d = await res.json();
+        if (!res.ok) throw new Error(d.error || '조회 실패');
+
+        // 합계만 셀에 남긴다. 변형 목록은 길이가 들쭉날쭉해서 열에 넣으면 표 전체가 밀린다.
+        const id = 'bv' + (brandVolumeSeq++);
+        cell.innerHTML = `
+          <div id="${id}" class="font-bold tabular-nums text-slate-900 whitespace-nowrap">${d.total.toLocaleString()}</div>
+          ${d.underTenCount ? `<div class="text-[10px] text-slate-400 whitespace-nowrap">+${d.underTenCount}개 &lt;10</div>` : ''}`;
+
+        // 체크박스로 켜고 끈다. '인형수선 안나'의 '인형수선'처럼 업종어가 브랜드 자리에
+        // 오는 상호가 있어서 자동 판별이 불가능하다 — 사람이 보고 정하는 게 유일한 정답이다.
+        const list = d.rows.map(r => {
+          if (r.total == null) return `<span class="text-slate-300 whitespace-nowrap">${r.keyword} &lt;10</span>`;
+          const off = r.core || r.excluded;
+          const why = r.core ? '업종어일 수 있음' : (r.excluded ? '전국 브랜드 검색 추정' : '');
+          return `<label class="whitespace-nowrap cursor-pointer ${off ? 'text-slate-400' : 'text-slate-600'}"${why ? ` title="${why} — 기본 제외"` : ''}>
+            <input type="checkbox" data-v="${r.total}" onchange="sumBrandVolume('${id}')" ${off ? '' : 'checked'} class="align-middle accent-blue-600 mr-0.5" />${r.keyword} <b>${r.total.toLocaleString()}</b>${off ? '<sup class="text-rose-400">?</sup>' : ''}</label>`;
+        }).join('<span class="text-slate-300"> · </span>');
+
+        if (tr.nextElementSibling?.dataset.brandDetail) tr.nextElementSibling.remove();
+        tr.insertAdjacentHTML('afterend', `
+          <tr data-brand-detail="1" data-sum-for="${id}"><td colspan="${tr.children.length}" class="pb-2 pl-3 text-[10px] leading-relaxed">
+            ${list || '변형 없음'}
+            <div class="text-slate-400 mt-0.5">? 표시 = 기본 제외. 업종어(인형수선)인지 브랜드(이동고고갈비)인지는 보고 판단해서 체크.</div>
+          </td></tr>`);
+      } catch (err) {
+        btn.disabled = false;
+        btn.textContent = '재시도';
+        cell.insertAdjacentHTML('beforeend', `<span class="text-[10px] text-rose-600 ml-1">${err.message}</span>`);
       }
     }
 
@@ -941,6 +1163,12 @@
       const my = data.myStore;
       const stats = data.stats;
       const foundCount = Math.min(data.rankSearched || 0, 6); // 네이버 지도 1페이지 실노출 개수 기준 (6곳 미만일 수 있음)
+
+      const volumeHint = document.getElementById('keywordVolumeHint');
+      if (volumeHint) {
+        volumeHint.innerHTML = data.keywordVolumeNote ? `<i class="fa-solid fa-magnifying-glass-chart mr-1"></i> ${data.keywordVolumeNote}` : '';
+        volumeHint.classList.toggle('hidden', !data.keywordVolumeNote);
+      }
 
       document.getElementById('gapTitle').innerText = data.isDirectCompare
         ? `📊 ${data.targetKeyword} Gap 분석`
@@ -1100,3 +1328,6 @@
   </script>
 </body>
 </html>
+
+
+

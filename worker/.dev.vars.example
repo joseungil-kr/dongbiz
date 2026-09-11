@@ -13,3 +13,9 @@ SHEETS_WEBHOOK_URL=
 # 관리자 화면(/admin) Basic Auth
 ADMIN_USER=
 ADMIN_PASS=
+
+# 네이버 검색광고 API (§6.5.7) — searchad.naver.com → 도구 → API 사용 관리에서 발급.
+# 미설정 시 검색량 표시만 빠지고 나머지 기능은 그대로 동작한다.
+NAVER_AD_CUSTOMER_ID=
+NAVER_AD_ACCESS_LICENSE=
+NAVER_AD_SECRET_KEY=

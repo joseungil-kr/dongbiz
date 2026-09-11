@@ -1,11 +1,14 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { basicAuth } from 'hono/basic-auth';
-import { scrapeFullPlaceMetrics, getOrganicRanking } from './scraper';
-import { notify, logDiagnosisToSheet, NotifyEnv } from './notify';
+import { scrapeFullPlaceMetrics, getOrganicRanking, getPlaceList, SortMode, PlaceListItem } from './scraper';
+import { notify, logDiagnosisToSheet, sendCustomerEmail, NotifyEnv } from './notify';
 import { GUIDES, GUIDE_BY_SLUG } from './guides';
+import { renderAdsPage, renderBlogPage, siteNav, SITE_NAV_CSS } from './pages';
+import { pickTopics, renderMiniHome, renderMiniTopic } from './minisite';
+import { getKeywordVolumes, describeVolume, autocomplete, brandVariants, brandCore, normalizeKeyword, SearchAdEnv } from './searchad';
 
-export interface Env extends NotifyEnv {
+export interface Env extends NotifyEnv, SearchAdEnv {
   DB: D1Database;
   CACHE?: KVNamespace; // 미바인딩 시 캐시 없이 동작 (§6 Phase A)
   ADMIN_USER?: string;
@@ -99,7 +102,10 @@ async function upsertPlace(db: D1Database | undefined, store: any) {
   }
 }
 
-type SnapshotEntry = { id: string; name: string | null; rank: number | null; s: any };
+type SnapshotEntry = {
+  id: string; name: string | null; rank: number | null; s: any;
+  nameVolume?: number | null; nameVolumeUnderTen?: boolean;
+};
 
 // 순위 스냅샷 배치 기록. /api/gap(source='user')과 cron 자동수집(source='cron') 둘 다 이걸 쓴다.
 async function insertRankSnapshotRows(
@@ -110,14 +116,15 @@ async function insertRankSnapshotRows(
 ) {
   if (!db || entries.length === 0) return;
   try {
-    const stmts = entries.map(({ id, name, rank, s }) => db.prepare(`
+    const stmts = entries.map(({ id, name, rank, s, nameVolume, nameVolumeUnderTen }) => db.prepare(`
       INSERT INTO rank_snapshots (
         id, keyword, place_id, place_name, rank,
         visitor_reviews, blog_reviews, vote_count, photo_count, review_score,
         review_medias_total, coupon_count, has_booking, has_smart_order, has_review_penalty,
         is_new_opening, is_good_store, is_open_now, is_biz_hour_missing, description_length,
-        name_contains_keyword, category_matches_keyword, distance_from_me_km, source
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        name_contains_keyword, category_matches_keyword, distance_from_me_km,
+        name_search_volume, name_volume_under_ten, source
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       crypto.randomUUID(), keyword, id, name, rank,
       s.seoMetrics.visitorReviewsTotal ?? null, s.seoMetrics.cafeBlogReviewsTotal ?? null,
@@ -127,7 +134,8 @@ async function insertRankSnapshotRows(
       s.seoMetrics.isNewOpening ? 1 : 0, s.seoMetrics.isGoodStore ? 1 : 0, s.seoMetrics.isOpenNow ? 1 : 0,
       s.seoMetrics.isBizHourMissing ? 1 : 0, s.seoMetrics.descriptionLength ?? null,
       s.rankFactors?.nameContainsKeyword ? 1 : 0, s.rankFactors?.categoryMatchesKeyword ? 1 : 0,
-      s.rankFactors?.distanceFromMeKm ?? null, source
+      s.rankFactors?.distanceFromMeKm ?? null,
+      nameVolume ?? null, nameVolumeUnderTen == null ? null : (nameVolumeUnderTen ? 1 : 0), source
     ));
     await db.batch(stmts);
   } catch (err) {
@@ -143,16 +151,97 @@ async function logRankSnapshots(
   myStore: any,
   myRank: number | null,
   competitors: any[],
-  source: 'user' | 'cron' = 'user'
+  source: 'user' | 'cron' = 'user',
+  nameVolumes: Record<string, { total: number; isUnderTen: boolean } | null> = {}
 ) {
+  // "< 10"은 상한 10을 더한 근사치라 실측과 섞이면 안 된다 — 플래그를 같이 남긴다(§6.5.10).
+  const volumeOf = (name: string | null) => {
+    const v = name ? nameVolumes[name] : null;
+    return { nameVolume: v?.total ?? null, nameVolumeUnderTen: v ? v.isUnderTen : undefined };
+  };
   const entries: SnapshotEntry[] = [
-    { id: myStore.placeId, name: myStore.name, rank: myRank, s: myStore },
+    { id: myStore.placeId, name: myStore.name, rank: myRank, s: myStore, ...volumeOf(myStore.name) },
     ...competitors.map((c: any) => {
       const idx = ranking.indexOf(c.placeId);
-      return { id: c.placeId, name: c.name, rank: idx >= 0 ? idx + 1 : null, s: c };
+      return { id: c.placeId, name: c.name, rank: idx >= 0 ? idx + 1 : null, s: c, ...volumeOf(c.name) };
     }),
   ];
   await insertRankSnapshotRows(db, keyword, entries, source);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 업체 텍스트 저장/매칭 (§9.13)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * 개별 스크랩으로 이미 손에 들어온 텍스트 4종을 place_texts에 남긴다.
+ * scrapeFullPlaceMetrics를 부르는 곳이면 어디서든 **추가 요청 없이** 부를 수 있다 —
+ * 지금까지는 이 텍스트를 descriptionLength 같은 숫자로만 접고 버려왔다.
+ */
+async function savePlaceTexts(db: D1Database | undefined, s: any) {
+  if (!db || !s?.placeId) return;
+  try {
+    await db.prepare(`
+      INSERT INTO place_texts (place_id, place_name, category, keyword_list, description, menu_names, rep_keywords, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      ON CONFLICT(place_id) DO UPDATE SET
+        place_name=excluded.place_name, category=excluded.category,
+        keyword_list=excluded.keyword_list, description=excluded.description,
+        menu_names=excluded.menu_names, rep_keywords=excluded.rep_keywords,
+        updated_at=CURRENT_TIMESTAMP
+    `).bind(
+      s.placeId, s.name || null, s.category || null,
+      JSON.stringify(s.keywordList || []),
+      s.description || '',
+      JSON.stringify((s.menus || []).map((m: any) => m.name).filter(Boolean)),
+      JSON.stringify(s.topRepKeywords || []),
+    ).run();
+  } catch (err) {
+    console.error(`place_texts 저장 실패(${s.placeId}):`, err);
+  }
+}
+
+/** 공백·대소문자 제거. "강남 맛집"과 "강남맛집"을 같게 보기 위한 것 — 이게 매칭의 절반이다. */
+const normText = (s: string | null | undefined) => (s || '').replace(/\s+/g, '').toLowerCase();
+
+/**
+ * 검색 키워드를 [지역, 업종] 조각으로 쪼갠다. '강남맛집'은 공백이 없어 split(/\s+/)으로는
+ * 토큰 1개다 — 그래서 "강남 최고의 밥집"을 부분일치로도 못 잡았다(기존 keywordMatch의 한계).
+ *
+ * ponytail: 형태소 분석기 대신 업종어 접미사 목록으로 자른다. listTargetFor와 같은 어휘를
+ * 쓰므로 우리가 수집하는 키워드는 전부 커버된다. 새 업종을 수집하면 여기도 같이 늘릴 것.
+ */
+const BIZ_SUFFIX = /(맛집|밥집|식당|고기집|횟집|카페|미용실|헤어샵|헤어|살롱|성형외과|치과|피부과|한의원|학원|펜션)$/;
+function keywordParts(keyword: string): string[] {
+  const parts: string[] = [];
+  for (const tok of keyword.split(/\s+/).filter(Boolean)) {
+    const m = tok.match(BIZ_SUFFIX);
+    if (m && tok.length > m[1].length) parts.push(tok.slice(0, tok.length - m[1].length), m[1]);
+    else parts.push(tok);
+  }
+  return parts.filter(p => p.length >= 2);
+}
+
+type MatchLevel = 0 | 1 | 2; // 0 없음 · 1 부분(조각만) · 2 정확일치
+function matchLevel(keyword: string, text: string | null | undefined): MatchLevel {
+  const t = normText(text);
+  if (!t) return 0;
+  if (t.includes(normText(keyword))) return 2;
+  return keywordParts(keyword).some(p => t.includes(normText(p))) ? 1 : 0;
+}
+
+/**
+ * 대표키워드는 **순서가 있다**. 업체가 입력한 순서 그대로 keywordList에 담기므로,
+ * "포함했나"(불린)보다 "몇 번째에 뒀나"가 신호가 클 수 있다. 그래서 3단계로 나눈다.
+ *   3 = 정확일치가 1~2번째 · 2 = 정확일치가 3번째 이후 · 1 = 조각만 일치 · 0 = 없음
+ */
+function repKeywordLevel(keyword: string, list: string[]): { level: 0 | 1 | 2 | 3; at: number | null } {
+  const nk = normText(keyword);
+  const exactAt = list.findIndex(k => normText(k).includes(nk));
+  if (exactAt >= 0) return { level: exactAt < 2 ? 3 : 2, at: exactAt + 1 };
+  const parts = keywordParts(keyword).map(normText);
+  const partAt = list.findIndex(k => parts.some(p => normText(k).includes(p)));
+  return partAt >= 0 ? { level: 1, at: partAt + 1 } : { level: 0, at: null };
 }
 
 // 두 좌표 간 거리(km). 상위노출 영향 지표 중 하나로 알려진 "거리" — 별도 수집 없이 이미
@@ -315,10 +404,17 @@ app.get('/api/gap', async (c) => {
     const shareId = generateShareId();
     await upsertPlace(c.env.DB, myStore); // search_histories.place_id FK 충족 (place API를 거치지 않고 gap을 바로 호출하는 경우 대비)
 
+    // 고객 화면에 내려보내는 건 **구간으로 뭉뚱그린 한 문장뿐**이다 (§6.5.9).
+    // 실수치는 관리자 리포트에서만 본다 — 여기서 숫자를 실으면 정책이 깨진다.
+    const keywordVolumeNote = competitorQuery
+      ? null
+      : describeVolume(displayLabel, (await getKeywordVolumes(c.env, [displayLabel], { context: 'gap-keyword' }))[displayLabel] ?? null);
+
     const responsePayload = {
       success: true,
       shareId,
       targetKeyword: displayLabel,
+      keywordVolumeNote, // 구간 문장 | null — 실수치 없음
       isDirectCompare: !!competitorQuery, // 경쟁사 직접 지목 모드 여부 — 프론트가 "상위 N개" 문구 대신 1:1 비교 문구를 쓰도록 분기
       myStore,
       myRank,
@@ -370,7 +466,19 @@ app.get('/api/gap', async (c) => {
     ];
     // 경쟁사 직접 지목 모드는 진짜 오가닉 순위가 아니라 rank_snapshots(§9 리버스엔지니어링 시계열)에는 안 남긴다.
     if (!competitorQuery) {
-      bgTasks.push(logRankSnapshots(c.env.DB, displayLabel, ranking, myStore, myRank, competitors, 'user'));
+      // 상호 검색량도 함께 기록한다 (§6.5.10). "그 업체 상호가 월 몇 번 직접 검색되는가" =
+      // 순위와 무관한 직접 검색 유입의 추정치라, 순위가 떨어졌는데 매출은 안 떨어진 경우 등을
+      // 설명할 수 있는 축이 된다. KV 캐시는 끈다 — 상호 7개면 읽기/쓰기 14회로 subrequest
+      // 한도(50)를 위협하지만, 캐시 없이 배치로 돌리면 fetch 2회로 끝난다.
+      // 이미 개별 스크랩한 8곳의 텍스트를 남긴다(§9.13). 추가 요청 0회 — 지금까지 버리던 값이다.
+      bgTasks.push((async () => {
+        for (const s of [myStore, ...competitors]) await savePlaceTexts(c.env.DB, s);
+      })());
+      bgTasks.push((async () => {
+        const names = [myStore.name, ...competitors.map((comp: any) => comp.name)].filter(Boolean);
+        const nameVolumes = await getKeywordVolumes(c.env, names, { cache: false, context: 'gap-store-name', relatedTo: displayLabel });
+        await logRankSnapshots(c.env.DB, displayLabel, ranking, myStore, myRank, competitors, 'user', nameVolumes);
+      })());
     }
     c.executionCtx.waitUntil(Promise.all(bgTasks));
 
@@ -408,6 +516,206 @@ app.get('/api/history', async (c) => {
 // 상담 문의 CTA 클릭 로그. 실제 연락은 카톡/문자로 사이트 밖에서 이뤄지므로(§9.9) 우리 쪽엔
 // 아무 기록도 안 남는데, 이 한 줄이 "관심 보인 사람이 있었다"는 유일한 신호다.
 // 응답은 항상 200 — 이 호출이 실패해도 사용자 흐름(전화 걸기)을 막으면 안 된다.
+// 진단 결과에서 "지금 가장 부족한 것" 상위 3개를 사람이 읽는 문장으로 뽑는다 (§6.7).
+// 메일 본문에 그대로 들어가므로 링크를 안 눌러도 값이 남게 하는 것이 목적이다.
+const GAP_LABELS: Array<[string, string, string]> = [
+  ['cafeBlogReviewsTotal', '블로그·카페 리뷰', '건'],
+  ['visitorReviewsTotal', '방문자 리뷰', '건'],
+  ['totalVoteCount', '키워드 투표수', '표'],
+  ['photoCount', '등록 사진', '장'],
+];
+function summarizeGaps(data: any): string[] {
+  const my = data?.myStore?.seoMetrics || {};
+  const stats = data?.stats || {};
+  return GAP_LABELS
+    .map(([key, label, unit]) => {
+      const mine = Number(my[key] ?? 0);
+      const boundary = Number(stats[key]?.boundary ?? 0);
+      if (!boundary || mine >= boundary) return null;
+      return { label, unit, mine, boundary, short: boundary - mine };
+    })
+    .filter((g): g is NonNullable<typeof g> => !!g)
+    // ⚠️ §2: 정렬은 "결핍이 큰 순"이 아니라 "싸고 빨리 되는 것" 순이다.
+    // 진입선 대비 달성률이 높은 것 = 가장 가까운 것부터 올린다. 반대로 정렬하면
+    // "18,842표 부족"이 첫 줄에 와서 사장님이 그 자리에서 포기한다(실제로 그렇게 나갔다).
+    .sort((a, b) => a.short / (a.boundary || 1) - b.short / (b.boundary || 1))
+    .slice(0, 3)
+    .map((g, i) => `${i + 1}. ${g.label}  현재 ${g.mine.toLocaleString()}${g.unit} → 1페이지 진입선 ${g.boundary.toLocaleString()}${g.unit} (${g.short.toLocaleString()}${g.unit} 부족)`);
+}
+
+// 리포트 메일 신청 (§6.7). 기존 "카톡/문자 주세요" CTA가 전환 0건이라 이메일 수집으로 교체했다.
+// 고객용 맞춤 개선 리포트 (§6.7). 메일로 보내는 링크가 이 주소다.
+// 관리자용(/admin/:shareId/report)과 같은 화면을 쓰되 __REPORT_ADMIN__을 주입하지 않는다 —
+// 검색량 표·실제 연락처는 관리자 전용이라 그 플래그로 갈린다.
+// 인증을 걸지 않는 이유: shareId는 이미 공유링크로 쓰이는 값이고, 여기에 로그인을 붙이면
+// "메일 열고 바로 확인"이라는 이 기능의 존재 이유가 사라진다.
+app.get('/report/:shareId', async (c) => {
+  const db = c.env.DB;
+  if (!db) return c.text('DB 미설정', 500);
+
+  const shareId = c.req.param('shareId');
+  const exists = await db.prepare('SELECT 1 FROM search_histories WHERE share_id = ?').bind(shareId).first();
+  if (!exists) {
+    return c.html(`<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><title>리포트를 찾을 수 없습니다</title></head><body style="font-family:sans-serif;padding:32px;text-align:center;"><p>리포트를 찾을 수 없습니다. 링크가 오래됐을 수 있습니다.</p><a href="/">내 매장 다시 진단하기</a></body></html>`, 404);
+  }
+
+  const assetRes = await c.env.ASSETS.fetch(new URL('/', c.req.url));
+  const html = (await assetRes.text()).replace(
+    '<head>',
+    `<head>\n<script>window.__REPORT_SHARE_ID__ = ${JSON.stringify(shareId)};</script>`
+  );
+  return c.html(html);
+});
+
+// 메일 제목·본문 생성. 발송 경로와 미리보기 경로가 같은 문구를 쓰도록 한 곳에 모아둔다.
+function buildReportMail(data: any, shareId: string, origin: string): { subject: string; body: string } {
+  const name = data?.myStore?.name || '내 매장';
+  const keyword = data?.targetKeyword || '';
+  const gaps = summarizeGaps(data);
+
+  const body = [
+    `${name} 사장님, 안녕하세요.`,
+    '',
+    `요청하신 '${keyword}' 키워드 기준 맞춤 개선 리포트를 보내드립니다.`,
+    '',
+    gaps.length ? '■ 1페이지 진입선에 가장 가까운 항목부터' : '■ 진입선을 이미 넘긴 항목이 많습니다',
+    ...(gaps.length ? gaps : ['  주요 지표가 1페이지 진입선을 이미 넘겼습니다. 세부 항목은 리포트에서 확인해주세요.']),
+    '',
+    ...(gaps.length ? ['모두 한 번에 채울 필요는 없습니다. 1번부터 하나씩 올리면 됩니다.', ''] : []),
+    // 숫자만 보면 격차가 커 보이는 매장이 많다. 그 자리에서 포기하지 않도록 "숫자가 전부가
+    // 아니다"로 한 번 받아준 뒤 상담으로 연결한다 (§2 "절망 유발 숫자 금지"의 연장).
+    '■ 다만, 숫자가 전부는 아닙니다',
+    '사진·리뷰 지표가 평균보다 낮은 업체, 심지어 내 매장보다 낮은 업체가 상위에 노출되는 경우도 있습니다.',
+    '겉으로 드러나지 않는 지표까지 함께 관리했다는 뜻입니다.',
+    '내 매장도 진단과 개선을 거치면 같은 결과를 낼 수 있습니다.',
+    '자세한 진단과 컨설팅은 아래 연락처로 편하게 문의해주세요.',
+    '',
+    '■ 항목별 개선 방법이 정리된 전체 리포트',
+    `   ${origin}/report/${shareId}`,
+    '',
+    '위 링크에서 항목마다 무엇을 어떻게 고치면 되는지 확인하실 수 있습니다.',
+    '페이지 우측 상단 버튼으로 PDF 저장도 됩니다.',
+    '',
+    '─────────────',
+    '이 리포트는 무료이며, 요청하지 않으시면 영업 전화를 드리지 않습니다.',
+    '',
+    'interpiad@gmail.com',
+    '상호 : 인터피아드 (124-35-56796)',
+    '상담전화 : 조승일 010-2490-0555 (무료)',
+    '',
+    // 줄바꿈은 문장 끝에서만 한다. 문장 중간을 끊으면 메일 클라이언트 폭에 따라 어색하게
+    // 접힌다 — 긴 줄은 클라이언트가 알아서 감싸도록 두는 편이 항상 낫다.
+    '인터피아드는 상위노출 마케팅 전문 기업입니다.',
+    '20년 경력의 시니어 컨설턴트는 물론 다년간의 컨설팅 경력을 가진 각 분야 전문가들이 여러분의 상위노출을 도와드리고 있습니다.',
+    '',
+    '* 주의 : 강의/컨설팅 중에는 전화를 받을 수 없습니다. 메시지 남겨주시면 순서대로 회신 드리고 있습니다.',
+  ].join('\n');
+
+  return { subject: `[동네비즈] ${name} 맞춤 개선 리포트`, body };
+}
+
+/**
+ * 상호 변형 검색량 합산 (§6.8). 리포트 화면의 "정밀" 버튼이 매장 1곳씩 호출한다.
+ *
+ * 리포트를 열 때 7곳을 한꺼번에 돌리지 않는 이유: 매장당 자동완성 1 + 검색광고 3 = 4 subrequest라
+ * 7곳이면 28회가 페이지 로드에 얹힌다. 기존 조회분까지 더하면 한도(50)를 넘긴다.
+ * 그래서 **필요한 매장만 눌러서** 조회하도록 요청을 쪼갰다.
+ */
+app.get('/admin/brand-volume', async (c) => {
+  const name = (c.req.query('name') || '').trim();
+  const region = (c.req.query('region') || '').trim();
+  if (!name) return c.json({ error: 'name이 필요합니다.' }, 400);
+
+  const variants = brandVariants(name, region, await autocomplete(name));
+  // relatedTo에 원 상호를 남긴다. 그러면 나중에 '이 매장의 변형 후보 전체'를 복원할 수 있어
+  // 사람 판단(체크박스)을 저장하지 않아도 분석 시점에 다시 고를 수 있다(§9.12).
+  const volumes = await getKeywordVolumes(c.env, variants, { context: 'brand-variant', relatedTo: name });
+
+  // "< 10"은 상한을 더한 근사치라 합계에 넣으면 없는 숫자가 만들어진다(§6.6.1에서 겪음).
+  // 합계에서 빼고 개수만 따로 알린다.
+  const rows = variants
+    .map(keyword => ({ keyword, volume: volumes[keyword] }))
+    .filter((r): r is { keyword: string; volume: NonNullable<typeof r.volume> } => !!r.volume);
+  const measured = rows.filter(r => !r.volume.isUnderTen);
+
+  // ⚠️ 브랜드 토큰만 남긴 변형이 전국 체인 검색량을 물고 온다. 실측 예:
+  // '고기굽는방앗간 상록수역점'은 월 50회인데 '고기굽는방앗간'은 29,420회 — 이건 전국 지점
+  // 전체를 찾는 사람이지 이 지점 손님이 아니다. 정식 상호 대비 5배를 넘고 1,000회 이상이면
+  // 이 매장 것으로 보지 않고 합계에서 뺀다(목록에는 남겨 사람이 판단할 수 있게 한다).
+  const fullNameVolume = rows.find(r => r.keyword === name)?.volume.total ?? 0;
+  const isTooBig = (total: number) => total > Math.max(1000, fullNameVolume * 5);
+
+  // 브랜드 토큰 단독은 **기본 합산 제외**한다. 이게 매번 가장 큰 숫자를 물고 오는데,
+  // 진짜 브랜드일 수도('이동고고갈비') 업종어일 수도('인형수선') 있고 자동으로는 못 가린다.
+  // 켜고 끄는 판단은 화면에서 사람이 한다(§6.8.3).
+  const core = normalizeKeyword(brandCore(name));
+  const isCore = (keyword: string) => normalizeKeyword(keyword) === core && keyword !== name;
+
+  const detailed = rows
+    .map(r => ({
+      keyword: r.keyword,
+      total: r.volume.isUnderTen ? null : r.volume.total,
+      core: isCore(r.keyword),
+      excluded: !r.volume.isUnderTen && isTooBig(r.volume.total),
+    }))
+    .sort((a, b) => (b.total ?? 0) - (a.total ?? 0));
+
+  return c.json({
+    name,
+    // 기본 합계 = 단독 토큰과 과대 추정 행을 뺀 보수적인 값
+    total: detailed.filter(r => r.total != null && !r.core && !r.excluded).reduce((s, r) => s + (r.total ?? 0), 0),
+    underTenCount: rows.length - measured.length,
+    rows: detailed,
+  });
+});
+
+// 발송하지 않고 실제 메일 본문만 확인한다. 문구를 고칠 때마다 메일함을 뒤지면 "고친 게
+// 반영된 건지, 옛 메일을 보고 있는 건지"를 구분할 수 없어서 만들었다(실제로 겪음).
+// /admin/* Basic Auth가 이미 걸려 있다.
+app.get('/admin/:shareId/report-email-preview', async (c) => {
+  const db = c.env.DB;
+  if (!db) return c.text('DB 미설정', 500);
+  const shareId = c.req.param('shareId');
+  const row = await db.prepare('SELECT raw_data FROM search_histories WHERE share_id = ?').bind(shareId).first();
+  if (!row) return c.text('진단 기록을 찾을 수 없습니다.', 404);
+  const mail = buildReportMail(JSON.parse(row.raw_data as string), shareId, new URL(c.req.url).origin);
+  return c.text(`(미리보기 · 발송 안 함)\n제목: ${mail.subject}\n${'─'.repeat(40)}\n${mail.body}`);
+});
+
+app.post('/api/report-email', async (c) => {
+  const { shareId, email } = await c.req.json<{ shareId?: string; email?: string }>().catch(() => ({} as any));
+  const addr = (email || '').trim();
+  // 신뢰 경계다. 형식 검증 없이 넣으면 웹훅으로 아무 문자열이나 흘러간다.
+  if (!shareId || !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(addr) || addr.length > 254) {
+    return c.json({ error: '이메일 주소를 다시 확인해주세요.' }, 400);
+  }
+
+  const db = c.env.DB;
+  const row = db ? await db.prepare('SELECT raw_data FROM search_histories WHERE share_id = ?').bind(shareId).first() : null;
+  if (!row) return c.json({ error: '진단 기록을 찾을 수 없습니다. 진단을 다시 실행해주세요.' }, 404);
+
+  const data = JSON.parse(row.raw_data as string);
+  const name = data?.myStore?.name || '내 매장';
+  const keyword = data?.targetKeyword || '';
+  const origin = new URL(c.req.url).origin;
+
+  const { sent, quota, error } = await sendCustomerEmail(c.env, { to: addr, ...buildReportMail(data, shareId, origin) });
+
+  // 하루 한도(일반 gmail 계정 100통)가 바닥나는 걸 사후에 알면 늦다. 남으면 미리 경고한다.
+  const quotaLine = quota != null && quota <= 20 ? `\n⚠️ 오늘 남은 발송 한도 ${quota}통` : '';
+
+  c.executionCtx.waitUntil(Promise.all([
+    db ? db.prepare(`INSERT INTO report_leads (id, share_id, place_id, place_name, keyword, email, sent) VALUES (?, ?, ?, ?, ?, ?, ?)`)
+      .bind(crypto.randomUUID(), shareId, data?.myStore?.placeId ?? null, name, keyword, addr, sent ? 1 : 0).run()
+      .catch(err => console.error('report_leads 기록 실패:', err)) : Promise.resolve(),
+    notify(c.env, `📧 [리포트 메일 신청] ${name}\n키워드: ${keyword}\n이메일: ${addr}\n발송: ${sent ? '성공' : `실패 — 수동 발송 필요 (${error})`}${quotaLine}\n관리자 리포트: ${origin}/admin/${shareId}/report`),
+  ]));
+
+  // 발송 실패해도 리드는 남고 텔레그램 알림이 갔으므로 수동 발송이 가능하다.
+  // 다만 사장님에게 "보냈다"고 하면 거짓말이 되므로, 화면 문구는 sent 값으로 갈린다.
+  return c.json({ success: true, sent });
+});
+
 app.get('/api/lead-click', async (c) => {
   const placeId = c.req.query('placeId') || '';
   const name = c.req.query('name') || '이름 미상';
@@ -489,9 +797,9 @@ ${image ? `<meta property="og:image" content="${escapeHtml(image)}">` : ''}
 // ─────────────────────────────────────────────────────────────────────────────
 
 const RANK_PAGE_STYLE = `
+${SITE_NAV_CSS}
   *{box-sizing:border-box} body{margin:0;padding:0;font-family:-apple-system,'Pretendard',sans-serif;color:#0F172A;background:#F8FAFC;line-height:1.6}
   .wrap{max-width:760px;margin:0 auto;padding:24px 16px 56px}
-  header a{font-weight:800;color:#2563EB;text-decoration:none;font-size:15px}
   h1{font-size:22px;margin:20px 0 6px;line-height:1.35}
   .meta{font-size:12px;color:#64748B;margin-bottom:20px}
   table{width:100%;border-collapse:collapse;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.08)}
@@ -509,6 +817,12 @@ const RANK_PAGE_STYLE = `
   footer{margin-top:32px;font-size:11px;color:#94A3B8;border-top:1px solid #E2E8F0;padding-top:16px}
   .kwlist{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
   .kwlist a{background:#fff;border:1px solid #E2E8F0;border-radius:999px;padding:7px 14px;font-size:13px;font-weight:600;color:#334155;text-decoration:none}
+  .navcards{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:22px}
+  .navcards a{display:block;background:#fff;border:1px solid #E2E8F0;border-radius:14px;padding:14px 16px;text-decoration:none;color:#0F172A}
+  .navcards .t{display:flex;justify-content:space-between;align-items:center;gap:10px;font-weight:800;font-size:14px}
+  .navcards .arw{color:#94A3B8}
+  .navcards .d{display:block;margin-top:4px;font-size:12px;color:#64748B;font-weight:500;line-height:1.5}
+  @media(max-width:520px){.navcards{grid-template-columns:1fr}}
   .answer{background:#EFF6FF;border-left:4px solid #2563EB;border-radius:0 12px 12px 0;padding:15px 17px;font-size:14px;font-weight:600;color:#1E3A8A;margin:0 0 22px;line-height:1.75}
   p{font-size:14px;color:#334155;line-height:1.8;margin:0 0 12px}
   details{background:#fff;border:1px solid #E2E8F0;border-radius:12px;padding:13px 15px;margin-bottom:8px}
@@ -556,6 +870,34 @@ async function eligibleRankKeywords(db: D1Database): Promise<string[]> {
   return [...rep.values()].map(r => r.keyword);
 }
 
+// 매장 전용 미니홈피 (§6.11, 샘플 단계). 전 페이지 noindex — 결제 연동 전까지 색인되면 안 된다.
+// 매장 데이터는 §3.4 캐시 정책(placeId 24h)을 그대로 타므로 반복 조회로 네이버를 때리지 않는다.
+// Hono는 `:topic?` 옵셔널 파라미터를 받지 않는다(404가 난다). 라우트를 둘로 나눈다.
+async function miniSite(c: any, slug?: string) {
+  const placeId = c.req.param('placeId');
+  if (!/^[1-9]\d{6,11}$/.test(placeId)) return c.text('잘못된 주소입니다.', 400);
+
+  try {
+    const store = await cached(c.env, `place:${placeId}`, PLACE_TTL, () => scrapeFullPlaceMetrics(placeId));
+    const topics = await pickTopics(store);
+    if (!slug) return c.html(renderMiniHome(store, topics));
+
+    const topic = topics.find(t => t.slug === slug);
+    // 데이터가 없어서 안 만든 주제는 존재하지 않는 페이지다. 빈 페이지를 내주면 그게 저품질이다.
+    if (!topic) return c.redirect(`/p/${placeId}`, 302);
+    return c.html(renderMiniTopic(store, topic, topics));
+  } catch (err: any) {
+    console.error('미니홈피 생성 실패:', err);
+    return c.text('매장 정보를 불러오지 못했습니다.', 500);
+  }
+}
+app.get('/p/:placeId', c => miniSite(c));
+app.get('/p/:placeId/:topic', c => miniSite(c, c.req.param('topic')));
+
+// 마케팅 랜딩 (§6.10). 상단 3메뉴: 플레이스분석(/) · 광고컨설팅(/ads) · 블로그배포(/blog)
+app.get('/ads', (c) => c.html(renderAdsPage()));
+app.get('/blog', (c) => c.html(renderBlogPage()));
+
 app.get('/rank', async (c) => {
   const db = c.env.DB;
   if (!db) return c.text('DB 미설정', 500);
@@ -568,8 +910,7 @@ app.get('/rank', async (c) => {
 <title>네이버 플레이스 키워드별 순위 현황 | 동네비즈</title>
 <meta name="description" content="네이버 플레이스 키워드별 상위 노출 업체 순위와 리뷰·사진 등 지표 현황을 실측 데이터로 정리했습니다.">
 <link rel="canonical" href="https://dongbiz.com/rank">
-<style>${RANK_PAGE_STYLE}</style></head><body><div class="wrap">
-<header><a href="/">동네비즈</a></header>
+<style>${RANK_PAGE_STYLE}</style></head><body>${siteNav('place')}<div class="wrap">
 <h1>키워드별 네이버 플레이스 순위 현황</h1>
 <p class="meta">관측이 2회 이상 누적된 키워드만 공개합니다. 총 ${keywords.length}개.</p>
 <div class="kwlist">${items || '<span class="meta">아직 공개 가능한 키워드가 없습니다.</span>'}</div>
@@ -845,8 +1186,11 @@ ${faqs.map(f => `<details><summary>${escapeHtml(f.q)}</summary><p>${escapeHtml(f
   <li>네이버 공식 자료가 아닌 공개 정보 기반의 자체 분석이며, 순위는 검색자의 위치에 따라 다르게 표시될 수 있습니다.</li>
 </ul>
 ${siblings.length ? `<h2>다른 키워드 순위 현황</h2>
-<div class="kwlist">${siblings.map(k => `<a href="/rank/${encodeURIComponent(k)}">${escapeHtml(k)}</a>`).join('')}</div>
-<p class="meta" style="margin-top:12px"><a href="/rank">전체 키워드 목록 보기</a> · <a href="/guide">플레이스 상위노출 가이드</a></p>` : ''}
+<div class="kwlist">${siblings.map(k => `<a href="/rank/${encodeURIComponent(k)}">${escapeHtml(k)}</a>`).join('')}</div>` : ''}
+<div class="navcards">
+  <a href="/rank"><span class="t">전체 키워드 순위 현황<span class="arw">→</span></span><span class="d">관측 중인 키워드를 한눈에 봅니다</span></a>
+  <a href="/guide"><span class="t">플레이스 상위노출 가이드<span class="arw">→</span></span><span class="d">순위를 올리는 기준과 방법</span></a>
+</div>
 <footer>본 페이지는 네이버 통합검색 결과에서 수집한 공개 정보를 집계한 것이며, 순위는 검색자의 위치에 따라 다르게 표시될 수 있습니다.<br>상호 : 인터피아드 · 사업자등록번호 : 124-35-56796 · 문의 : interpiad@gmail.com</footer>
 </div></body></html>`;
 }
@@ -867,7 +1211,7 @@ app.get('/rank/:keyword', async (c) => {
   if (batches.size < 2 || !hasRanked) {
     return c.html(`<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8">
 <meta name="robots" content="noindex"><title>준비 중 | 동네비즈</title><style>${RANK_PAGE_STYLE}</style></head>
-<body><div class="wrap"><header><a href="/">동네비즈</a></header>
+<body>${siteNav('place')}<div class="wrap">
 <h1>아직 공개 기준을 채우지 못한 키워드입니다</h1>
 <p class="meta">관측이 2회 이상 누적되면 공개됩니다.</p>
 <a class="cta" href="/">내 매장 순위 무료로 진단하기</a></div></body></html>`, 404);
@@ -885,9 +1229,9 @@ app.get('/rank/:keyword', async (c) => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const GUIDE_STYLE = `
+${SITE_NAV_CSS}
   *{box-sizing:border-box} body{margin:0;padding:0;font-family:-apple-system,'Pretendard',sans-serif;color:#0F172A;background:#F8FAFC;line-height:1.75}
   .wrap{max-width:760px;margin:0 auto;padding:24px 16px 56px}
-  header a{font-weight:800;color:#2563EB;text-decoration:none;font-size:15px}
   .crumb{font-size:12px;color:#94A3B8;margin:18px 0 6px}
   .crumb a{color:#64748B;text-decoration:none}
   h1{font-size:24px;margin:0 0 8px;line-height:1.35;letter-spacing:-0.02em}
@@ -917,8 +1261,7 @@ app.get('/guide', (c) => {
 <title>네이버 플레이스 상위노출 가이드 | 동네비즈</title>
 <meta name="description" content="네이버 플레이스 순위 조회, 순위 하락 원인, 대표키워드 설정, 상위노출 방법을 실측 데이터를 근거로 정리한 가이드입니다.">
 <link rel="canonical" href="https://dongbiz.com/guide">
-<style>${GUIDE_STYLE}</style></head><body><div class="wrap">
-<header><a href="/">동네비즈</a></header>
+<style>${GUIDE_STYLE}</style></head><body>${siteNav('place')}<div class="wrap">
 <h1>네이버 플레이스 상위노출 가이드</h1>
 <p class="meta">실제로 수집한 순위·지표 데이터를 근거로 씁니다.</p>
 <div class="more" style="border:none;padding:0;margin-top:8px">${items}</div>
@@ -995,8 +1338,7 @@ app.get('/guide/:slug', (c) => {
 <meta property="og:image" content="https://dongbiz.com/og-image.png">
 <meta name="twitter:card" content="summary_large_image">
 <script type="application/ld+json">${jsonLd}</script>
-<style>${GUIDE_STYLE}</style></head><body><div class="wrap">
-<header><a href="/">동네비즈</a></header>
+<style>${GUIDE_STYLE}</style></head><body>${siteNav('place')}<div class="wrap">
 <p class="crumb"><a href="/">홈</a> › <a href="/guide">가이드</a></p>
 <h1>${escapeHtml(g.title)}</h1>
 <p class="meta">최종 수정 ${escapeHtml(g.updated)}</p>
@@ -1051,24 +1393,36 @@ const ADMIN_STYLE = `
   .nav { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; background: #fff; border-radius: 12px; padding: 10px 12px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); font-size: 13px; }
   .nav a { font-weight: 700; padding: 5px 10px; border-radius: 8px; }
   .nav a:hover { background: #EFF6FF; text-decoration: none; }
+  /* 메뉴 이름 옆 설명 아이콘. title 속성이라 마우스를 올리면 브라우저 기본 툴팁이 뜬다. */
+  .nav .tip { margin-left: 3px; color: #94A3B8; font-weight: 400; cursor: help; }
+  .nav a:hover .tip { color: #2563EB; }
   .nav .sep { color: #94A3B8; font-size: 11px; font-weight: 700; margin: 0 4px 0 10px; border-left: 1px solid #E2E8F0; padding-left: 12px; }
   .nav .sep.first { margin-left: 0; border-left: none; padding-left: 0; }
 `;
 
 // 관리자 페이지 공통 상단 메뉴. 페이지마다 흩어져 있던 이동 링크를 한 줄로 모은다.
+// 메뉴 이름만으로는 뭘 하는지 알 수 없다는 지적(2026-09-09). 특히 수동 수집 버튼은
+// 눌러야만 동작을 알 수 있어 위험하다 — 누르면 즉시 네이버를 긁는다.
+// 이름 옆 ⓘ에 마우스를 올리면 목적·주기·비용이 뜬다.
+const navItem = (href: string, label: string, tip: string, blank = false) =>
+  `<a href="${href}"${blank ? ' target="_blank"' : ''}>${label}<span class="tip" title="${tip}">ⓘ</span></a>`;
+
 const ADMIN_NAV = `<nav class="nav">
   <span class="sep first">진단</span>
-  <a href="/admin">진단 리스트</a>
-  <a href="/admin?view=report">개선리포트</a>
+  ${navItem('/admin', '진단 리스트', '사장님들이 실제로 돌린 진단 최신 100건. 원본 데이터 검증용.')}
+  ${navItem('/admin?view=report', '개선리포트', '같은 목록을 "고객에게 보낼 리포트 찾기" 관점으로 본다. 매장명을 누르면 주석 달린 리포트가 열리고, 인쇄로 PDF 저장.')}
   <span class="sep">분석</span>
-  <a href="/admin/analytics">지표 분석</a>
-  <a href="/admin/analytics/market">시장 통계</a>
+  ${navItem('/admin/analytics', '지표 분석', '키워드별 순위 시계열. 순위가 바뀐 시점에 어떤 지표가 함께 움직였는지 대조한다. 리버스엔지니어링의 핵심 화면.')}
+  ${navItem('/admin/analytics/market', '시장 통계', '고정 리서치 키워드 8개의 상위권 평균/중앙값. "이 시장이 얼마나 경쟁적인가"를 본다. 의료 업종은 분리 표기.')}
+  ${navItem('/admin/text-match', '키워드 매칭', '검색 키워드가 상위권 업체의 대표키워드·상세설명·메뉴명·투표키워드에 들어 있는지 대조한다. 단면 비교라 인과가 아니다 — 화면 안의 경고를 읽을 것.')}
   <span class="sep">공개</span>
-  <a href="/rank" target="_blank">순위 페이지</a>
+  ${navItem('/rank', '순위 페이지', '고객에게 공개되는 키워드별 순위 문서. 검색 유입용.', true)}
   <span class="sep">수동 수집</span>
-  <a href="/admin/cron/run/fixed-a">고정A</a>
-  <a href="/admin/cron/run/fixed-b">고정B</a>
-  <a href="/admin/cron/run/user-driven">사용자 키워드</a>
+  ${navItem('/admin/cron/run/fixed-a', '고정A', '누르면 즉시 실행 · 고정 리서치 키워드 앞 4개(강남맛집·명동맛집·부산맛집·해운대맛집)를 개별 스크랩. 자동으로는 매일 13:00 KST. 같은 job을 연타하면 네이버 일시 제한에 걸린다.')}
+  ${navItem('/admin/cron/run/fixed-b', '고정B', '누르면 즉시 실행 · 고정 리서치 키워드 뒤 4개(제주도맛집·강남미용실·홍대미용실·강남성형외과)를 개별 스크랩. 자동으로는 매일 21:00 KST. 앞뒤로 나눈 이유는 8개를 한 번에 돌리면 요청 한도를 넘기 때문.')}
+  ${navItem('/admin/cron/run/user-driven', '사용자 키워드', '누르면 즉시 실행 · 사장님들이 검색했던 키워드를 최근순으로 최대 3개 재수집해 시계열을 잇는다. 자동으로는 매일 17:00 KST.')}
+  ${navItem('/admin/cron/run/place-lists', '목록수집', '누르면 즉시 실행 · pcmap 목록에서 키워드당 최대 50곳을 정렬 3축(관련도·저장순·요즘뜨는)으로 수집 + 워치리스트 개별 추적. 저장수가 여기서만 나온다. 자동으로는 매일 15:00 KST. 약 75초 걸린다.')}
+  ${navItem('/admin/cron/run/place-texts', '텍스트수집', '누르면 즉시 실행 · 키워드별 상위 10곳의 개별 페이지에서 대표키워드·상세설명·메뉴명·투표키워드를 받아온다. 목록수집에는 이 4개가 없다. 최근 30일 안에 받아둔 업체는 건너뛰므로 두 번째부터는 거의 즉시 끝난다. 자동으로는 매일 17:00 KST.')}
 </nav>`;
 
 // 관리자: 진단 리스트 (최신 100건). §6 Phase C 신규 요청 — 관리자 자신이 raw데이터를 검증할 수 있어야 함.
@@ -1177,7 +1531,181 @@ app.get('/admin/cron/run/:job', async (c) => {
     await runHealthcheck(c.env);
     return c.text('완료: 헬스체크 실행됨(실패 시에만 텔레그램 옴).');
   }
-  return c.text('알 수 없는 job. fixed-a | fixed-b | user-driven | healthcheck 중 하나.', 400);
+  if (job === 'place-lists') {
+    // 키워드 1개만 돌리고 싶을 때: ?keyword=강남맛집 (429 실측 이후 테스트는 좁게 하는 게 안전하다)
+    const only = c.req.query('keyword');
+    const targets = only ? [only] : [...FIXED_RESEARCH_KEYWORDS.map(f => f.keyword), ...LIST_ONLY_KEYWORDS];
+    // 키워드 1개면 결과를 바로 보여준다(검증용). 전체는 5초 스로틀 × 24회라 2분이 넘어
+    // 브라우저가 먼저 끊고, 그러면 실행도 같이 죽는다 — 백그라운드로 돌리고 즉시 응답한다.
+    if (only) return c.text((await collectPlaceLists(c.env, targets)).join(String.fromCharCode(10)));
+    c.executionCtx.waitUntil((async () => {
+      await collectPlaceLists(c.env, targets);
+      await collectWatchlist(c.env);
+    })());
+    return c.text(`백그라운드 시작: ${targets.length}개 키워드 + 워치리스트 ${WATCH_PLACE_IDS.length}곳.
+약 ${Math.round(targets.length * 3 * PCMAP_THROTTLE_MS / 1000)}초 뒤 지표 분석에서 확인. 실패 시 텔레그램으로 알림이 온다.`);
+  }
+  if (job === 'place-texts') {
+    const only = c.req.query('keyword');
+    const targets = only ? [only] : [...FIXED_RESEARCH_KEYWORDS.map(f => f.keyword), ...LIST_ONLY_KEYWORDS];
+    if (only) return c.text((await collectPlaceTexts(c.env, targets)).join(String.fromCharCode(10)));
+    c.executionCtx.waitUntil(collectPlaceTexts(c.env, targets));
+    return c.text(`백그라운드 시작: ${targets.length}개 키워드 × 상위 ${PLACE_TEXTS_TOP_N}곳.
+최근 ${PLACE_TEXTS_STALE_DAYS}일 안에 받아둔 업체는 건너뛰므로 두 번째 실행부터는 빨리 끝난다.
+결과는 지표 분석 > 키워드 매칭에서 확인.`);
+  }
+  return c.text('알 수 없는 job. fixed-a | fixed-b | user-driven | healthcheck | place-lists | place-texts 중 하나.', 400);
+});
+
+/**
+ * "관련도순으로 매겨진 순위 행"의 조건. 두 경로가 이 축에 해당한다:
+ *   sort_mode='popular' — pcmap 목록 수집(§9.10)
+ *   sort_mode IS NULL   — 통합검색 오가닉 순위(진단 /api/gap, 고정 키워드 배치)
+ * 저장순·요즘뜨는·재방문(saved/trendy/revisit)은 **다른 축**이라 섞으면 안 된다 — 한 번
+ * 섞어놨다가 그래프가 통째로 거짓말을 한 적이 있다(§9.10 sort_mode 회귀).
+ * is_ad는 목록 경로에만 있어서 NULL(통합검색 경로)은 광고 아님으로 본다.
+ */
+const RELEVANCE_ROWS = `(rs.sort_mode = 'popular' OR rs.sort_mode IS NULL) AND (rs.is_ad = 0 OR rs.is_ad IS NULL)`;
+
+// 관리자: 키워드 텍스트 매칭 분석 (§9.13) — "검색 키워드가 상위권 업체의 대표키워드/상세설명/
+// 메뉴명/투표키워드에 들어 있나". 매칭은 저장하지 않고 여기서 매번 계산한다(규칙을 고치면
+// 과거 데이터까지 새 규칙으로 다시 읽히게 하기 위해서다).
+app.get('/admin/text-match', async (c) => {
+  const db = c.env.DB;
+  if (!db) return c.text('DB 미설정', 500);
+
+  const { results } = await db.prepare(`
+    SELECT rs.keyword, COUNT(DISTINCT rs.place_id) AS ranked,
+           COUNT(DISTINCT pt.place_id) AS with_text
+    FROM rank_snapshots rs
+    LEFT JOIN place_texts pt ON pt.place_id = rs.place_id
+    WHERE ${RELEVANCE_ROWS} AND rs.rank IS NOT NULL AND rs.rank <= 20 AND rs.keyword != '__watch__'
+    GROUP BY rs.keyword
+    ORDER BY with_text DESC, ranked DESC
+  `).all();
+
+  const rows = (results as any[]).map(r => `
+    <tr>
+      <td><b>${escapeHtml(r.keyword)}</b></td>
+      <td>${r.ranked}곳</td>
+      <td>${r.with_text > 0 ? `${r.with_text}곳` : '<span style="color:#94A3B8">없음</span>'}</td>
+      <td>${r.with_text > 0 ? `<a href="/admin/text-match/${encodeURIComponent(r.keyword)}">매칭 분석 →</a>`
+        : `<a href="/admin/cron/run/place-texts?keyword=${encodeURIComponent(r.keyword)}">텍스트 수집하기</a>`}</td>
+    </tr>`).join('');
+
+  return c.html(`<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><title>동네비즈 관리자 - 키워드 매칭</title><style>${ADMIN_STYLE}</style></head>
+<body>
+  ${ADMIN_NAV}
+  <h1>키워드 매칭 분석</h1>
+  <div class="card" style="font-size:13px;color:#475569;line-height:1.7">
+    검색 키워드가 상위권 업체의 <b>대표키워드 · 상세설명 · 메뉴명 · 투표키워드</b>에 들어 있는지 본다.<br>
+    텍스트는 개별 페이지를 긁어야 나오므로(목록 수집에는 없다) 키워드별로 <b>상위 ${PLACE_TEXTS_TOP_N}곳</b>만 받아둔다.
+    진단(/api/gap)을 거친 업체는 자동으로 쌓인다.
+  </div>
+  <table>
+    <thead><tr><th>키워드</th><th>상위 20위 내 업체</th><th>텍스트 확보</th><th></th></tr></thead>
+    <tbody>${rows || '<tr><td colspan="4">아직 순위 데이터가 없습니다.</td></tr>'}</tbody>
+  </table>
+</body></html>`);
+});
+
+app.get('/admin/text-match/:keyword', async (c) => {
+  const db = c.env.DB;
+  if (!db) return c.text('DB 미설정', 500);
+  const keyword = decodeURIComponent(c.req.param('keyword'));
+
+  const { results } = await db.prepare(`
+    SELECT r.place_id, r.rank, pt.place_name, pt.category,
+           pt.keyword_list, pt.description, pt.menu_names, pt.rep_keywords, pt.updated_at
+    FROM (
+      -- SQLite는 bare column을 max()가 고른 행에서 가져온다 — 업체별 **가장 최근 순위** 한 개.
+      SELECT rs.place_id, rs.rank, MAX(rs.collected_at) AS last_seen
+      FROM rank_snapshots rs
+      WHERE rs.keyword = ? AND ${RELEVANCE_ROWS} AND rs.rank IS NOT NULL
+      GROUP BY rs.place_id
+    ) r
+    JOIN place_texts pt ON pt.place_id = r.place_id
+    ORDER BY r.rank
+    LIMIT 30
+  `).bind(keyword).all();
+
+  const parts = keywordParts(keyword);
+  const nk = normText(keyword);
+  const parse = (s: any, fallback: any) => { try { return JSON.parse(s || ''); } catch { return fallback; } };
+
+  const rows = (results as any[]).map(r => {
+    const list: string[] = parse(r.keyword_list, []);
+    const menus: string[] = parse(r.menu_names, []);
+    const votes: Array<{ keyword: string; count: number }> = parse(r.rep_keywords, []);
+
+    const rep = repKeywordLevel(keyword, list);
+    const desc = matchLevel(keyword, r.description);
+    // 상세설명은 "들어 있나"보다 "몇 번 넣었나"가 키워드 스터핑 여부까지 보여준다.
+    const descHits = nk ? normText(r.description).split(nk).length - 1 : 0;
+    const menuHit = menus.filter(m => matchLevel(keyword, m) === 2);
+    const menuPart = menus.filter(m => matchLevel(keyword, m) === 1);
+    const voteHit = votes.filter(v => matchLevel(keyword, v.keyword) >= 1);
+
+    const badge = (lv: number, label: string) =>
+      `<span class="badge ${lv >= 2 ? 'grade-A' : lv === 1 ? 'grade-B' : 'grade-C'}">${label}</span>`;
+
+    return {
+      rank: r.rank, repLevel: rep.level, descLevel: desc,
+      html: `<tr>
+        <td><b>${r.rank}위</b></td>
+        <td><b>${escapeHtml(r.place_name || r.place_id)}</b><br><span style="color:#94A3B8">${escapeHtml(r.category || '')}</span></td>
+        <td>${badge(rep.level, rep.level === 3 ? `정확 ${rep.at}번째` : rep.level === 2 ? `정확 ${rep.at}번째` : rep.level === 1 ? `부분 ${rep.at}번째` : '없음')}
+            <div style="color:#64748B;font-size:11px;margin-top:4px">${escapeHtml(list.join(' · ') || '대표키워드 미등록')}</div></td>
+        <td>${badge(desc, desc === 2 ? `정확 ${descHits}회` : desc === 1 ? '부분' : '없음')}
+            <div style="color:#94A3B8;font-size:11px;margin-top:4px">${r.description ? `${normText(r.description).length}자` : '설명 없음'}</div></td>
+        <td>${badge(menuHit.length ? 2 : menuPart.length ? 1 : 0, menuHit.length ? `정확 ${menuHit.length}개` : menuPart.length ? `부분 ${menuPart.length}개` : '없음')}
+            <div style="color:#64748B;font-size:11px;margin-top:4px">${escapeHtml([...menuHit, ...menuPart].slice(0, 3).join(' · ') || `메뉴 ${menus.length}개`)}</div></td>
+        <td>${badge(voteHit.length ? 2 : 0, voteHit.length ? `${voteHit.length}개` : '없음')}
+            <div style="color:#64748B;font-size:11px;margin-top:4px">${escapeHtml(voteHit.slice(0, 3).map(v => `${v.keyword}(${v.count})`).join(' · ') || '-')}</div></td>
+        <td style="color:#94A3B8;font-size:11px">${escapeHtml(fmtKST(r.updated_at))}</td>
+      </tr>`
+    };
+  });
+
+  // 등급별 평균 순위. 상관계수까지 가지 않는다 — n이 10 남짓이라 계수는 소수점 장난이 된다.
+  const avgRank = (pick: (x: typeof rows[number]) => boolean) => {
+    const hit = rows.filter(pick);
+    return hit.length ? `${(hit.reduce((a, b) => a + b.rank, 0) / hit.length).toFixed(1)}위 (n=${hit.length})` : '-';
+  };
+  const summary = [
+    ['대표키워드 정확일치 1~2번째', avgRank(r => r.repLevel === 3)],
+    ['대표키워드 정확일치 3번째 이후', avgRank(r => r.repLevel === 2)],
+    ['대표키워드 부분일치만', avgRank(r => r.repLevel === 1)],
+    ['대표키워드 없음', avgRank(r => r.repLevel === 0)],
+    ['상세설명 정확일치', avgRank(r => r.descLevel === 2)],
+    ['상세설명 정확일치 아님', avgRank(r => r.descLevel < 2)],
+  ].map(([label, v]) => `<tr><td>${label}</td><td><b>${v}</b></td></tr>`).join('');
+
+  return c.html(`<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><title>${escapeHtml(keyword)} 키워드 매칭</title><style>${ADMIN_STYLE}</style></head>
+<body>
+  ${ADMIN_NAV}
+  <a class="back" href="/admin/text-match">← 키워드 목록</a>
+  <h1>"${escapeHtml(keyword)}" 텍스트 매칭 (${rows.length}곳)</h1>
+  <div class="card" style="font-size:13px;color:#475569;line-height:1.7">
+    매칭 기준: 공백·대소문자를 지우고 비교한다 — "강남 맛집"과 "강남맛집"을 같게 본다.<br>
+    <b>정확</b> = 키워드 전체가 들어 있음 · <b>부분</b> = 조각(${escapeHtml(parts.join(' / ') || keyword)})만 들어 있음.<br>
+    <b>대표키워드</b>는 업체가 직접 입력한 값이라 조작할 수 있고, <b>투표키워드</b>는 네이버가 방문자 리뷰에서 뽑은 값이라 조작이 어렵다 — 같은 칸으로 읽지 말 것.
+  </div>
+  <div class="card">
+    <b style="font-size:14px">항목별 평균 순위</b>
+    <table style="box-shadow:none;margin-top:10px"><tbody>${summary}</tbody></table>
+    <p style="font-size:12px;color:#B45309;margin:12px 0 0;line-height:1.7">
+      ⚠️ 이건 단면 비교라 인과가 아니다. 상위권은 대부분 이미 키워드를 넣어두기 때문에 "없음" 칸의 n이
+      0~2로 나오는 게 정상이고, 그럴 땐 아무 결론도 못 낸다. 또 대표키워드를 잘 넣는 업체는 마케팅에
+      돈을 쓰는 업체라 리뷰·사진도 많다 — 그 효과와 구분되지 않는다.<br>
+      인과를 보려면 워치리스트 매장 하나의 대표키워드를 바꾼 뒤 순위를 추적하는 수밖에 없다.
+    </p>
+  </div>
+  <table>
+    <thead><tr><th>순위</th><th>매장</th><th>대표키워드</th><th>상세설명</th><th>메뉴명</th><th>투표키워드</th><th>수집</th></tr></thead>
+    <tbody>${rows.map(r => r.html).join('') || `<tr><td colspan="7">텍스트가 없습니다. <a href="/admin/cron/run/place-texts?keyword=${encodeURIComponent(keyword)}">지금 수집</a></td></tr>`}</tbody>
+  </table>
+</body></html>`);
 });
 
 // 관리자: 리서치 고정 키워드 시장 통계 — 업체 식별 없이 상위 10곳 평균/중앙값/비율만.
@@ -1231,9 +1759,16 @@ app.get('/admin/analytics/:keyword', async (c) => {
   if (!db) return c.text('DB 미설정', 500);
 
   const keyword = decodeURIComponent(c.req.param('keyword'));
+
+  // ⚠️ §9.10 이후 한 키워드에 정렬 3축(popular/saved/trendy)이 함께 쌓인다. 섞어서 그리면
+  // 저장순 순위와 관련도순 순위가 같은 선에 얹혀 완전히 잘못된 추이가 된다.
+  // 반드시 축 하나만 골라서 본다. 구버전 행은 sort_mode가 NULL이고 관련도순에 해당한다.
+  const sortMode = c.req.query('sort') || 'popular';
   const { results } = await db.prepare(`
-    SELECT * FROM rank_snapshots WHERE keyword = ? ORDER BY collected_at ASC
-  `).bind(keyword).all();
+    SELECT * FROM rank_snapshots
+    WHERE keyword = ? AND (sort_mode = ? OR (sort_mode IS NULL AND ? = 'popular'))
+    ORDER BY collected_at ASC
+  `).bind(keyword, sortMode, sortMode).all();
 
   const snapshots = results as any[];
   if (snapshots.length === 0) {
@@ -1266,7 +1801,20 @@ app.get('/admin/analytics/:keyword', async (c) => {
   for (const s of snapshots) {
     if (s.collected_at === lastTs && s.rank) nameAtRank[s.rank] = s.place_name || s.place_id;
   }
-  const datasets = [...byPlace.entries()].map(([id, rows], i) => {
+  // §9.10 이후 한 키워드에 업체가 50~95곳까지 잡힌다. 전부 그리면 선이 겹치고 범례가
+  // 화면 절반을 먹어 아무것도 안 보인다(실제로 그렇게 나왔다). **상위권만 그린다.**
+  // 하위권은 표에 그대로 남아 있으므로 정보가 사라지는 게 아니라 화면에서만 걷어내는 것이다.
+  // 15 / 30 / 50 버튼으로 조절한다. 차트와 아래 표가 **같은 집합**을 쓴다 —
+  // 차트엔 없는 업체가 표에만 있으면 두 화면을 대조할 수 없다.
+  const CHART_TOP_N = Math.min(50, Math.max(5, Number(c.req.query('top')) || 15));
+  // 순위가 늘수록 세로로 길어져야 한다. 50위를 90px에 그리면 선이 전부 겹친다.
+  const chartHeight = Math.max(320, CHART_TOP_N * 15);
+  const bestRankOf = (rows: any[]) => Math.min(...rows.map(r => Number(r.rank) || 999));
+  const charted = [...byPlace.entries()]
+    .filter(([, rows]) => bestRankOf(rows) <= CHART_TOP_N)
+    .sort((a, b) => bestRankOf(a[1]) - bestRankOf(b[1]));
+
+  const datasets = charted.map(([id, rows], i) => {
     const byTime = new Map(rows.map(r => [r.collected_at, r.rank]));
     const hue = (i * 67) % 360;
     return {
@@ -1278,53 +1826,103 @@ app.get('/admin/analytics/:keyword', async (c) => {
       tension: 0.2,
     };
   });
+  // y축도 그린 범위에 맞춘다. 50위까지 늘려놓으면 상위권 변동이 한 줄로 뭉개진다.
+  const chartMaxRank = Math.min(maxRank, CHART_TOP_N + 2);
 
-  // 순위변동 이벤트: 같은 업체의 연속된 두 스냅샷 사이 순위가 바뀐 구간마다, 그 사이 지표 델타를 함께 표시.
-  const METRIC_LABELS: Record<string, string> = {
-    visitor_reviews: '방문자리뷰', blog_reviews: '블로그리뷰', vote_count: '투표수',
-    photo_count: '사진수', review_medias_total: '사진첨부리뷰', coupon_count: '쿠폰수',
-  };
-  const events: string[] = [];
-  for (const [id, rows] of byPlace) {
-    for (let i = 1; i < rows.length; i++) {
-      const prev = rows[i - 1], cur = rows[i];
-      if (prev.rank === cur.rank) continue;
-      const deltas = Object.entries(METRIC_LABELS)
-        .map(([col, label]) => {
-          const d = (cur[col] ?? 0) - (prev[col] ?? 0);
-          return d !== 0 ? `${label} ${d > 0 ? '+' : ''}${d}` : null;
-        })
-        .filter(Boolean)
-        .join(', ');
-      const rankTxt = `${prev.rank ?? '순위밖'} → ${cur.rank ?? '순위밖'}`;
-      const arrow = (prev.rank ?? 999) > (cur.rank ?? 999) ? '📈' : '📉';
-      events.push(`
-        <tr>
-          <td>${escapeHtml(fmtKST(cur.collected_at))}</td>
-          <td><b>${escapeHtml(cur.place_name || id)}</b></td>
-          <td>${arrow} ${rankTxt}</td>
-          <td>${deltas ? escapeHtml(deltas) : '<span style="color:#94A3B8">변동 없음(외부 요인 추정)</span>'}</td>
-        </tr>`);
-    }
+  // 지표 변화표: 순위가 바뀐 시점마다 **그 시점의 모든 업체**를 한 표에 늘어놓는다.
+  // 한 업체만 떨어져도 원인은 그 업체가 아니라 "그 사이 다른 업체가 뭘 했는가"에 있는 경우가
+  // 많아서, 변동한 업체만 보여주면 원인 추적이 불가능하다(2026-09-09 사용자 지적).
+  const METRIC_COLUMNS: Array<[string, string]> = [
+    ['visitor_reviews', '방문자리뷰'], ['blog_reviews', '블로그리뷰'], ['vote_count', '투표수'],
+    ['photo_count', '사진수'], ['review_medias_total', '사진첨부리뷰'], ['coupon_count', '쿠폰수'],
+  ];
+
+  // 상호 검색량은 스냅샷마다 다시 재지 않으므로(§6.5.10) 업체별 최신 관측값을 쓴다.
+  // "< 10"은 상한을 더한 근사치라 숫자로 찍으면 안 된다 — 그대로 "< 10"으로 표기한다.
+  const nameVolumeByPlace = new Map<string, string>();
+  for (const s of snapshots) {
+    if (s.name_search_volume == null) continue;
+    nameVolumeByPlace.set(s.place_id, s.name_volume_under_ten ? '&lt; 10' : Number(s.name_search_volume).toLocaleString());
   }
-  events.reverse(); // 최신순
+
+  const MAX_TRANSITIONS = 20; // 최신 20개 시점만 — 더 필요하면 SQL로 직접 볼 것
+  // 현재값과 증감을 같이 찍는다 — `1504(+4)`. 증감만 보면 "4건 늘어난 게 큰 건가"를
+  // 판단할 기준이 없다(1504 중 4건과 12 중 4건은 의미가 다르다).
+  const deltaCell = (prev: any, cur: any, col: string) => {
+    const now = cur[col];
+    const nowTxt = now == null ? '<span style="color:#CBD5E1">–</span>' : Number(now).toLocaleString();
+    if (!prev) return nowTxt;
+    const d = (now ?? 0) - (prev[col] ?? 0);
+    if (d === 0) return nowTxt;
+    return `${nowTxt}<b style="color:${d > 0 ? '#059669' : '#DC2626'}">(${d > 0 ? '+' : ''}${d})</b>`;
+  };
+
+  const transitions: string[] = [];
+  for (let ti = 1; ti < timestamps.length; ti++) {
+    const prevTs = timestamps[ti - 1], curTs = timestamps[ti];
+    const entries = charted
+      .map(([id, rows]) => ({
+        id,
+        prev: rows.find(r => r.collected_at === prevTs),
+        cur: rows.find(r => r.collected_at === curTs),
+      }))
+      .filter(e => e.cur);
+    if (!entries.some(e => e.prev && e.prev.rank !== e.cur.rank)) continue; // 아무도 안 움직인 시점은 생략
+
+    entries.sort((a, b) => (Number(a.cur.rank) || 999) - (Number(b.cur.rank) || 999));
+    const rows = entries.map(({ id, prev, cur }) => {
+      const moved = prev && prev.rank !== cur.rank;
+      const arrow = !moved ? '' : (prev.rank ?? 999) > (cur.rank ?? 999) ? ' 📈' : ' 📉';
+      const rankTxt = prev
+        ? `${prev.rank ?? '밖'} → <b>${cur.rank ?? '밖'}</b>${arrow}`
+        : `<b>${cur.rank ?? '밖'}</b> <span style="color:#94A3B8">(신규)</span>`;
+      const vol = nameVolumeByPlace.get(id);
+      return `<tr${moved ? ' style="background:#FEF9C3"' : ''}>
+        <td>${escapeHtml(cur.place_name || id)}</td>
+        <td>${rankTxt}</td>
+        ${METRIC_COLUMNS.map(([col]) => `<td style="text-align:right">${deltaCell(prev, cur, col)}</td>`).join('')}
+        <td style="text-align:right">${vol ?? '<span style="color:#CBD5E1">–</span>'}</td>
+      </tr>`;
+    }).join('');
+
+    transitions.push(`
+      <h3 style="font-size:13px;margin:20px 0 6px;color:#334155;">${escapeHtml(fmtKST(prevTs))} → <b>${escapeHtml(fmtKST(curTs))}</b></h3>
+      <table>
+        <thead><tr><th>업체</th><th>순위</th>${METRIC_COLUMNS.map(([, label]) => `<th style="text-align:right">${label}</th>`).join('')}<th style="text-align:right">월간 상호 검색량</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`);
+  }
+  transitions.reverse(); // 최신순
+  const events = transitions.slice(0, MAX_TRANSITIONS);
 
   return c.html(`<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><title>${escapeHtml(keyword)} - 순위 추이</title><style>${ADMIN_STYLE}</style>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script></head>
 <body>
   ${ADMIN_NAV}
   <h1>'${escapeHtml(keyword)}' 순위 추이</h1>
-  <p style="font-size:13px;color:#64748B;margin:-8px 0 16px;">스냅샷 ${snapshots.length}건 · 업체 ${byPlace.size}곳 · ${escapeHtml(fmtKST(timestamps[0]))} ~ ${escapeHtml(fmtKST(timestamps[timestamps.length - 1]))}</p>
+  <p style="font-size:13px;color:#64748B;margin:-8px 0 6px;">스냅샷 ${snapshots.length}건 · 업체 ${byPlace.size}곳 · ${escapeHtml(fmtKST(timestamps[0]))} ~ ${escapeHtml(fmtKST(timestamps[timestamps.length - 1]))}</p>
+  <p style="font-size:12px;color:#64748B;margin:0 0 14px;">
+    정렬축:
+    ${['popular', 'saved', 'trendy', 'revisit'].map(m => m === sortMode
+      ? `<b style="color:#0F172A">${m}</b>`
+      : `<a href="/admin/analytics/${encodeURIComponent(keyword)}?sort=${m}" style="color:#2563EB">${m}</a>`).join(' · ')}
+    <span style="color:#94A3B8">— 축을 섞어서 보면 안 된다(§9.10).</span>
+  </p>
+  <p style="font-size:12px;color:#64748B;margin:0 0 14px;">
+    표시 범위:
+    ${[15, 30, 50].map(n => n === CHART_TOP_N
+      ? `<b style="color:#0F172A">상위 ${n}위</b>`
+      : `<a href="/admin/analytics/${encodeURIComponent(keyword)}?sort=${sortMode}&top=${n}" style="color:#2563EB">상위 ${n}위</a>`).join(' · ')}
+    <span style="color:#94A3B8">— 차트와 아래 표에 함께 적용된다. 관측된 업체는 ${byPlace.size}곳.</span>
+  </p>
 
   <div class="card">
-    <canvas id="rankChart" height="90"></canvas>
+    <div style="height:${chartHeight}px"><canvas id="rankChart"></canvas></div>
   </div>
 
-  <h2 style="font-size:15px;">순위 변동 이벤트 (그 사이 지표가 얼마나 움직였는지)</h2>
-  <table>
-    <thead><tr><th>일시</th><th>업체</th><th>순위 변동</th><th>지표 변화</th></tr></thead>
-    <tbody>${events.join('') || '<tr><td colspan="4">아직 순위 변동이 관측되지 않았습니다(스냅샷이 더 쌓이면 나타남).</td></tr>'}</tbody>
-  </table>
+  <h2 style="font-size:15px;">순위 변동 시점별 지표 변화 (전 업체)</h2>
+  <p style="font-size:12px;color:#64748B;margin:-4px 0 0;">순위가 바뀐 시점마다 그때 관측된 <b>모든 업체</b>를 보여준다. 한 업체만 떨어졌어도 원인은 대개 다른 업체가 그 사이 뭘 했는지에 있다. 노란 줄 = 순위가 실제로 바뀐 업체. 지표 칸은 <b>현재값(증감)</b> 형태 — 괄호가 없으면 직전 관측 대비 변화 없음, <b>–</b>는 값 자체가 없음.</p>
+  ${events.join('') || '<p style="font-size:13px;color:#94A3B8;">아직 순위 변동이 관측되지 않았습니다(스냅샷이 더 쌓이면 나타남).</p>'}
 
   <script>
     new Chart(document.getElementById('rankChart'), {
@@ -1334,15 +1932,20 @@ app.get('/admin/analytics/:keyword', async (c) => {
         datasets: ${JSON.stringify(datasets)}
       },
       options: {
+        // 컨테이너 높이를 그대로 쓴다. 기본 비율 유지 모드면 세로를 아무리 키워도 안 늘어난다.
+        responsive: true,
+        maintainAspectRatio: false,
         scales: {
-          y: { reverse: true, min: ${minRank}, max: ${maxRank}, ticks: { stepSize: 1 } },
+          y: { reverse: true, min: ${minRank}, max: ${chartMaxRank}, ticks: { stepSize: 1 } },
           yNames: {
-            position: 'right', reverse: true, min: ${minRank}, max: ${maxRank},
+            position: 'right', reverse: true, min: ${minRank}, max: ${chartMaxRank},
             grid: { drawOnChartArea: false },
-            ticks: { stepSize: 1, autoSkip: false, callback: v => (${JSON.stringify(nameAtRank)})[v] || '' }
+            ticks: { stepSize: 1, autoSkip: false, font: { size: ${CHART_TOP_N > 30 ? 9 : 11} }, callback: v => (${JSON.stringify(nameAtRank)})[v] || '' }
           }
         },
-        plugins: { legend: { position: 'bottom' } }
+        // 범례는 끈다. 오른쪽 축이 이미 "지금 그 순위에 있는 업체명"을 같은 높이에 보여주므로
+        // 범례는 중복이고, 업체가 많아지면 화면 절반을 먹는다. 개별 확인은 툴팁으로 한다.
+        plugins: { legend: { display: false }, tooltip: { mode: 'nearest', intersect: false } }
       }
     });
   </script>
@@ -1398,13 +2001,40 @@ app.get('/admin/:shareId/report', async (c) => {
   if (!db) return c.text('DB 미설정', 500);
 
   const shareId = c.req.param('shareId');
-  const exists = await db.prepare('SELECT 1 FROM search_histories WHERE share_id = ?').bind(shareId).first();
-  if (!exists) return c.html(`<!DOCTYPE html><html><body style="font-family:sans-serif;padding:24px;"><a href="/admin">&larr; 목록으로</a><p>해당 진단 기록을 찾을 수 없습니다.</p></body></html>`, 404);
+  const row = await db.prepare('SELECT raw_data FROM search_histories WHERE share_id = ?').bind(shareId).first();
+  if (!row) return c.html(`<!DOCTYPE html><html><body style="font-family:sans-serif;padding:24px;"><a href="/admin">&larr; 목록으로</a><p>해당 진단 기록을 찾을 수 없습니다.</p></body></html>`, 404);
+
+  // 검색량은 관리자 리포트에서만 숫자로 노출한다 (§6.5.9). 고객 화면(/api/gap)은 이 값을
+  // 아예 받지 않으므로 "월 10회 미만" 같은 숫자가 사장님 눈에 띌 일이 없다.
+  // 조회 대상: 진단 키워드 + 상호명 + 대표키워드 5개 → 최대 7개(KV 캐시 후 API 호출 2회 이하).
+  let volumes: Record<string, any> = {};
+  let competitorNames: string[] = [];
+  // 상호 변형 조회는 **그 매장 자신의 주소**로 지역 조합을 만들어야 한다. 내 매장 주소를
+  // 전 업체에 돌려쓰면 서울 업체에 '안산○○' 같은 엉뚱한 변형이 붙는다(실제로 겪음).
+  let competitorRegions: Record<string, string> = {};
+  try {
+    const data = JSON.parse(row.raw_data as string);
+    // 경쟁사 상호 검색량까지 뽑는다 (§6.5.10) — 순위와 별개로 그 업체가 얼마나 직접 검색되는지.
+    competitorNames = (data.top10Competitors || []).map((comp: any) => comp?.name).filter(Boolean);
+    for (const comp of data.top10Competitors || []) {
+      if (comp?.name) competitorRegions[comp.name] = comp.roadAddress || '';
+    }
+    if (data.myStore?.name) competitorRegions[data.myStore.name] = data.myStore.roadAddress || '';
+    const targets = [
+      data.targetKeyword,
+      data.myStore?.name,
+      ...(data.myStore?.keywordList || []).slice(0, 5),
+      ...competitorNames,
+    ];
+    volumes = await getKeywordVolumes(c.env, targets.filter((t: unknown): t is string => typeof t === 'string' && !!t.trim()), { context: 'report', relatedTo: data.myStore?.name });
+  } catch (err) {
+    console.error('리포트 검색량 조회 실패:', err); // 검색량 없이도 리포트는 그대로 열린다
+  }
 
   const assetRes = await c.env.ASSETS.fetch(new URL('/', c.req.url));
   const html = (await assetRes.text()).replace(
     '<head>',
-    `<head>\n<script>window.__REPORT_SHARE_ID__ = ${JSON.stringify(shareId)};</script>`
+    `<head>\n<script>window.__REPORT_SHARE_ID__ = ${JSON.stringify(shareId)};\nwindow.__REPORT_ADMIN__ = true;\nwindow.__REPORT_VOLUMES__ = ${JSON.stringify(volumes)};\nwindow.__REPORT_COMPETITOR_NAMES__ = ${JSON.stringify(competitorNames)};\nwindow.__REPORT_REGIONS__ = ${JSON.stringify(competitorRegions)};</script>`
   );
   return c.html(html);
 });
@@ -1527,6 +2157,194 @@ async function runFixedKeywordCollection(env: Env, list: typeof FIXED_RESEARCH_K
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// pcmap 목록 기반 "너비" 수집 (§9.10)
+//
+// 기존 수집은 키워드당 8회 요청(검색 1 + 개별 스크랩 7)으로 7곳을 얻었다. 이건 1회 요청으로
+// 50곳을 얻는다. 표본이 7배가 되면서 요청은 1/8이 된다.
+// ⚠️ 6회 연속 호출에 429를 실측했다. 반드시 간격을 두고 부른다.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * pcmap 목록만 돌리는 키워드 (§9.11). FIXED_RESEARCH_KEYWORDS에는 넣지 않는다 —
+ * 거기 넣으면 fixed-a/fixed-b의 비싼 개별 스크랩 배치까지 늘어나 subrequest 한도를 넘긴다.
+ * '봉명동 미용실': 시장이 작아 지표가 단순하고, revisit 정렬이 있어 재방문 가설 검증에 쓴다.
+ */
+const LIST_ONLY_KEYWORDS = ['봉명동 미용실'];
+
+/**
+ * 개별 추적 대상 (§9.11). "신규 오픈 부스트" 같은 자연실험은 **한 매장을 끝까지 따라가야**
+ * 답이 나온다. 목록 수집에는 is_new_opening·투표수·사진수가 없어서 개별 스크랩이 따로 필요하다.
+ * 부스트가 꺼지는 시점이 곧 지속기간의 답이므로, 플래그가 내려간 뒤에도 한동안 더 본다.
+ */
+const WATCH_PLACE_IDS: Array<{ placeId: string; note: string }> = [
+  { placeId: '2019121430', note: '기운 (강남맛집 3위, 2026-09-09 신규오픈 플래그 확인)' },
+];
+
+const PCMAP_THROTTLE_MS = 5000; // 요청 간 최소 간격. 3초로는 4번째 요청부터 429가 났다(실측).
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+/** 업종별로 지원하는 정렬 축이 다르다 — restaurant만 saved, hairshop은 revisit이 있다. */
+const LIST_TARGETS: Record<string, { path: string; sorts: SortMode[] }> = {
+  restaurant: { path: 'restaurant', sorts: ['popular', 'saved', 'trendy'] },
+  hairshop: { path: 'hairshop', sorts: ['popular', 'revisit', 'trendy'] },
+};
+
+/** 키워드에서 pcmap 경로를 고른다. 모르면 restaurant로 두지 않고 건너뛴다(잘못된 경로는 302). */
+function listTargetFor(keyword: string): { path: string; sorts: SortMode[] } | null {
+  if (/맛집|밥집|식당|고기|횟집|카페/.test(keyword)) return LIST_TARGETS.restaurant;
+  if (/미용실|헤어|살롱/.test(keyword)) return LIST_TARGETS.hairshop;
+  return null;
+}
+
+async function collectPlaceLists(env: Env, keywords: string[]): Promise<string[]> {
+  const db = env.DB;
+  if (!db) return ['DB 미설정'];
+  const report: string[] = [];
+
+  const insert = (keyword: string, sort: SortMode, item: PlaceListItem) => db.prepare(`
+    INSERT INTO rank_snapshots (
+      id, keyword, place_id, place_name, rank, sort_mode,
+      visitor_reviews, blog_reviews, total_review_count, image_count,
+      save_count_raw, save_count_min, is_ad, has_booking, source
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'cron')
+  `).bind(
+    crypto.randomUUID(), keyword, item.placeId, item.name, item.rank, sort,
+    item.visitorReviewCount, item.blogCafeReviewCount, item.totalReviewCount, item.imageCount,
+    item.saveCountRaw, item.saveCountMin, item.isAd ? 1 : 0, item.hasBooking ? 1 : 0,
+  );
+
+  for (const keyword of keywords) {
+    const target = listTargetFor(keyword);
+    if (!target) continue;
+
+    // 정렬 3축을 모아 **키워드당 D1 쓰기 1회**로 끝낸다. 축마다 쓰면 subrequest가 2배가 된다.
+    const stmts = [];
+    const done: string[] = [];
+    for (const sort of target.sorts) {
+      try {
+        await sleep(PCMAP_THROTTLE_MS);
+        // 정렬 축마다 같은 매장이 다른 순위를 갖는다. 그 잔차가 지표별 기여도의 단서다(§9.10).
+        const items = await getPlaceList(keyword, { category: target.path, sort });
+        for (const item of items) stmts.push(insert(keyword, sort, item));
+        done.push(`${sort} ${items.length}`);
+      } catch (err: any) {
+        // ⚠️ 실패를 여기서 삼키면 화면엔 "완료"가 뜨고 데이터만 빈다. 실제로 그렇게
+        // 7개 키워드가 통째로 누락됐다(2026-09-09). 반드시 호출부까지 올려보낸다.
+        console.error(`pcmap 목록 수집 실패("${keyword}" / ${sort}):`, err);
+        done.push(`${sort} ❌ ${err?.message || err}`);
+      }
+    }
+    if (stmts.length > 0) {
+      await db.batch(stmts).catch(err => {
+        console.error(`pcmap 기록 실패("${keyword}"):`, err);
+        done.push(`DB 쓰기 실패 ${err?.message || err}`);
+      });
+    }
+    report.push(`${keyword}: ${done.join(' / ')}`);
+  }
+
+  // 실패가 하나라도 있으면 알린다. 조용한 실패가 이 파이프라인의 가장 큰 위험이다.
+  const failed = report.filter(line => line.includes('❌') || line.includes('실패'));
+  if (failed.length > 0) {
+    await notify(env, ['⚠️ [목록수집 일부 실패]', ...failed].join(String.fromCharCode(10)));
+  }
+  return report;
+}
+
+/**
+ * 워치리스트 개별 추적 (§9.11). 목록 수집에 없는 필드(is_new_opening·투표수·사진수·설명분량)를
+ * 매일 남긴다. rank는 목록 쪽 행이 이미 갖고 있으므로 여기선 NULL로 두고 지표만 기록한다.
+ */
+async function collectWatchlist(env: Env) {
+  const db = env.DB;
+  if (!db || WATCH_PLACE_IDS.length === 0) return;
+
+  for (const { placeId, note } of WATCH_PLACE_IDS) {
+    try {
+      await sleep(PCMAP_THROTTLE_MS);
+      const s = await scrapeFullPlaceMetrics(placeId);
+      await db.prepare(`
+        INSERT INTO rank_snapshots (
+          id, keyword, place_id, place_name, rank, sort_mode,
+          visitor_reviews, blog_reviews, vote_count, photo_count, review_score,
+          review_medias_total, coupon_count, is_new_opening, is_good_store,
+          has_review_penalty, description_length, source
+        ) VALUES (?, ?, ?, ?, NULL, 'watch', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'cron')
+      `).bind(
+        crypto.randomUUID(), `__watch__`, placeId, s.name,
+        s.seoMetrics.visitorReviewsTotal ?? null, s.seoMetrics.cafeBlogReviewsTotal ?? null,
+        s.seoMetrics.totalVoteCount ?? null, s.seoMetrics.photoCount ?? null,
+        s.seoMetrics.visitorReviewsScore ?? null, s.seoMetrics.reviewMediasTotal ?? null,
+        s.seoMetrics.couponCount ?? null,
+        s.seoMetrics.isNewOpening ? 1 : 0, s.seoMetrics.isGoodStore ? 1 : 0,
+        s.seoMetrics.hasReviewPenalty ? 1 : 0, s.seoMetrics.descriptionLength ?? null,
+      ).run();
+      await savePlaceTexts(db, s);
+    } catch (err) {
+      console.error(`워치리스트 수집 실패(${placeId} · ${note}):`, err);
+    }
+  }
+}
+
+/**
+ * 상위권 업체 텍스트 수집 (§9.13). 목록 수집(pcmap)에는 대표키워드·상세설명·메뉴명이 아예
+ * 없어서, 그 업체들의 개별 페이지를 따로 긁어야 한다.
+ *
+ * 50곳 전부는 못 한다 — 스로틀 5초 × 50 = 250초에 subrequest도 50 한도에 정면으로 걸린다.
+ * 상위 N곳만 본다. 어차피 순위 회귀에서 의미 있는 구간은 상위권이다.
+ *
+ * 텍스트는 몇 달에 한 번 바뀌므로 STALE_DAYS 안에 받아둔 업체는 건너뛴다. 그래서 매일 돌려도
+ * 정상 상태에서는 요청이 0이 되고, 순위권에 새 업체가 들어왔을 때만 움직인다.
+ */
+const PLACE_TEXTS_TOP_N = 10;
+const PLACE_TEXTS_STALE_DAYS = 30;
+
+async function collectPlaceTexts(env: Env, keywords: string[], topN = PLACE_TEXTS_TOP_N): Promise<string[]> {
+  const db = env.DB;
+  if (!db) return ['DB 미설정'];
+  const report: string[] = [];
+
+  for (const keyword of keywords) {
+    // 가장 최근 수집분의 popular(관련도) 순위 상위 N곳. 정렬 축을 안 고르면 저장순·요즘뜨는
+    // 행까지 섞여 같은 업체가 세 번 나온다(§9.10 sort_mode 회귀와 같은 함정).
+    const { results } = await db.prepare(`
+      SELECT rs.place_id, rs.rank, MAX(rs.collected_at) AS last_seen
+      FROM rank_snapshots rs
+      WHERE rs.keyword = ? AND ${RELEVANCE_ROWS} AND rs.rank IS NOT NULL
+        AND rs.collected_at >= datetime('now', '-7 days')
+      GROUP BY rs.place_id
+      ORDER BY rs.rank
+      LIMIT ?
+    `).bind(keyword, topN).all();
+
+    const targets = results as any[];
+    if (targets.length === 0) { report.push(`${keyword}: 최근 7일 순위 데이터 없음 — 목록수집을 먼저 돌릴 것`); continue; }
+
+    const fresh = new Set((((await db.prepare(
+      `SELECT place_id FROM place_texts WHERE updated_at >= datetime('now', ?)`
+    ).bind(`-${PLACE_TEXTS_STALE_DAYS} days`).all()).results) as any[]).map(r => r.place_id));
+
+    let done = 0, skipped = 0, failed = 0;
+    for (const t of targets) {
+      if (fresh.has(t.place_id)) { skipped++; continue; }
+      try {
+        await sleep(PCMAP_THROTTLE_MS);
+        await savePlaceTexts(db, await scrapeFullPlaceMetrics(t.place_id));
+        done++;
+      } catch (err: any) {
+        console.error(`텍스트 수집 실패(${keyword} / ${t.place_id}):`, err);
+        failed++;
+      }
+    }
+    report.push(`${keyword}: 신규 ${done} / 최신이라 건너뜀 ${skipped}${failed ? ` / ❌ 실패 ${failed}` : ''}`);
+  }
+
+  const failedLines = report.filter(l => l.includes('❌'));
+  if (failedLines.length > 0) await notify(env, ['⚠️ [텍스트수집 일부 실패]', ...failedLines].join(String.fromCharCode(10)));
+  return report;
+}
+
 async function runDailyKeywordCollection(env: Env) {
   const db = env.DB;
   if (!db) return;
@@ -1557,6 +2375,7 @@ async function runDailyKeywordCollection(env: Env) {
 //   12:00 UTC(21:00 KST) — 고정 키워드 뒤 4개
 const CRON_TIMES = {
   HEALTHCHECK_AND_FIXED_A: '0 4 * * *',
+  PLACE_LISTS: '0 6 * * *', // 15:00 KST — pcmap 목록 수집(§9.10). 단독 슬롯이어야 한다.
   USER_DRIVEN: '0 8 * * *',
   FIXED_B: '0 12 * * *',
 };
@@ -1567,10 +2386,24 @@ export default {
     if (event.cron === CRON_TIMES.HEALTHCHECK_AND_FIXED_A) {
       ctx.waitUntil(runHealthcheck(env));
       ctx.waitUntil(runFixedKeywordCollection(env, FIXED_RESEARCH_KEYWORDS.slice(0, 4)));
+    } else if (event.cron === CRON_TIMES.PLACE_LISTS) {
+      // 다른 작업과 같은 슬롯에 넣지 않는다 — 스로틀 대기가 길고 subrequest도 따로 쓴다.
+      ctx.waitUntil((async () => {
+        await collectPlaceLists(env, [...FIXED_RESEARCH_KEYWORDS.map(f => f.keyword), ...LIST_ONLY_KEYWORDS]);
+        await collectWatchlist(env);
+      })());
     } else if (event.cron === CRON_TIMES.FIXED_B) {
       ctx.waitUntil(runFixedKeywordCollection(env, FIXED_RESEARCH_KEYWORDS.slice(4)));
+      // 순위 하락은 3일에 걸쳐 쿠션을 주며 진행된다(§9.11.4). 하루 1점으로는 그 램프가
+      // 3점으로 뭉개진다. 크론 트리거가 4개 상한이라 전용 슬롯을 못 만들므로,
+      // 여유 있는 슬롯(15·17·21시)에 얹어 하루 3점을 만든다. 워치 1곳당 2 subrequest.
+      ctx.waitUntil(collectWatchlist(env));
     } else {
       ctx.waitUntil(runDailyKeywordCollection(env));
+      ctx.waitUntil(collectWatchlist(env));
+      // 텍스트 수집(§9.13). 정상 상태에서는 요청이 0이다 — 최근 30일 안에 받아둔 업체를
+      // 건너뛰므로, 순위권에 못 보던 업체가 들어왔을 때만 실제로 네이버를 부른다.
+      ctx.waitUntil(collectPlaceTexts(env, FIXED_RESEARCH_KEYWORDS.map(f => f.keyword)));
     }
   },
 };
