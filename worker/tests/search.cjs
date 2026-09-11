@@ -96,7 +96,7 @@ test('deep rank and source/range saved and restored; only successful analyses co
   const app = load('src/index.ts', async (url, init) => {
     if (url.includes('pcmap-api')) {
       const start = JSON.parse(init.body)[0].variables.input.start;
-      return graphql(Array.from({length:50},(_,i)=>({id:start+i===137?id:String(8000000+start+i),name:'업체'+(start+i)})),500);
+      return graphql(Array.from({length:50},(_,i)=>({id:start+i===137?id:String(8000000+start+i),name:'업체'+(start+i),saveCount:start <= 1 && i < 6 ? '100+' : null})),500);
     }
     const match = url.match(/place\/(\d+)\/home/);
     assert.ok(match, 'only known detail URLs requested');
@@ -107,6 +107,7 @@ test('deep rank and source/range saved and restored; only successful analyses co
   const response = await app.fetch(req(),env,ctx);
   const data = await response.json(); assert.equal(response.status,200);
   assert.equal(data.myRank,137); assert.equal(data.rankSearched,350); assert.equal(data.comparisonCount,6);
+  assert.equal(data.stats.saveCount.avg,100); assert.equal(data.stats.saveCount.count,6);
   assert.equal(data.rankObservation.source,'naver-map');
   assert.equal(db.histories.get(data.shareId).myRank,137);
   const restored = await app.fetch(new Request(`https://local/api/history?shareId=${data.shareId}`),env,ctx);

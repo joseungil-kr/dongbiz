@@ -355,7 +355,7 @@ app.get('/api/gap', async (c) => {
       // Map list observation is separate from the legacy search widget.
       const category = /미용실|헤어|살롱/.test(keyword! + myStore.category) ? 'hairshop'
         : /맛집|밥집|식당|고기|횟집|카페|음식|한식|중식|일식|양식|백숙|삼계탕/.test(keyword! + myStore.category) ? 'restaurant' : 'place';
-      const listKey = `${CACHE_VERSION}:map-list:v1:${category}:${keyword}`;
+      const listKey = `${CACHE_VERSION}:map-list:v2:${category}:${keyword}`;
       let listing = await c.env.CACHE?.get<SearchListing>(listKey, 'json');
       try {
         if (!listing) {
@@ -391,6 +391,16 @@ app.get('/api/gap', async (c) => {
       competitors = await Promise.all(
         top10Ids.map(id => cachedPlace(c.env, id))
       );
+
+      // 저장수는 개별 상세보다 기본 지도 목록 행에서 더 안정적으로 공개된다. 다른 정렬축을
+      // 조회하지 않고 현재 순위 목록의 동일 업체 값만 붙여 순위 체계를 섞지 않는다.
+      const listItems = new Map((rankObservation.items || []).map((item: any) => [item.placeId, item]));
+      const myListItem: any = listItems.get(placeId);
+      if (myListItem?.saveCount != null) myStore.seoMetrics.saveCount = myListItem.saveCount;
+      for (const comp of competitors) {
+        const item: any = listItems.get(comp.placeId);
+        if (item?.saveCount != null) comp.seoMetrics.saveCount = item.saveCount;
+      }
 
       // TOP_N위 업체 = 1페이지 진입선. 본인이 TOP_N위면 그다음 순위를 진입선으로 사용.
       const boundaryId = ranking[TOP_N - 1] && ranking[TOP_N - 1] !== placeId ? ranking[TOP_N - 1] : ranking[TOP_N];

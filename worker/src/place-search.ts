@@ -6,6 +6,7 @@ export interface PlaceCandidate {
   category: string | null;
   roadAddress: string | null;
   phone: string | null;
+  saveCount: number | null;
 }
 export interface SearchListing {
   items: PlaceCandidate[];
@@ -75,7 +76,7 @@ export function parseOrderedList(html: string, expectedStart?: number) {
     seen.add(placeId);
     items.push({ placeId, name: clean(row.normalizedName || row.name), category: clean(row.category) || null,
       roadAddress: clean(row.fullAddress || row.roadAddress || row.address) || null,
-      phone: clean(row.phone || row.virtualPhone) || null });
+      phone: clean(row.phone || row.virtualPhone) || null, saveCount: toSaveCount(row.saveCount) });
   }
   return { items, total: typeof selected.total === 'number' ? selected.total : null,
     start: Number(selectedInput.start), display: Number(selectedInput.display), sort: selected.siteSort || null };
@@ -96,7 +97,7 @@ export async function searchPlaceCandidates(query: string): Promise<PlaceCandida
 // start=1; later pages use this GraphQL operation. Request only list fields.
 const LIST_QUERY = `query getRestaurantsPcmap($input: PlaceListInput) {
   restaurants: placeList(input: $input) {
-    businesses { total siteSort items { __typename id name normalizedName fullAddress category phone virtualPhone } }
+    businesses { total siteSort items { __typename id name normalizedName fullAddress category phone virtualPhone saveCount } }
   }
 }`;
 export async function fetchOrderedPage(keyword: string, start: number) {
@@ -118,9 +119,16 @@ export async function fetchOrderedPage(keyword: string, start: number) {
     if (seen.has(placeId)) throw collectionFailure('PARSE_CHANGED', 'list-api-duplicate');
     seen.add(placeId);
     items.push({ placeId, name: clean(row.normalizedName || row.name), category: clean(row.category) || null,
-      roadAddress: clean(row.fullAddress) || null, phone: clean(row.phone || row.virtualPhone) || null });
+      roadAddress: clean(row.fullAddress) || null, phone: clean(row.phone || row.virtualPhone) || null,
+      saveCount: toSaveCount(row.saveCount) });
   }
   return { items, display: 50, sort: list.siteSort || null, total: typeof list.total === 'number' ? list.total : null };
+}
+
+function toSaveCount(value: unknown): number | null {
+  if (value == null) return null;
+  const digits = String(value).replace(/[^\d]/g, '');
+  return digits ? Number(digits) : null;
 }
 
 /** Bounded sequential pages, no guessed rank from object insertion order. */
