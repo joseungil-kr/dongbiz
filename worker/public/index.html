@@ -38,10 +38,7 @@
     :root { color-scheme: only light; }
     /* 2단계 입력 카드: 1단계 결과와 같은 흰 카드라 페이지의 일부처럼 묻혀서 놓치는 문제 →
        파란 테두리 + 옅은 배경으로 분리하고, 나타날 때 3번만 맥박쳐서 시선을 끈다. */
-            .step1-highlight {
-      background: linear-gradient(180deg, rgba(3, 199, 90, 0.05) 0%, #FFFFFF 55%);
-      border: 2px solid #03C75A;
-    }
+    .step1-highlight,
     .step-highlight {
       background: linear-gradient(180deg, #EFF6FF 0%, #FFFFFF 55%);
       border: 2px solid #2563EB;
@@ -92,7 +89,7 @@
         <span class="w-[34px] h-[34px] rounded-[11px] bg-blue-600 flex items-center justify-center text-white font-black text-[17px] shadow-lg shadow-blue-600/25">동</span>
         <span class="text-[19px] font-extrabold tracking-[-0.04em] text-slate-900">동네장사</span>
       </a>
-      <nav class="flex min-w-0 flex-1 items-center gap-0 sm:gap-[2px] ml-auto overflow-x-auto" aria-label="주요 메뉴">
+      <nav class="flex min-w-0 sm:flex-none items-center gap-0 sm:gap-[2px] ml-auto overflow-x-auto sm:overflow-visible" aria-label="주요 메뉴">
         <a href="/" class="whitespace-nowrap text-xs sm:text-sm font-bold px-2 sm:px-[14px] py-2 rounded-full bg-slate-900 text-white">플레이스분석</a>
         <a href="/keyword-volume" class="whitespace-nowrap text-xs sm:text-sm font-bold px-2 sm:px-[14px] py-2 rounded-full text-slate-500 hover:bg-slate-900/5 hover:text-slate-900 transition">키워드 검색량</a>
         <a href="/ads" class="whitespace-nowrap text-xs sm:text-sm font-bold px-2 sm:px-[14px] py-2 rounded-full text-slate-500 hover:bg-slate-900/5 hover:text-slate-900 transition">광고컨설팅</a>
@@ -118,7 +115,7 @@
     </p>
 
     <!-- [1단계] 토스형 입력 폼 -->
-    <div class="w-full max-w-2xl step1-highlight p-6 md:p-8 rounded-3xl shadow-xl shadow-green-100/40 mb-8">
+    <div id="step1Card" class="w-full max-w-2xl step1-highlight p-6 md:p-8 rounded-3xl shadow-xl shadow-blue-200/50 mb-8">
       <div class="flex flex-col sm:flex-row gap-3">
         <div class="flex-1 relative text-left">
           <label for="storeInput" class="block text-xs font-bold text-slate-500 mb-1.5 ml-1">전화번호 / 지도 공유 주소 / 플레이스 번호 · 상호로도 검색 가능</label>
@@ -657,6 +654,14 @@
       }
     }
 
+    function focusStep1ForSelection() {
+      const step1Card = document.getElementById('step1Card');
+      const storeInput = document.getElementById('storeInput');
+      const behavior = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth';
+      step1Card?.scrollIntoView({ behavior, block: 'center' });
+      storeInput?.focus({ preventScroll: true });
+    }
+
     // [1단계] 내 매장 진단
     async function runDiagnose(selectedId) {
       if (searchBusy) return;
@@ -689,7 +694,10 @@
             address.className = 'block text-sm text-slate-600 mt-1';
             address.textContent = [candidate.category, candidate.roadAddress || '주소 정보 없음', candidate.phone].filter(Boolean).join(' · ');
             option.append(name, address);
-            option.onclick = () => runDiagnose(candidate.placeId);
+            option.onclick = () => {
+              focusStep1ForSelection();
+              runDiagnose(candidate.placeId);
+            };
             list.append(option);
           }
           if (!list.children.length) list.textContent = '검색 목록에서 매장을 찾지 못했습니다.';

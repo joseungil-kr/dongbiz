@@ -158,10 +158,17 @@ test('keyword volume page has its menu and a parsable client interaction script'
   const app = load('src/index.ts', async () => { throw new Error('no network'); }).default;
   const response = await app.fetch(new Request('https://local/keyword-volume'), {}, { waitUntil() {} });
   const html = await response.text();
-  assert.equal(response.status, 200); assert.match(html, /키워드 검색량/); assert.match(html, /관련 키워드 더 보기/);
+  assert.equal(response.status, 200); assert.match(html, /<title>네이버 키워드 검색량 조회 \| 동네장사<\/title>/); assert.match(html, /네이버 키워드 검색량 조회 도구/); assert.match(html, /관련 키워드 더 보기/);
   const script = html.match(/<script>\(\(\) => \{.*?<\/script>/s);
   assert.ok(script, 'keyword volume client script exists');
   new Function(script[0].slice('<script>'.length, -'</script>'.length));
+});
+
+test('place selection returns focus to the Step 1 search card', () => {
+  const html = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'public', 'index.html'), 'utf8');
+  assert.match(html, /id="step1Card"/);
+  assert.match(html, /function focusStep1ForSelection\(\)/);
+  assert.match(html, /focusStep1ForSelection\(\);\s*runDiagnose\(candidate\.placeId\)/);
 });
 
 module.exports={candidateHtml,graphql,fakeDB};
