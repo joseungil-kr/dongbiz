@@ -158,7 +158,7 @@ test('keyword volume page has its menu and a parsable client interaction script'
   const app = load('src/index.ts', async () => { throw new Error('no network'); }).default;
   const response = await app.fetch(new Request('https://local/keyword-volume'), {}, { waitUntil() {} });
   const html = await response.text();
-  assert.equal(response.status, 200); assert.match(html, /<title>네이버 키워드 검색량 조회 \| 동네장사<\/title>/); assert.match(html, /네이버 키워드 검색량 조회 도구/); assert.match(html, /관련 키워드 더 보기/);
+  assert.equal(response.status, 200); assert.match(html, /<title>네이버 키워드 검색량 조회 \| 동네장사<\/title>/); assert.match(html, /네이버 키워드 검색량 조회 도구/); assert.match(html, />네이버 키워드 검색량<\/p>/); assert.match(html, /월간 검색량과 연관검색어 키워드를 확인하세요/); assert.match(html, /background:#03C75A/); assert.match(html, /관련 키워드 더 보기/);
   const script = html.match(/<script>\(\(\) => \{.*?<\/script>/s);
   assert.ok(script, 'keyword volume client script exists');
   new Function(script[0].slice('<script>'.length, -'</script>'.length));
