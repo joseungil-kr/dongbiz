@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 마케팅 랜딩 페이지 (§6.10) — /ads(광고컨설팅), /blog(블로그배포)
  *
  * 카피 문법은 §6.5.2에서 뽑은 경쟁사 문법을 그대로 쓴다:
@@ -60,7 +60,7 @@ export function siteNav(active: 'place' | 'ads' | 'blog', dark = false): string 
   // 로고는 페이지 테마와 무관하게 항상 파란 [동] 배지다 — 테마는 페이지 강조색이고
   // 로고는 브랜드 식별이라, 페이지마다 로고 색이 바뀌면 같은 사이트로 안 읽힌다.
   return `<div class="site-head ${dark ? 'on-dark' : ''}"><div class="site-head-in">
-    <a class="brand" href="/"><span class="logo">동</span>동네비즈</a>
+    <a class="brand" href="/"><span class="logo">동</span>동네장사</a>
     <nav class="site-nav">
       ${item('place', '/', '플레이스분석')}
       ${item('ads', '/ads', '광고컨설팅')}
@@ -362,7 +362,7 @@ function siteFooter(): string {
     <div class="cols">
       <div>
         <div style="display:flex;align-items:center;gap:9px;color:#fff;font-weight:800;font-size:18px;margin-bottom:14px">
-          <span style="width:32px;height:32px;border-radius:10px;background:#2563EB;display:inline-flex;align-items:center;justify-content:center;font-weight:900">동</span>동네비즈
+          <span style="width:32px;height:32px;border-radius:10px;background:#2563EB;display:inline-flex;align-items:center;justify-content:center;font-weight:900">동</span>동네장사
         </div>
         네이버 플레이스 순위를 실측으로 진단하고, 부족한 항목만 골라 채웁니다.<br>
         1위를 보장하지 않습니다. 대신 기준과 변화를 그대로 공유합니다.
@@ -578,7 +578,7 @@ export function renderBlogPage(): string {
 </div></div></section>`;
 
   return shell({
-    title: '블로그배포 | 동네비즈',
+    title: '블로그배포 | 동네장사',
     description: `상호 검색용 방문 후기형 글과 매장검색용 롱테일키워드 글을 나눠 발행합니다. 건당 ${won(PRICING.placeReview)}부터, 게시 URL 전달.`,
     canonical: 'https://dongbiz.com/blog',
     active: 'blog',
@@ -742,7 +742,7 @@ export function renderAdsPage(): string {
 </div></section>`;
 
   return shell({
-    title: '광고컨설팅 | 동네비즈',
+    title: '광고컨설팅 | 동네장사',
     description: '순위·리뷰·저장·검색량을 먼저 실측하고 가장 싸게 오르는 항목부터 정리합니다. 1위를 보장하지 않고, 진행 전후 변화를 그대로 공유합니다.',
     canonical: 'https://dongbiz.com/ads',
     active: 'ads',

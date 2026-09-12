@@ -1,4 +1,4 @@
--- Cloudflare D1 Database Schema for DongBiz
+-- Cloudflare D1 Database Schema for DongJangsa
 -- 적용: npx wrangler d1 execute dongbiz-db --file=./schema.sql
 
 -- 1. 유저 테이블 (SaaS 구독 관리)

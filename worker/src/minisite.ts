@@ -194,7 +194,7 @@ ${o.jsonLd ? `<script type="application/ld+json">${o.jsonLd}</script>` : ''}
 ${o.body}
 <footer>
   네이버 플레이스 공개 정보를 바탕으로 자동 구성한 페이지입니다. 네이버 공식 자료가 아닙니다.<br>
-  정보 수정·삭제 요청 : interpiad@gmail.com · 동네비즈
+  정보 수정·삭제 요청 : interpiad@gmail.com · 동네장사
 </footer>
 </div></body></html>`;
 }
@@ -264,5 +264,5 @@ ${others.length ? `<h2>다른 정보</h2>
 <div class="pages">${others.map(t => `<a href="${base}/${t.slug}">${esc(t.title)}</a>`).join('')}</div>` : ''}
 <p style="margin-top:22px"><a href="${base}">← ${esc(store.name)} 전체 정보</a></p>`;
 
-  return shell({ title: `${topic.title} | 동네비즈`, desc: `${store.name} ${topic.title}`, store, body });
+  return shell({ title: `${topic.title} | 동네장사`, desc: `${store.name} ${topic.title}`, store, body });
 }

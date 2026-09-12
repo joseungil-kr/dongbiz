@@ -1,4 +1,4 @@
-﻿import { Hono } from 'hono';
+import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { cachedPlace } from './place-cache';
 import { CollectionError } from './collection';
@@ -689,7 +689,7 @@ function buildReportMail(data: any, shareId: string, origin: string): { subject:
     '* 주의 : 강의/컨설팅 중에는 전화를 받을 수 없습니다. 메시지 남겨주시면 순서대로 회신 드리고 있습니다.',
   ].join('\n');
 
-  return { subject: `[동네비즈] ${name} 맞춤 개선 리포트`, body };
+  return { subject: `[동네장사] ${name} 맞춤 개선 리포트`, body };
 }
 
 /**
@@ -825,7 +825,7 @@ app.get('/share/:shareId', async (c) => {
   const db = c.env.DB;
   const appUrl = `/?shareId=${encodeURIComponent(shareId)}`;
 
-  let title = '동네비즈 - 네이버 플레이스 상위노출 Gap 진단';
+  let title = '동네장사 - 네이버 플레이스 상위노출 Gap 진단';
   let description = '전화번호 하나로 우리 매장의 상위노출 현주소를 진단합니다.';
   let image = '';
 
@@ -985,7 +985,7 @@ app.get('/rank', async (c) => {
   ).join('');
   return c.html(`<!DOCTYPE html><html lang="ko"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>네이버 플레이스 키워드별 순위 현황 | 동네비즈</title>
+<title>네이버 플레이스 키워드별 순위 현황 | 동네장사</title>
 <meta name="description" content="네이버 플레이스 키워드별 상위 노출 업체 순위와 리뷰·사진 등 지표 현황을 실측 데이터로 정리했습니다.">
 <link rel="canonical" href="https://dongbiz.com/rank">
 <style>${RANK_PAGE_STYLE}</style></head><body>${siteNav('place')}<div class="wrap">
@@ -1203,7 +1203,7 @@ function renderRankPageHtml(keyword: string, rows: any[], repKeyword: string, si
   }
   faqs.push({
     q: `내 매장의 ${keyword} 순위는 어떻게 확인하나요?`,
-    a: `동네비즈에서 상호나 전화번호와 이 키워드를 넣으면 상위 ${top.length}곳을 실시간으로 수집해 내 매장의 위치와 지표 격차를 함께 보여줍니다. 무료이며 로그인이 필요 없습니다.`,
+    a: `동네장사에서 상호나 전화번호와 이 키워드를 넣으면 상위 ${top.length}곳을 실시간으로 수집해 내 매장의 위치와 지표 격차를 함께 보여줍니다. 무료이며 로그인이 필요 없습니다.`,
   });
 
   const title = `${keyword} 플레이스 순위 분석 · 상위 ${top.length}곳 지표 비교`;
@@ -1212,7 +1212,7 @@ function renderRankPageHtml(keyword: string, rows: any[], repKeyword: string, si
 
   return `<!DOCTYPE html><html lang="ko"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${escapeHtml(title)} | 동네비즈</title>
+<title>${escapeHtml(title)} | 동네장사</title>
 <meta name="description" content="${escapeHtml(desc)}">
 <link rel="canonical" href="${escapeHtml(canonical)}">
 <meta property="og:title" content="${escapeHtml(title)}">
@@ -1223,7 +1223,7 @@ function renderRankPageHtml(keyword: string, rows: any[], repKeyword: string, si
 <script type="application/ld+json">${jsonLd}</script>
 <script type="application/ld+json">${faqLd(faqs)}</script>
 <style>${RANK_PAGE_STYLE}</style></head><body><div class="wrap">
-<header><a href="/">동네비즈</a> · <a href="/rank">키워드 전체 목록</a> · <a href="/guide">상위노출 가이드</a></header>
+<header><a href="/">동네장사</a> · <a href="/rank">키워드 전체 목록</a> · <a href="/guide">상위노출 가이드</a></header>
 <h1>${escapeHtml(title)}</h1>
 <p class="meta">기준일 ${escapeHtml(fmtKST(latest))} · 관측 ${batches.length}회 누적 · 네이버 통합검색 플레이스 영역 기준</p>
 <p class="answer" id="aeo-direct-answer">'${escapeHtml(keyword)}' 검색 시 1페이지에 노출되는 업체는 ${top.length}곳이며, 마지막 자리 업체의 방문자 리뷰는 ${boundary.toLocaleString()}건입니다. 상위권 리뷰 중앙값은 ${mid.toLocaleString()}건, 사진 중앙값은 ${midPhoto.toLocaleString()}장입니다. 진입에 필요한 수준으로 보면 <b>${tier.label}</b>에 해당합니다.</p>
@@ -1257,7 +1257,7 @@ ${weeklyBlock}
 ${faqs.map(f => `<details><summary>${escapeHtml(f.q)}</summary><p>${escapeHtml(f.a)}</p></details>`).join('')}
 <h2>이 페이지 숫자의 출처</h2>
 <ul class="sources">
-  <li>동네비즈가 '${escapeHtml(keyword)}'를 직접 조회해 수집한 관측 기록입니다. 누적 ${batches.length}회 관측, 최근 기준일 ${escapeHtml(fmtKST(latest).slice(0, 10))}.</li>
+  <li>동네장사가 '${escapeHtml(keyword)}'를 직접 조회해 수집한 관측 기록입니다. 누적 ${batches.length}회 관측, 최근 기준일 ${escapeHtml(fmtKST(latest).slice(0, 10))}.</li>
   <li>네이버 통합검색 플레이스 영역에서 광고를 제외한 순서를 기준으로, 1페이지 상위 ${top.length}곳의 공개 지표를 집계했습니다.</li>
   <li>진입선은 1페이지 마지막 자리 업체의 방문자 리뷰 수를 뜻합니다. 방문자 리뷰는 영수증·예약 리뷰를 합산한 값이라 앱 화면의 후기 글 개수와 다를 수 있습니다.</li>
   ${batches.length < 4 ? '<li>관측 회차가 아직 적어 순위 변동 경향은 결론을 낼 수 있는 단계가 아닙니다. 관측이 쌓이면 이 페이지도 함께 갱신됩니다.</li>' : ''}
@@ -1288,7 +1288,7 @@ app.get('/rank/:keyword', async (c) => {
   const hasRanked = rows.some(r => r.rank);
   if (batches.size < 2 || !hasRanked) {
     return c.html(`<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8">
-<meta name="robots" content="noindex"><title>준비 중 | 동네비즈</title><style>${RANK_PAGE_STYLE}</style></head>
+<meta name="robots" content="noindex"><title>준비 중 | 동네장사</title><style>${RANK_PAGE_STYLE}</style></head>
 <body>${siteNav('place')}<div class="wrap">
 <h1>아직 공개 기준을 채우지 못한 키워드입니다</h1>
 <p class="meta">관측이 2회 이상 누적되면 공개됩니다.</p>
@@ -1336,7 +1336,7 @@ app.get('/guide', (c) => {
   ).join('');
   return c.html(`<!DOCTYPE html><html lang="ko"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>네이버 플레이스 상위노출 가이드 | 동네비즈</title>
+<title>네이버 플레이스 상위노출 가이드 | 동네장사</title>
 <meta name="description" content="네이버 플레이스 순위 조회, 순위 하락 원인, 대표키워드 설정, 상위노출 방법을 실측 데이터를 근거로 정리한 가이드입니다.">
 <link rel="canonical" href="https://dongbiz.com/guide">
 <style>${GUIDE_STYLE}</style></head><body>${siteNav('place')}<div class="wrap">
@@ -1368,7 +1368,7 @@ app.get('/guide/:slug', (c) => {
 
   const org = {
     '@type': 'Organization',
-    name: '동네비즈',
+    name: '동네장사',
     url: 'https://dongbiz.com/',
     logo: 'https://dongbiz.com/og-image.png',
   };
@@ -1406,7 +1406,7 @@ app.get('/guide/:slug', (c) => {
 
   return c.html(`<!DOCTYPE html><html lang="ko"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${escapeHtml(g.title)} | 동네비즈</title>
+<title>${escapeHtml(g.title)} | 동네장사</title>
 <meta name="description" content="${escapeHtml(g.desc)}">
 <link rel="canonical" href="${escapeHtml(canonical)}">
 <meta property="og:type" content="article">
@@ -1608,7 +1608,7 @@ app.get("/api/test-graphql2", async (c) => {
 
   const bypassUrl = c.env.RATE_LIMIT_BYPASS_TOKEN ? `/?bypass=${c.env.RATE_LIMIT_BYPASS_TOKEN}` : null;
 
-  return c.html(`<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><title>동네비즈 관리자 - 진단 리스트</title><style>${ADMIN_STYLE}</style></head>
+  return c.html(`<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><title>동네장사 관리자 - 진단 리스트</title><style>${ADMIN_STYLE}</style></head>
 <body>
   ${ADMIN_NAV}
   ${bypassUrl ? `<div style="background:#0F172A;color:#fff;padding:10px 14px;border-radius:10px;margin-bottom:16px;font-size:13px;display:flex;justify-content:space-between;align-items:center;gap:12px;">
@@ -1647,7 +1647,7 @@ app.get('/admin/analytics', async (c) => {
       <td><a href="/admin/analytics/${encodeURIComponent(r.keyword)}">순위 추이 보기</a> <button onclick="if(confirm('이 키워드의 모든 관측 데이터를 삭제하시겠습니까?')) fetch('/admin/analytics/${encodeURIComponent(r.keyword)}', {method:'DELETE'}).then(()=>location.reload())" style="margin-left:8px;color:#EF4444;background:none;border:1px solid #EF4444;border-radius:4px;padding:2px 6px;cursor:pointer;font-size:11px;">삭제</button></td>
     </tr>`).join('');
 
-  return c.html(`<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><title>동네비즈 관리자 - 지표 분석</title><style>${ADMIN_STYLE}</style></head>
+  return c.html(`<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><title>동네장사 관리자 - 지표 분석</title><style>${ADMIN_STYLE}</style></head>
 <body>
   ${ADMIN_NAV}
   <h1>상위노출 지표 분석 — 키워드별 관측 현황</h1>
@@ -1743,7 +1743,7 @@ app.get('/admin/text-match', async (c) => {
         : `<a href="/admin/cron/run/place-texts?keyword=${encodeURIComponent(r.keyword)}">텍스트 수집하기</a>`}</td>
     </tr>`).join('');
 
-  return c.html(`<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><title>동네비즈 관리자 - 키워드 매칭</title><style>${ADMIN_STYLE}</style></head>
+  return c.html(`<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><title>동네장사 관리자 - 키워드 매칭</title><style>${ADMIN_STYLE}</style></head>
 <body>
   ${ADMIN_NAV}
   <h1>키워드 매칭 분석</h1>
@@ -1889,7 +1889,7 @@ app.get('/admin/analytics/market', async (c) => {
   const medical = (results as any[]).filter(r => r.category === 'medical');
   const thead = `<thead><tr><th>키워드</th><th>오가닉수</th><th>방문자리뷰(평균/중앙)</th><th>블로그리뷰(평균/중앙)</th><th>투표수(평균)</th><th>사진수(평균)</th><th>평점(평균)</th><th>예약연동율</th><th>신규오픈율</th><th>최근수집</th></tr></thead>`;
 
-  return c.html(`<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><title>동네비즈 관리자 - 리서치 시장 통계</title><style>${ADMIN_STYLE}</style></head>
+  return c.html(`<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><title>동네장사 관리자 - 리서치 시장 통계</title><style>${ADMIN_STYLE}</style></head>
 <body>
   ${ADMIN_NAV}
   <h1>리서치 고정 키워드 — 시장 통계</h1>

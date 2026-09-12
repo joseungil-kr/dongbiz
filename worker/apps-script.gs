@@ -1,5 +1,5 @@
 /**
- * 동네비즈 Apps Script 웹훅 (§6.7 / §8.2-A)
+ * 동네장사 Apps Script 웹훅 (§6.7 / §8.2-A)
  *
  * 하는 일 2가지 — Worker가 보내는 JSON의 type으로 갈린다.
  *   1. type === 'report_email'  → 사장님에게 리포트 메일 발송 (MailApp)
@@ -37,9 +37,9 @@ function authorize() {
   var me = Session.getEffectiveUser().getEmail();
   MailApp.sendEmail({
     to: me,
-    subject: '[동네비즈] Apps Script 권한 승인 완료',
+    subject: '[동네장사] Apps Script 권한 승인 완료',
     body: '이 메일이 도착했다면 메일 발송 권한이 정상입니다.\n남은 일일 발송 한도: ' + MailApp.getRemainingDailyQuota() + '통',
-    name: '동네비즈',
+    name: '동네장사',
   });
   Logger.log('발송 완료: ' + me + ' / 남은 한도 ' + MailApp.getRemainingDailyQuota());
 }
@@ -69,7 +69,7 @@ function sendReportEmail_(data) {
     to: data.to,
     subject: data.subject,
     body: data.body,
-    name: '동네비즈',
+    name: '동네장사',
     replyTo: 'interpiad@gmail.com',
   });
   // 남은 한도를 같이 돌려준다 — 바닥나기 전에 알아채려면 이 값이 필요하다.
