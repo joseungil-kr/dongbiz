@@ -87,14 +87,15 @@
        max-width·좌우패딩·상하패딩·로고크기·버튼 최소폭이 하나라도 다르면 페이지를 옮길 때마다
        상단이 미세하게 흔들린다. 값을 바꿀 땐 pages.ts의 .site-head-in도 같이 바꿀 것. -->
   <header class="sticky top-0 z-50 w-full bg-white/[.88] backdrop-blur-xl border-b border-slate-900/[.07]">
-    <div class="max-w-[1180px] mx-auto flex items-center gap-[26px]" style="padding:11px 28px">
-      <a href="/" class="flex items-center gap-[9px]">
+    <div class="max-w-[1180px] mx-auto flex items-center gap-2 sm:gap-[26px] px-4 sm:px-7" style="padding-top:11px;padding-bottom:11px">
+      <a href="/" class="flex shrink-0 items-center gap-[9px]">
         <span class="w-[34px] h-[34px] rounded-[11px] bg-blue-600 flex items-center justify-center text-white font-black text-[17px] shadow-lg shadow-blue-600/25">동</span>
         <span class="text-[19px] font-extrabold tracking-[-0.04em] text-slate-900">동네장사</span>
       </a>
-      <nav class="flex items-center gap-[2px] ml-auto">
-        <a href="/" class="text-sm font-bold px-[14px] py-2 rounded-full bg-slate-900 text-white">플레이스분석</a>
-        <a href="/ads" class="text-sm font-bold px-[14px] py-2 rounded-full text-slate-500 hover:bg-slate-900/5 hover:text-slate-900 transition">광고컨설팅</a>
+      <nav class="flex min-w-0 flex-1 items-center gap-0 sm:gap-[2px] ml-auto overflow-x-auto" aria-label="주요 메뉴">
+        <a href="/" class="whitespace-nowrap text-xs sm:text-sm font-bold px-2 sm:px-[14px] py-2 rounded-full bg-slate-900 text-white">플레이스분석</a>
+        <a href="/keyword-volume" class="whitespace-nowrap text-xs sm:text-sm font-bold px-2 sm:px-[14px] py-2 rounded-full text-slate-500 hover:bg-slate-900/5 hover:text-slate-900 transition">키워드 검색량</a>
+        <a href="/ads" class="whitespace-nowrap text-xs sm:text-sm font-bold px-2 sm:px-[14px] py-2 rounded-full text-slate-500 hover:bg-slate-900/5 hover:text-slate-900 transition">광고컨설팅</a>
         <!-- <a href="/blog" class="text-sm font-bold px-[14px] py-2 rounded-full text-slate-500 hover:bg-slate-900/5 hover:text-slate-900 transition">블로그배포</a> -->
       </nav>
       <!-- 서브페이지의 [상담 문의]와 같은 모양·같은 최소폭. 라벨 글자 수가 달라도 폭이 안 변한다. -->
@@ -503,7 +504,7 @@
 
   <!-- 푸터 -->
   <footer class="w-full border-t border-slate-200 py-6 text-center text-xs text-slate-500 space-y-1">
-    <p><a href="/guide" class="font-bold text-blue-600 hover:underline">플레이스 상위노출 가이드</a> · <a href="/rank" class="font-bold text-blue-600 hover:underline">키워드별 순위 현황</a></p>
+    <p><a href="/keyword-volume" class="font-bold text-blue-600 hover:underline">키워드 검색량</a> · <a href="/guide" class="font-bold text-blue-600 hover:underline">플레이스 상위노출 가이드</a> · <a href="/rank" class="font-bold text-blue-600 hover:underline">키워드별 순위 현황</a></p>
     <p>© 2026 동네장사 (dongbiz.com). 네이버와 무관한 독립 서비스입니다. | 초개인화 소상공인 마케팅 자동화 엔진</p>
     <p>상호 : 인터피아드 · 사업자등록번호 : 124-35-56796 · 문의 : interpiad@gmail.com</p>
   </footer>

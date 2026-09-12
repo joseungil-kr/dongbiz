@@ -7,9 +7,9 @@ import { basicAuth } from 'hono/basic-auth';
 import { scrapeFullPlaceMetrics, getOrganicRanking, getPlaceList, SortMode, PlaceListItem } from './scraper';
 import { notify, logDiagnosisToSheet, sendCustomerEmail, NotifyEnv } from './notify';
 import { GUIDES, GUIDE_BY_SLUG } from './guides';
-import { renderAdsPage, renderBlogPage, siteNav, SITE_NAV_CSS } from './pages';
+import { renderAdsPage, renderBlogPage, renderKeywordVolumePage, siteNav, SITE_NAV_CSS } from './pages';
 import { pickTopics, renderMiniHome, renderMiniTopic } from './minisite';
-import { getKeywordVolumes, describeVolume, autocomplete, brandVariants, brandCore, normalizeKeyword, SearchAdEnv } from './searchad';
+import { getKeywordVolumes, lookupKeywordVolume, describeVolume, autocomplete, brandVariants, brandCore, normalizeKeyword, SearchAdEnv } from './searchad';
 
 export interface Env extends NotifyEnv, SearchAdEnv {
   DB: D1Database;
@@ -89,6 +89,19 @@ async function checkDailyGapLimit(env: Env, ip: string, consume = false): Promis
   const count = Number(await env.CACHE.get(key)) || 0;
   if (count >= DAILY_GAP_LIMIT) return false;
   if (consume) await env.CACHE.put(key, String(count + 1), { expirationTtl: 60 * 60 * 25 });
+  return true;
+}
+
+// 전용 검색량 도구는 플레이스 진단 한도와 분리한다. 월간 지표라 API 응답은 24시간 캐시하고,
+// 캐시를 반복 호출하는 악용까지 막기 위해 IP별 시간당 요청 수만 제한한다.
+const KEYWORD_VOLUME_HOURLY_LIMIT = 30;
+async function checkKeywordVolumeLimit(env: Env, ip: string): Promise<boolean> {
+  if (!env.CACHE) return true;
+  const hour = toKST().toISOString().slice(0, 13);
+  const key = `keyword-volume-limit:${hour}:${ip}`;
+  const count = Number(await env.CACHE.get(key)) || 0;
+  if (count >= KEYWORD_VOLUME_HOURLY_LIMIT) return false;
+  await env.CACHE.put(key, String(count + 1), { expirationTtl: 60 * 60 + 60 });
   return true;
 }
 
@@ -591,6 +604,35 @@ app.get('/api/history', async (c) => {
   }
 });
 
+// 공개 검색량 도구: 키는 Worker에만 두고 결과만 반환한다. 플레이스 진단 한도와는 분리된다.
+app.get('/api/keyword-volume', async (c) => {
+  const query = (c.req.query('q') || '').trim().replace(/\s+/g, ' ');
+  if (!query) return c.json({ error: '검색어를 입력해 주세요.' }, 400);
+  if (query.length > 50) return c.json({ error: '검색어는 50자 이내로 입력해 주세요.' }, 400);
+
+  const clientIp = c.req.header('CF-Connecting-IP') || 'unknown';
+  if (!(await checkKeywordVolumeLimit(c.env, clientIp))) {
+    return c.json({ error: '검색량 조회 요청이 많습니다. 잠시 뒤 다시 시도해 주세요.' }, 429);
+  }
+
+  type CachedLookup = { lookup: NonNullable<Awaited<ReturnType<typeof lookupKeywordVolume>>>; cachedAt: string };
+  const cacheKey = `keyword-volume:v1:${normalizeKeyword(query)}`;
+  let cached = c.env.CACHE ? await c.env.CACHE.get(cacheKey, 'json') as CachedLookup | null : null;
+  if (!cached) {
+    try {
+      const lookup = await lookupKeywordVolume(c.env, query);
+      if (!lookup) return c.json({ error: `'${query}'의 월간 검색량을 찾지 못했습니다. 다른 검색어로 시도해 주세요.` }, 404);
+      cached = { lookup, cachedAt: new Date().toISOString() };
+      if (c.env.CACHE) await c.env.CACHE.put(cacheKey, JSON.stringify(cached), { expirationTtl: 60 * 60 * 24 });
+    } catch (err) {
+      console.error('키워드 검색량 조회 실패:', err);
+      return c.json({ error: '검색량 서비스가 일시적으로 응답하지 않습니다. 잠시 뒤 다시 시도해 주세요.' }, 503);
+    }
+  }
+
+  return c.json({ keyword: cached.lookup.keyword, volume: cached.lookup.volume, related: cached.lookup.related, cachedAt: cached.cachedAt, cacheTtlHours: 24 });
+});
+
 // 상담 문의 CTA 클릭 로그. 실제 연락은 카톡/문자로 사이트 밖에서 이뤄지므로(§9.9) 우리 쪽엔
 // 아무 기록도 안 남는데, 이 한 줄이 "관심 보인 사람이 있었다"는 유일한 신호다.
 // 응답은 항상 200 — 이 호출이 실패해도 사용자 흐름(전화 걸기)을 막으면 안 된다.
@@ -973,6 +1015,7 @@ app.get('/p/:placeId', c => miniSite(c));
 app.get('/p/:placeId/:topic', c => miniSite(c, c.req.param('topic')));
 
 // 마케팅 랜딩 (§6.10). 상단 3메뉴: 플레이스분석(/) · 광고컨설팅(/ads) · 블로그배포(/blog)
+app.get('/keyword-volume', (c) => c.html(renderKeywordVolumePage()));
 app.get('/ads', (c) => c.html(renderAdsPage()));
 app.get('/blog', (c) => c.html(renderBlogPage()));
 

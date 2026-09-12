@@ -130,5 +130,39 @@ test('failed collection and failed persistence do not spend daily allowance', as
   }
 });
 
+test('keyword volume keeps related ad keywords, caches them, and never consumes the gap limit', async () => {
+  let adCalls = 0;
+  const app = load('src/index.ts', async url => {
+    assert.ok(url.startsWith('https://api.searchad.naver.com/keywordstool?'));
+    adCalls++;
+    return new Response(JSON.stringify({ keywordList: [
+      { relKeyword: '안산 맛집', monthlyPcQcCnt: '< 10', monthlyMobileQcCnt: 120, compIdx: '중간' },
+      { relKeyword: '안산 맛집 추천', monthlyPcQcCnt: 80, monthlyMobileQcCnt: 240, compIdx: '높음' },
+      { relKeyword: '안산 데이트 맛집', monthlyPcQcCnt: 20, monthlyMobileQcCnt: 30, compIdx: '낮음' },
+      { relKeyword: '누락값', monthlyPcQcCnt: null, monthlyMobileQcCnt: 20, compIdx: '낮음' },
+    ] }));
+  }).default;
+  const cache = kv(), env = { CACHE: cache, NAVER_AD_CUSTOMER_ID: 'customer', NAVER_AD_ACCESS_LICENSE: 'license', NAVER_AD_SECRET_KEY: 'secret' };
+  const request = () => new Request('https://local/api/keyword-volume?q=' + encodeURIComponent('안산 맛집'), { headers: { 'CF-Connecting-IP': 'fixture' } });
+  const first = await app.fetch(request(), env, { waitUntil() {} });
+  assert.equal(first.status, 200);
+  const data = await first.json();
+  assert.equal(data.volume.pcUnderTen, true); assert.equal(data.volume.mobile, 120);
+  assert.equal(data.related.length, 2); assert.equal(data.related[0].keyword, '안산 맛집 추천');
+  assert.equal(adCalls, 1); assert.equal([...cache.values.keys()].some(k => k.startsWith('gaplimit:')), false);
+  const second = await app.fetch(request(), env, { waitUntil() {} });
+  assert.equal(second.status, 200); assert.equal(adCalls, 1);
+});
+
+test('keyword volume page has its menu and a parsable client interaction script', async () => {
+  const app = load('src/index.ts', async () => { throw new Error('no network'); }).default;
+  const response = await app.fetch(new Request('https://local/keyword-volume'), {}, { waitUntil() {} });
+  const html = await response.text();
+  assert.equal(response.status, 200); assert.match(html, /키워드 검색량/); assert.match(html, /관련 키워드 더 보기/);
+  const script = html.match(/<script>\(\(\) => \{.*?<\/script>/s);
+  assert.ok(script, 'keyword volume client script exists');
+  new Function(script[0].slice('<script>'.length, -'</script>'.length));
+});
+
 module.exports={candidateHtml,graphql,fakeDB};
 if(require.main===module)(async()=>{for(const [name,fn] of tests){await fn();console.log('PASS '+name);}console.log(`${tests.length} search checks passed.`);})().catch(err=>{console.error(err);process.exitCode=1;});

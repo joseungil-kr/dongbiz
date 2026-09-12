@@ -28,6 +28,13 @@ export interface KeywordVolume {
   competition: string | null;
 }
 
+/** 검색광고 API가 함께 돌려주는 연관 키워드까지 포함한 전용 도구 응답. */
+export interface KeywordVolumeLookup {
+  keyword: string;
+  volume: KeywordVolume;
+  related: KeywordVolume[];
+}
+
 const API_HOST = 'https://api.searchad.naver.com';
 const PATH = '/keywordstool';
 const CACHE_TTL = 86400; // 월간 검색량이라 하루 캐시로 충분
@@ -43,12 +50,30 @@ const normalize = normalizeKeyword;
  * 검색광고 API는 10회 미만을 숫자가 아니라 "< 10" 문자열로 준다.
  * 0으로 깎으면 "수요 없음"으로 오독되므로 상한값 10을 쓰고 isUnderTen 플래그로 구분한다.
  */
-function parseCount(raw: unknown): { value: number; underTen: boolean } {
-  if (typeof raw === 'number') return { value: raw, underTen: false };
+function parseCount(raw: unknown): { value: number; underTen: boolean; valid: boolean } {
+  if (typeof raw === 'number' && Number.isFinite(raw)) return { value: raw, underTen: false, valid: true };
   const s = String(raw ?? '').trim();
-  if (s.startsWith('<')) return { value: 10, underTen: true };
+  if (s.startsWith('<')) return { value: 10, underTen: true, valid: true };
+  if (!s) return { value: 0, underTen: false, valid: false };
   const n = Number(s.replace(/,/g, ''));
-  return { value: Number.isFinite(n) ? n : 0, underTen: false };
+  return { value: Number.isFinite(n) ? n : 0, underTen: false, valid: Number.isFinite(n) };
+}
+
+function toKeywordVolume(row: any): KeywordVolume | null {
+  const keyword = String(row?.relKeyword ?? '').trim();
+  const pc = parseCount(row?.monthlyPcQcCnt);
+  const mobile = parseCount(row?.monthlyMobileQcCnt);
+  if (!keyword || !pc.valid || !mobile.valid) return null;
+  return {
+    keyword,
+    pc: pc.value,
+    mobile: mobile.value,
+    total: pc.value + mobile.value,
+    isUnderTen: pc.underTen || mobile.underTen,
+    pcUnderTen: pc.underTen,
+    mobileUnderTen: mobile.underTen,
+    competition: row.compIdx ?? null,
+  };
 }
 
 async function sign(secret: string, ts: string, method: string, path: string): Promise<string> {
@@ -63,53 +88,59 @@ async function sign(secret: string, ts: string, method: string, path: string): P
   return btoa(String.fromCharCode(...new Uint8Array(mac)));
 }
 
-/** 힌트 5개 이하를 한 번에 조회. 응답에는 연관어가 수백 개 섞여 오므로 요청한 것만 골라낸다. */
-async function fetchBatch(
+/** 검색광고 API의 원본 응답을 검색량 형식으로 바꾼다. 인증·응답 오류는 호출부가 구분할 수 있게 던진다. */
+async function fetchSearchAdRows(
   env: SearchAdEnv,
   keywords: string[],
-): Promise<Map<string, KeywordVolume>> {
-  const out = new Map<string, KeywordVolume>();
+): Promise<KeywordVolume[]> {
   const { NAVER_AD_CUSTOMER_ID: customer, NAVER_AD_ACCESS_LICENSE: license, NAVER_AD_SECRET_KEY: secret } = env;
-  if (!customer || !license || !secret) return out;
+  if (!customer || !license || !secret) throw new Error('SEARCH_AD_UNAVAILABLE');
+  const ts = String(Date.now());
+  const signature = await sign(secret, ts, 'GET', PATH);
+  const hints = keywords.map(normalize).join(',');
+  const res = await fetch(`${API_HOST}${PATH}?hintKeywords=${encodeURIComponent(hints)}&showDetail=1`, {
+    headers: {
+      'X-Timestamp': ts,
+      'X-API-KEY': license,
+      'X-Customer': customer,
+      'X-Signature': signature,
+    },
+  });
+  if (!res.ok) throw new Error(`SEARCH_AD_HTTP_${res.status}`);
+  const body = (await res.json()) as { keywordList?: any[] };
+  if (!Array.isArray(body.keywordList)) throw new Error('SEARCH_AD_INVALID_RESPONSE');
+  return body.keywordList.map(toKeywordVolume).filter((row): row is KeywordVolume => !!row);
+}
 
+/** 힌트 5개 이하를 한 번에 조회. 기존 호출부에는 요청한 키워드만 반환한다. */
+async function fetchBatch(env: SearchAdEnv, keywords: string[]): Promise<Map<string, KeywordVolume>> {
+  const out = new Map<string, KeywordVolume>();
   try {
-    const ts = String(Date.now());
-    const signature = await sign(secret, ts, 'GET', PATH);
-    const hints = keywords.map(normalize).join(',');
-    const res = await fetch(`${API_HOST}${PATH}?hintKeywords=${encodeURIComponent(hints)}&showDetail=1`, {
-      headers: {
-        'X-Timestamp': ts,
-        'X-API-KEY': license,
-        'X-Customer': customer,
-        'X-Signature': signature,
-      },
-    });
-    if (!res.ok) return out;
-
-    const body = (await res.json()) as { keywordList?: any[] };
-    const rows = new Map<string, any>();
-    for (const row of body.keywordList ?? []) rows.set(normalize(String(row.relKeyword)), row);
-
+    const rows = await fetchSearchAdRows(env, keywords);
+    const byKeyword = new Map(rows.map(row => [normalize(row.keyword), row]));
     for (const keyword of keywords) {
-      const row = rows.get(normalize(keyword));
-      if (!row) continue;
-      const pc = parseCount(row.monthlyPcQcCnt);
-      const mobile = parseCount(row.monthlyMobileQcCnt);
-      out.set(keyword, {
-        keyword,
-        pc: pc.value,
-        mobile: mobile.value,
-        total: pc.value + mobile.value,
-        isUnderTen: pc.underTen || mobile.underTen,
-        pcUnderTen: pc.underTen,
-        mobileUnderTen: mobile.underTen,
-        competition: row.compIdx ?? null,
-      });
+      const volume = byKeyword.get(normalize(keyword));
+      if (volume) out.set(keyword, { ...volume, keyword });
     }
   } catch {
-    // 검색량은 부가 정보다 — 실패해도 진단·리포트 전체를 죽이지 않는다
+    // 검색량은 기존 진단·리포트의 부가 정보다 — 실패해도 전체를 죽이지 않는다.
   }
   return out;
+}
+
+/** 전용 검색량 페이지용: 요청 키워드와 검색광고 API의 관련 키워드를 함께 보존한다. */
+export async function lookupKeywordVolume(env: SearchAdEnv, keyword: string): Promise<KeywordVolumeLookup | null> {
+  const rows = await fetchSearchAdRows(env, [keyword]);
+  const volume = rows.find(row => normalize(row.keyword) === normalize(keyword));
+  if (!volume) return null;
+  const seen = new Set<string>([normalize(volume.keyword)]);
+  const related = rows.filter(row => {
+    const key = normalize(row.keyword);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).sort((a, b) => b.total - a.total);
+  return { keyword: volume.keyword, volume, related };
 }
 
 /**
