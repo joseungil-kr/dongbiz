@@ -349,7 +349,7 @@
       <h3 id="boundaryTitle" class="text-lg font-bold text-slate-900 mb-4 flex items-center gap-2">
         <i class="fa-solid fa-flag-checkered text-blue-600"></i> 상위 업체 대비 내 위치
       </h3>
-      <p id="boundaryLegend" class="text-[11px] text-slate-500 -mt-2 mb-4">파란 막대는 내 현재 위치, 회색선은 상위 평균, 진한 파란선은 6위 진입선입니다.</p>
+      <p id="boundaryLegend" class="text-[11px] text-slate-500 -mt-2 mb-4">파란 막대는 내 현재 위치, 회색선은 상위 평균, 오렌지선은 6위 진입선입니다.</p>
       <div id="boundaryCards" class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-8"></div>
 
       <!-- 결핍 자극 UI -->
@@ -1257,7 +1257,7 @@
         : `
           <div><span class="block text-slate-400">내 매장</span><span class="font-black text-slate-900">${metricValue(myVal, unit, decimals)}</span></div>
           <div><span class="block font-bold text-slate-600">상위 평균</span><span class="font-black text-slate-600">${metricValue(avgVal, unit, decimals)}</span></div>
-          <div><span class="block font-bold text-blue-700">6위(진입선)</span><span class="font-black text-blue-700">${has ? metricValue(boundaryVal, unit, decimals) : '데이터 부족'}</span></div>`;
+          <div><span class="block font-bold text-orange-600">6위(진입선)</span><span class="font-black text-orange-600">${has ? metricValue(boundaryVal, unit, decimals) : '데이터 부족'}</span></div>`;
       const chartLabel = compareName
         ? `내 매장 ${metricValue(myVal, unit, decimals)}, ${compareName} ${metricValue(avgVal, unit, decimals)}`
         : `내 매장 ${metricValue(myVal, unit, decimals)}, 상위 평균 ${metricValue(avgVal, unit, decimals)}, ${has ? `진입선 ${metricValue(boundaryVal, unit, decimals)}` : '진입선 데이터 부족'}`;
@@ -1270,7 +1270,7 @@
           <div class="relative h-3 bg-slate-100 rounded-full mt-3 mb-3" role="img" aria-label="${chartLabel}">
             <div class="absolute inset-y-0 left-0 bg-blue-500 rounded-full" style="width:${minePct}%"></div>
             <span class="absolute -top-1 h-5 w-0.5 bg-slate-600" style="left:${avgPct}%" title="${compareName || '상위 평균'}"></span>
-            ${boundaryPct === null || compareName ? '' : `<span class="absolute -top-1.5 h-6 w-1 bg-blue-700 rounded" style="left:${boundaryPct}%" title="6위 진입선"></span>`}
+            ${boundaryPct === null || compareName ? '' : `<span class="absolute -top-1.5 h-6 w-2 bg-orange-600 rounded" style="left:${boundaryPct}%" title="6위 진입선"></span>`}
           </div>
           <div class="grid ${compareName ? 'grid-cols-2' : 'grid-cols-3'} gap-2 text-center text-[11px]">${compareCols}</div>
           ${allZero ? '<p class="text-[10px] text-slate-400 mt-1.5">내 매장과 비교 대상 모두 집계값이 0이라 우열을 판정하지 않았습니다.</p>' : ''}
@@ -1304,7 +1304,7 @@
       }
       document.getElementById('boundaryLegend').textContent = data.isDirectCompare
         ? '파란 막대는 내 현재 위치, 회색선은 지정한 경쟁사의 위치입니다.'
-        : '파란 막대는 내 현재 위치, 회색선은 상위 평균, 진한 파란선은 6위 진입선입니다.';
+        : '파란 막대는 내 현재 위치, 회색선은 상위 평균, 오렌지선은 6위 진입선입니다.';
 
       const rankBadge = document.getElementById('rankBadge');
       if (data.isDirectCompare) {
