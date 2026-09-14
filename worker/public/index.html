@@ -308,9 +308,9 @@
             <p id="rankTrendEmpty" class="hidden self-center text-sm text-slate-400 text-center leading-relaxed"></p>
           </div>
           <p class="text-[11px] text-slate-500 text-center mb-3">같은 매장·키워드·수집 출처의 최근 진단 기록입니다.</p>
-          <div class="flex items-center justify-center gap-3">
-            <span id="rankBadge" class="text-sm font-bold px-4 py-2 rounded-full"></span>
-            <span id="gradeBadge" class="text-lg font-black px-4 py-2 rounded-full"></span>
+          <div class="flex items-center justify-center gap-2">
+            <span id="rankBadge" class="text-xl md:text-2xl font-black leading-none whitespace-nowrap px-4 py-3 rounded-full"></span>
+            <span id="gradeBadge" class="text-xl md:text-2xl font-black leading-none whitespace-nowrap px-4 py-3 rounded-full"></span>
           </div>
           <p class="text-xs text-slate-500 text-center leading-relaxed mt-3">수집 목록 안에서 확인한 위치입니다.<br />검색 위치·조건·시점에 따라 네이버 앱 결과와 다를 수 있습니다.</p>
         </div>
@@ -1253,11 +1253,11 @@
       const compareCols = compareName
         ? `
           <div><span class="block text-slate-400">내 매장</span><span class="font-black text-slate-900">${metricValue(myVal, unit, decimals)}</span></div>
-          <div><span class="block text-slate-400">${compareName}</span><span class="font-black text-blue-600">${metricValue(avgVal, unit, decimals)}</span></div>`
+          <div><span class="block text-slate-600">${compareName}</span><span class="font-black text-slate-600">${metricValue(avgVal, unit, decimals)}</span></div>`
         : `
           <div><span class="block text-slate-400">내 매장</span><span class="font-black text-slate-900">${metricValue(myVal, unit, decimals)}</span></div>
-          <div><span class="block text-slate-400">상위 평균</span><span class="font-black text-slate-500">${metricValue(avgVal, unit, decimals)}</span></div>
-          <div><span class="block text-slate-400">6위(진입선)</span><span class="font-black text-blue-600">${has ? metricValue(boundaryVal, unit, decimals) : '데이터 부족'}</span></div>`;
+          <div><span class="block font-bold text-slate-600">상위 평균</span><span class="font-black text-slate-600">${metricValue(avgVal, unit, decimals)}</span></div>
+          <div><span class="block font-bold text-blue-700">6위(진입선)</span><span class="font-black text-blue-700">${has ? metricValue(boundaryVal, unit, decimals) : '데이터 부족'}</span></div>`;
       const chartLabel = compareName
         ? `내 매장 ${metricValue(myVal, unit, decimals)}, ${compareName} ${metricValue(avgVal, unit, decimals)}`
         : `내 매장 ${metricValue(myVal, unit, decimals)}, 상위 평균 ${metricValue(avgVal, unit, decimals)}, ${has ? `진입선 ${metricValue(boundaryVal, unit, decimals)}` : '진입선 데이터 부족'}`;
@@ -1269,8 +1269,8 @@
           </div>
           <div class="relative h-3 bg-slate-100 rounded-full mt-3 mb-3" role="img" aria-label="${chartLabel}">
             <div class="absolute inset-y-0 left-0 bg-blue-500 rounded-full" style="width:${minePct}%"></div>
-            <span class="absolute -top-1 h-5 w-0.5 bg-slate-500" style="left:${avgPct}%" title="${compareName || '상위 평균'}"></span>
-            ${boundaryPct === null || compareName ? '' : `<span class="absolute -top-1.5 h-6 w-1 bg-blue-800 rounded" style="left:${boundaryPct}%" title="6위 진입선"></span>`}
+            <span class="absolute -top-1 h-5 w-0.5 bg-slate-600" style="left:${avgPct}%" title="${compareName || '상위 평균'}"></span>
+            ${boundaryPct === null || compareName ? '' : `<span class="absolute -top-1.5 h-6 w-1 bg-blue-700 rounded" style="left:${boundaryPct}%" title="6위 진입선"></span>`}
           </div>
           <div class="grid ${compareName ? 'grid-cols-2' : 'grid-cols-3'} gap-2 text-center text-[11px]">${compareCols}</div>
           ${allZero ? '<p class="text-[10px] text-slate-400 mt-1.5">내 매장과 비교 대상 모두 집계값이 0이라 우열을 판정하지 않았습니다.</p>' : ''}
@@ -1308,7 +1308,7 @@
 
       const rankBadge = document.getElementById('rankBadge');
       if (data.isDirectCompare) {
-        rankBadge.className = 'text-sm font-bold px-4 py-2 rounded-full bg-slate-100 text-slate-600';
+        rankBadge.className = 'text-xl md:text-2xl font-black leading-none whitespace-nowrap px-4 py-3 rounded-full bg-slate-100 text-slate-600';
         rankBadge.innerText = '1:1 직접비교';
       } else if (data.myRank) {
         const history = data.rankHistory || [];
@@ -1316,11 +1316,11 @@
         const change = previousRank === null ? null : previousRank - Number(data.myRank);
         const changeLabel = change === null ? '첫 측정' : change > 0 ? `▲ ${change}` : change < 0 ? `▼ ${Math.abs(change)}` : '― 0';
         const changeColor = change > 0 ? 'text-emerald-700' : change < 0 ? 'text-rose-700' : 'text-slate-500';
-        const rankLabel = data.rankObservation?.source === 'naver-map' ? `지도 수집 목록 ${data.myRank}위` : `검색 수집 목록 ${data.myRank}번째`;
-        rankBadge.className = 'text-sm font-bold px-4 py-2 rounded-full ' + (data.myRank <= 6 ? 'bg-blue-50 text-blue-700' : 'bg-amber-50 text-amber-700');
+        const rankLabel = `${data.myRank}위`;
+        rankBadge.className = 'text-xl md:text-2xl font-black leading-none whitespace-nowrap px-4 py-3 rounded-full ' + (data.myRank <= 6 ? 'bg-blue-50 text-blue-700' : 'bg-amber-50 text-amber-700');
         rankBadge.innerHTML = `${rankLabel} <span class="ml-1 ${changeColor}">(${changeLabel})</span>`;
       } else {
-        rankBadge.className = 'text-sm font-bold px-4 py-2 rounded-full bg-slate-100 text-slate-600';
+        rankBadge.className = 'text-base md:text-lg font-black leading-none whitespace-nowrap px-4 py-3 rounded-full bg-slate-100 text-slate-600';
         rankBadge.innerText = data.rankObservation?.stopReason === 'collection_failed' ? '순위 확인 미완료' : `수집 ${data.rankSearched}곳 내 미발견`;
       }
 
@@ -1341,8 +1341,8 @@
 
       const gradeColors = { A: 'bg-emerald-50 text-emerald-700', B: 'bg-amber-50 text-amber-700', C: 'bg-rose-50 text-rose-700' };
       const gradeBadge = document.getElementById('gradeBadge');
-      gradeBadge.className = 'text-lg font-black px-4 py-2 rounded-full ' + (gradeColors[data.grade] || gradeColors.B);
-      gradeBadge.innerText = `방문자 리뷰 ${data.grade}등급`;
+      gradeBadge.className = 'text-xl md:text-2xl font-black leading-none whitespace-nowrap px-4 py-3 rounded-full ' + (gradeColors[data.grade] || gradeColors.B);
+      gradeBadge.innerText = `리뷰 ${data.grade}등급`;
 
       // 1:1 직접비교 땐 상위 평균 대신 그 경쟁사 이름 자체를 비교축으로 쓴다.
       const compareName = data.isDirectCompare ? (data.top10Competitors[0]?.name || '경쟁사') : null;

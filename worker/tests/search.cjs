@@ -183,6 +183,8 @@ test('place selection returns focus to the Step 1 search card', () => {
 test('rank trend and six benchmark charts are present and client script parses', () => {
   const html = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'public', 'index.html'), 'utf8');
   assert.match(html, /id="rankTrendChart"/); assert.match(html, /▲ \$\{change\}/); assert.match(html, /▼ \$\{Math\.abs\(change\)\}/);
+  assert.match(html, /const rankLabel = `\$\{data\.myRank\}위`/); assert.match(html, /`리뷰 \$\{data\.grade\}등급`/);
+  assert.match(html, /text-slate-600">상위 평균/); assert.match(html, /text-blue-700">6위\(진입선\)/);
   for (const label of ['영수증(방문자) 리뷰','블로그/카페 리뷰','키워드 투표수','등록 사진 수','방문자 평점','방문자 리뷰 1건당 첨부 미디어']) assert.match(html, new RegExp(label.replace(/[()]/g, '\\$&')));
   const scripts = [...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g)].map(match => match[1].trim()).filter(Boolean);
   new Function(scripts.at(-1));
