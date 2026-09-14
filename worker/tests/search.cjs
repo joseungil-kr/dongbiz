@@ -84,10 +84,16 @@ function fakeDB(failWrite = false) {
     return { bind(...values) { args = values; return this; }, async run() {
       if (sql.includes('INSERT INTO search_histories')) {
         if (failWrite) throw new Error('DB unavailable');
-        histories.set(args[0], { myRank: args[3], raw_data: args[9] });
+        histories.set(args[0], { placeId: args[1], targetKeyword: args[2], myRank: args[3], raw_data: args[9], created_at: new Date().toISOString() });
       }
       return { success: true };
-    }, async first() { return histories.get(args[0]) || null; } };
+    }, async first() { return histories.get(args[0]) || null; }, async all() {
+      if (!sql.includes('FROM search_histories')) return { results: [] };
+      return { results: [...histories.values()]
+        .filter(row => row.placeId === args[0] && row.targetKeyword === args[1] && row.myRank != null)
+        .map(row => ({ my_rank: row.myRank, raw_data: row.raw_data, created_at: row.created_at }))
+        .reverse().slice(0, 8) };
+    } };
   }, async batch() { return []; } };
 }
 test('deep rank and source/range saved and restored; only successful analyses consume quota', async () => {
@@ -109,10 +115,14 @@ test('deep rank and source/range saved and restored; only successful analyses co
   assert.equal(data.myRank,137); assert.equal(data.rankSearched,350); assert.equal(data.comparisonCount,6);
   assert.equal(data.stats.saveCount.avg,100); assert.equal(data.stats.saveCount.count,6);
   assert.equal(data.rankObservation.source,'naver-map');
+  assert.deepEqual(data.rankHistory.map(x=>x.rank),[137]);
   assert.equal(db.histories.get(data.shareId).myRank,137);
   const restored = await app.fetch(new Request(`https://local/api/history?shareId=${data.shareId}`),env,ctx);
   assert.deepEqual(await restored.json(),data);
-  assert.ok([...cache.values.entries()].some(([k,v])=>k.startsWith('gaplimit:')&&v==='1'));
+  const repeated = await app.fetch(req(),env,ctx);
+  const repeatedData = await repeated.json();
+  assert.deepEqual(repeatedData.rankHistory.map(x=>x.rank),[137,137]);
+  assert.ok([...cache.values.entries()].some(([k,v])=>k.startsWith('gaplimit:')&&v==='2'));
   await Promise.all(tasks);
 });
 test('failed collection and failed persistence do not spend daily allowance', async () => {
@@ -169,6 +179,13 @@ test('place selection returns focus to the Step 1 search card', () => {
   assert.match(html, /id="step1Card"/);
   assert.match(html, /function focusStep1ForSelection\(\)/);
   assert.match(html, /focusStep1ForSelection\(\);\s*runDiagnose\(candidate\.placeId\)/);
+});
+test('rank trend and six benchmark charts are present and client script parses', () => {
+  const html = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'public', 'index.html'), 'utf8');
+  assert.match(html, /id="rankTrendChart"/); assert.match(html, /▲ \$\{change\}/); assert.match(html, /▼ \$\{Math\.abs\(change\)\}/);
+  for (const label of ['영수증(방문자) 리뷰','블로그/카페 리뷰','키워드 투표수','등록 사진 수','방문자 평점','방문자 리뷰 1건당 첨부 미디어']) assert.match(html, new RegExp(label.replace(/[()]/g, '\\$&')));
+  const scripts = [...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g)].map(match => match[1].trim()).filter(Boolean);
+  new Function(scripts.at(-1));
 });
 
 module.exports={candidateHtml,graphql,fakeDB};

@@ -490,6 +490,33 @@ app.get('/api/gap', async (c) => {
       ? null
       : describeVolume(displayLabel, (await getKeywordVolumes(c.env, [displayLabel], { context: 'gap-keyword' }))[displayLabel] ?? null);
 
+    // 같은 매장·키워드라도 수집 출처가 바뀌면 순위 체계가 달라진다. 최근 진단 중
+    // 현재와 같은 출처만 골라 최대 8개의 과거 지점을 고객용 추이에 사용한다.
+    const rankHistory: Array<{ rank: number; collectedAt: string }> = [];
+    if (!competitorQuery && c.env.DB && myRank && rankObservation?.source) {
+      try {
+        const { results } = await c.env.DB.prepare(`
+          SELECT my_rank, raw_data, created_at
+          FROM search_histories
+          WHERE place_id = ? AND target_keyword = ? AND my_rank IS NOT NULL
+          ORDER BY created_at DESC, rowid DESC LIMIT 8
+        `).bind(placeId, displayLabel).all();
+        for (const row of [...(results as any[])].reverse()) {
+          try {
+            const old = JSON.parse(String(row.raw_data || '{}'));
+            if (old.rankObservation?.source !== rankObservation.source) continue;
+            rankHistory.push({
+              rank: Number(row.my_rank),
+              collectedAt: old.rankObservation?.collectedAt || String(row.created_at || ''),
+            });
+          } catch { /* 손상된 과거 raw_data 한 건 때문에 현재 진단을 실패시키지 않는다. */ }
+        }
+      } catch (historyErr) {
+        console.error('직전 순위 조회 실패:', historyErr);
+      }
+      rankHistory.push({ rank: myRank, collectedAt: rankObservation.collectedAt || new Date().toISOString() });
+    }
+
     const responsePayload = {
       success: true,
       shareId,
@@ -504,6 +531,7 @@ app.get('/api/gap', async (c) => {
       top10Competitors: competitors,
       stats,
       grade,
+      rankHistory,
     };
 
     const db = c.env.DB;
