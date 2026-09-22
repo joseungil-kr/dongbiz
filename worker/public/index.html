@@ -767,7 +767,10 @@
       } catch (err) {
         // 검색 한도 초과처럼 입력 문제가 아닌 에러는 "올바른 입력인지 확인해주세요" 안 붙임
         const feedback = document.getElementById('searchFeedback');
-        const msg = err.message || '요청을 완료하지 못했습니다. 잠시 후 다시 시도해주세요.';
+        const rawMessage = err instanceof Error ? err.message : '';
+        const msg = /failed to fetch|networkerror|load failed|network request failed/i.test(rawMessage)
+          ? '서버 연결이 지연되고 있어요. 잠시 후 다시 시도해 주세요.'
+          : rawMessage || '요청을 완료하지 못했습니다. 잠시 후 다시 시도해주세요.';
         feedback.textContent = msg;
         feedback.classList.remove('hidden');
         if (msg.includes('전화번호 또는 공유주소로 검색') || msg.includes('필요한 정보를 확인하지 못했습니다')) {

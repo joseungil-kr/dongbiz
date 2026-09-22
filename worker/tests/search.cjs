@@ -34,6 +34,14 @@ test('phone, link and ID bypass name candidate selection', async () => {
   for (const value of ['0507-1234-5678', '031 123 4567', 'https://naver.me/test', 'naver.me/test', id]) assert.equal(s.isStoreName(value), false);
   assert.equal(s.isStoreName('매장 지점명'), true);
 });
+test('name search falls back to the map list when integrated search has no usable list', async () => {
+  const s = load('src/place-search.ts', async (url) => {
+    if (url.includes('search.naver.com')) return new Response('window.__APOLLO_STATE__ = {"ROOT_QUERY":{}};');
+    return graphql([{ id, name: 'Dream Studio' }], 1);
+  });
+  const candidates = await s.searchPlaceCandidates('Dream Studio');
+  assert.equal(candidates.map(x => x.placeId).join(','), id);
+});
 test('350 entries come from seven ordered API pages, target rank survives past 300', async () => {
   const starts = [];
   const s = load('src/place-search.ts', async (url, init) => {
@@ -69,6 +77,15 @@ test('terminal empty page preserves 300 confirmed rows and advertised total', as
   assert.equal(list.items.length,300); assert.equal(list.total,13477);
   assert.equal(list.complete,false); assert.equal(list.stopReason,'end');
   assert.equal(list.errorCode,undefined);
+});
+test('listing stops at the provider total instead of requesting pages beyond it', async () => {
+  const starts = [];
+  const s = load('src/place-search.ts', async (url, init) => {
+    const start = JSON.parse(init.body)[0].variables.input.start; starts.push(start);
+    return graphql(Array.from({ length: 50 }, (_, i) => ({ id: String(start + i), name: 'Store' })), 60);
+  });
+  await s.collectSearchListing('Doll hospital');
+  assert.deepEqual(starts, [1, 51]);
 });
 test('explicit empty list is an empty result, GraphQL errors are failures', async () => {
   const empty = load('src/place-search.ts', async () => graphql([], 0));

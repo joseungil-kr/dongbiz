@@ -90,7 +90,15 @@ export function isStoreName(query: string): boolean {
 
 export async function searchPlaceCandidates(query: string): Promise<PlaceCandidate[]> {
   const url = `https://search.naver.com/search.naver?where=nexearch&query=${encodeURIComponent(query.trim())}`;
-  return parseOrderedList(await naverHtml(url, 'candidates', HEADERS)).items;
+  try {
+    const items = parseOrderedList(await naverHtml(url, 'candidates', HEADERS)).items;
+    if (items.length) return items;
+  } catch (err) {
+    if (!(err instanceof CollectionError) || err.code !== 'PARSE_CHANGED') throw err;
+  }
+  // 통합검색은 업체명에 따라 목록 블록이 없거나 여러 개가 섞인다. 순위 수집에 쓰는
+  // 지도 목록의 첫 페이지를 후보 선택에도 재사용해 실제 업체명을 놓치지 않는다.
+  return (await fetchOrderedPage(query.trim(), 1)).items;
 }
 
 // Observed in Naver's restaurantPcmapList bundle. The HTML route always resets
@@ -138,8 +146,7 @@ export async function collectSearchListing(keyword: string, category = 'place', 
   const out: SearchListing = { items: [], source: 'naver-map', collectedAt: new Date().toISOString(),
     total: null, pages: 0, limit, complete: false, stopReason: 'limit', sort: null };
   const ids = new Set<string>();
-  for (let start = 1; start <= limit; start += 50) {
-    if (start > 1) await new Promise(resolve => setTimeout(resolve, 5000));
+  for (let start = 1; start <= limit && (out.total == null || start <= out.total); start += 50) {
     try {
       const page = await fetchOrderedPage(keyword.trim(), start);
       // The provider may return an empty terminal page with total=0 and no sort.
