@@ -529,6 +529,7 @@
     let activeGuide = null;
     let guideFrame = 0;
     let inputGuideShown = false;
+    let keywordGuideShown = false;
     const guideImages = {
       basic: '/images/guide_basic.png', point: '/images/guide_point.png', down: '/images/guide_down.png',
       tip: '/images/guide_tip.png', phone: '/images/guide_phone.png', search: '/images/guide_search.png',
@@ -551,12 +552,21 @@
       card.style.top = '0px';
       const character = card.querySelector('.guide-character');
       character.style.display = '';
+      character.classList.remove('is-flipped');
       let cardRect = card.getBoundingClientRect();
       const gap = 12;
       let left;
       let top;
 
-      if (mobile) {
+      if (activeGuide.placement === 'above-right' && !mobile) {
+        card.classList.add('is-left');
+        character.classList.add('is-flipped');
+        left = target.right - cardRect.width;
+        top = target.top - cardRect.height - 20;
+      } else if (activeGuide.placement === 'right-edge' && !mobile) {
+        left = target.right - cardRect.width;
+        top = target.top + 12;
+      } else if (mobile) {
         const roomBelow = window.innerHeight - target.bottom - margin - gap;
         const roomAbove = target.top - margin - gap;
         if (Math.max(roomBelow, roomAbove) < cardRect.height) {
@@ -582,7 +592,7 @@
       guideFrame = requestAnimationFrame(positionGuide);
     }
 
-    function showGuide({ target, pose = 'basic', message, type = 'normal' }) {
+    function showGuide({ target, pose = 'basic', message, type = 'normal', placement = 'auto' }) {
       const targetEl = typeof target === 'string' ? document.querySelector(target) : target;
       if (!targetEl || !message) return;
       hideGuide();
@@ -592,7 +602,7 @@
       card.querySelector('span').textContent = message;
       card.querySelector('.guide-close').onclick = hideGuide;
       document.getElementById('guideLayer').appendChild(card);
-      activeGuide = { card, target: targetEl };
+      activeGuide = { card, target: targetEl, placement };
       queueGuidePosition();
       requestAnimationFrame(() => card.classList.add('is-visible'));
     }
@@ -739,7 +749,12 @@
           const guide = document.getElementById('inputGuideDetails');
           if (guide) guide.open = true;
         }
-        showGuide({ target: '#storeInput', pose: 'warning', type: 'warning', message: '입력 정보를 찾지 못했어요. 업체명에는 지역명을 함께 넣거나 네이버 공유주소를 사용해 보세요.' });
+        const isGapSearch = btn.id === 'gapBtn';
+        showGuide({
+          target: isGapSearch ? '#keywordInput' : '#storeInput',
+          pose: 'warning', type: 'warning', placement: isGapSearch ? 'above-right' : 'above-right',
+          message: isGapSearch ? msg : '입력 정보를 찾지 못했어요. 업체명에는 지역명을 함께 넣거나 네이버 공유주소를 사용해 보세요.'
+        });
       } finally {
         clearInterval(loadingInterval);
         btn.innerHTML = originalText;
@@ -761,7 +776,7 @@
       if (searchBusy) return;
       const input = typeof selectedId === 'string' ? selectedId : document.getElementById('storeInput').value.trim();
       if (!input) {
-        showGuide({ target: '#storeInput', pose: 'point', type: 'warning', message: '업체명·전화번호·네이버 공유주소 중 하나를 입력해 주세요.' });
+        showGuide({ target: '#storeInput', pose: 'point', type: 'warning', placement: 'above-right', message: '업체명·전화번호·네이버 공유주소 중 하나를 입력해 주세요.' });
         alert('전화번호 또는 상호명을 입력해주세요.');
         return;
       }
@@ -801,7 +816,7 @@
           if (!list.children.length) list.textContent = '검색 목록에서 매장을 찾지 못했습니다.';
           document.getElementById('storeCandidates').classList.remove('hidden');
           document.getElementById('candidateTitle').focus();
-          showGuide({ target: '#candidateList', pose: 'down', message: '주소와 업종을 확인한 뒤 내 매장을 선택해 주세요.' });
+          showGuide({ target: '#candidateList', pose: 'down', placement: 'right-edge', message: '주소와 업종을 확인한 뒤 내 매장을 선택해 주세요.' });
           return;
         }
 
@@ -813,7 +828,6 @@
         document.getElementById('step2Input').classList.remove('hidden');
         document.getElementById('step2Result').classList.add('hidden');
         document.getElementById('step1Result').scrollIntoView({ behavior: 'smooth' });
-        showGuide({ target: '#keywordInput', pose: 'tip', message: '실제 고객이 검색할 지역명과 업종을 입력하면 비교가 정확해져요.' });
       });
     }
 
@@ -895,7 +909,12 @@
     document.getElementById('storeInput').addEventListener('focus', () => {
       if (inputGuideShown) return;
       inputGuideShown = true;
-      showGuide({ target: '#storeInput', pose: 'point', message: '업체명·전화번호·네이버 공유주소 중 하나만 입력해 주세요.' });
+      showGuide({ target: '#storeInput', pose: 'point', placement: 'above-right', message: '업체명·전화번호·네이버 공유주소 중 하나만 입력해 주세요.' });
+    }, { once: true });
+    document.getElementById('keywordInput').addEventListener('focus', () => {
+      if (keywordGuideShown) return;
+      keywordGuideShown = true;
+      showGuide({ target: '#keywordInput', pose: 'tip', placement: 'above-right', message: '실제 고객이 검색할 지역명과 업종을 입력하면 비교가 정확해져요.' });
     }, { once: true });
 
     // 공유 링크 복원 (?shareId= 또는 리포트 모드의 __REPORT_SHARE_ID__)
