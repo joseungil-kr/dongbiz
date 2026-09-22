@@ -184,8 +184,9 @@ test('rank trend and six benchmark charts are present and client script parses',
   const html = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'public', 'index.html'), 'utf8');
   assert.match(html, /id="rankTrendChart"/); assert.match(html, /▲ \$\{change\}/); assert.match(html, /▼ \$\{Math\.abs\(change\)\}/);
   assert.match(html, /const rankLabel = `\$\{data\.myRank\}위`/); assert.match(html, /`리뷰 \$\{data\.grade\}등급`/);
-  assert.match(html, /text-slate-600">상위 평균/); assert.match(html, /text-orange-600">6위\(진입선\)/);
-  assert.match(html, /h-6 w-2 bg-orange-600 rounded/);
+  assert.match(html, /const markerData = \[/); assert.match(html, /6위 진입선 \$\{metricValue\(boundaryVal/);
+  assert.match(html, /const boundarySummary = has && !compareName/);
+  assert.match(html, /h-5 w-0\.5 \$\{marker\.color\}/);
   for (const label of ['영수증(방문자) 리뷰','블로그/카페 리뷰','키워드 투표수','등록 사진 수','방문자 평점','방문자 리뷰 1건당 첨부 미디어']) assert.match(html, new RegExp(label.replace(/[()]/g, '\\$&')));
   const scripts = [...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g)].map(match => match[1].trim()).filter(Boolean);
   new Function(scripts.at(-1));

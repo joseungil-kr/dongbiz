@@ -1404,30 +1404,42 @@
       const minePct = Math.max(0, Math.min(100, Number(myVal) / scaleMax * 100));
       const avgPct = Math.max(0, Math.min(100, Number(avgVal) / scaleMax * 100));
       const boundaryPct = has ? Math.max(0, Math.min(100, Number(boundaryVal) / scaleMax * 100)) : null;
-      // 1:1 직접비교 땐 경쟁사가 1곳뿐이라 "상위평균"과 "진입선"이 항상 같은 값 — 열 하나로 합쳐서 보여준다.
-      const compareCols = compareName
-        ? `
-          <div><span class="block text-slate-400">내 매장</span><span class="font-black text-slate-900">${metricValue(myVal, unit, decimals)}</span></div>
-          <div><span class="block text-slate-600">${compareName}</span><span class="font-black text-slate-600">${metricValue(avgVal, unit, decimals)}</span></div>`
-        : `
-          <div><span class="block text-slate-400">내 매장</span><span class="font-black text-slate-900">${metricValue(myVal, unit, decimals)}</span></div>
-          <div><span class="block font-bold text-slate-600">상위 평균</span><span class="font-black text-slate-600">${metricValue(avgVal, unit, decimals)}</span></div>
-          <div><span class="block font-bold text-orange-600">6위(진입선)</span><span class="font-black text-orange-600">${has ? metricValue(boundaryVal, unit, decimals) : '데이터 부족'}</span></div>`;
       const chartLabel = compareName
         ? `내 매장 ${metricValue(myVal, unit, decimals)}, ${compareName} ${metricValue(avgVal, unit, decimals)}`
         : `내 매장 ${metricValue(myVal, unit, decimals)}, 상위 평균 ${metricValue(avgVal, unit, decimals)}, ${has ? `진입선 ${metricValue(boundaryVal, unit, decimals)}` : '진입선 데이터 부족'}`;
+      const markerData = [
+        { key: 'mine', pct: minePct, text: `내 매장 ${metricValue(myVal, unit, decimals)}`, color: 'bg-blue-500', line: false },
+        { key: 'average', pct: avgPct, text: `${compareName || '상위 평균'} ${metricValue(avgVal, unit, decimals)}`, color: 'bg-slate-600', line: true },
+        ...(boundaryPct === null || compareName ? [] : [{ key: 'boundary', pct: boundaryPct, text: `6위 진입선 ${metricValue(boundaryVal, unit, decimals)}`, color: 'bg-orange-600', line: true }]),
+      ].sort((a, b) => a.pct - b.pct);
+      markerData.forEach((marker, index) => {
+        const previous = markerData.slice(0, index).filter(item => marker.pct - item.pct < 18);
+        marker.level = previous.length % 3;
+        marker.align = marker.pct < 12 ? 'translateX(0)' : marker.pct > 88 ? 'translateX(-100%)' : 'translateX(-50%)';
+      });
+      const markerHtml = markerData.map(marker => {
+        const labelTop = ['-36px', '18px', '-18px'][marker.level];
+        const markerShape = marker.line
+          ? `<span class="absolute -top-1 h-5 w-0.5 ${marker.color}" style="left:${marker.pct}%"></span>`
+          : `<span class="absolute top-1/2 h-3 w-3 -translate-y-1/2 -translate-x-1/2 rounded-full ${marker.color} ring-2 ring-white" style="left:${marker.pct}%"></span>`;
+        return `${markerShape}<span class="absolute whitespace-nowrap text-[10px] font-bold ${marker.key === 'boundary' ? 'text-orange-700' : marker.key === 'mine' ? 'text-blue-700' : 'text-slate-600'}" style="left:${marker.pct}%;top:${labelTop};transform:${marker.align}">${marker.text}</span>`;
+      }).join('');
+      const boundarySummary = has && !compareName
+        ? (Number(myVal) < Number(boundaryVal)
+          ? `진입선까지 ${metricValue(Number(boundaryVal) - Number(myVal), unit, decimals)} 부족`
+          : `진입선보다 ${metricValue(Number(myVal) - Number(boundaryVal), unit, decimals)} 많음`)
+        : '';
       const html = `
         <div class="bg-white rounded-2xl p-4 border ${cleared ? 'border-emerald-200' : 'border-slate-200'} shadow-sm">
           <div class="flex justify-between items-center mb-2">
             <span class="text-xs font-bold text-slate-700">${label} <i class="fa-regular fa-circle-question text-slate-300 text-[10px]" title="${tooltip}"></i></span>
             <span class="text-[11px] font-bold px-2 py-0.5 rounded-lg ${tier.badge}">${tier.label}</span>
           </div>
-          <div class="relative h-3 bg-slate-100 rounded-full mt-3 mb-3" role="img" aria-label="${chartLabel}">
+          <div class="relative h-3 bg-slate-100 rounded-full mt-10 mb-10" role="img" aria-label="${chartLabel}">
             <div class="absolute inset-y-0 left-0 bg-blue-500 rounded-full" style="width:${minePct}%"></div>
-            <span class="absolute -top-1 h-5 w-0.5 bg-slate-600" style="left:${avgPct}%" title="${compareName || '상위 평균'}"></span>
-            ${boundaryPct === null || compareName ? '' : `<span class="absolute -top-1.5 h-6 w-2 bg-orange-600 rounded" style="left:${boundaryPct}%" title="6위 진입선"></span>`}
+            ${markerHtml}
           </div>
-          <div class="grid ${compareName ? 'grid-cols-2' : 'grid-cols-3'} gap-2 text-center text-[11px]">${compareCols}</div>
+          ${boundarySummary ? `<p class="text-xs font-bold ${cleared ? 'text-emerald-700' : 'text-orange-700'} mt-1">${boundarySummary}</p>` : ''}
           ${allZero ? '<p class="text-[10px] text-slate-400 mt-1.5">내 매장과 비교 대상 모두 집계값이 0이라 우열을 판정하지 않았습니다.</p>' : ''}
           ${!has && !compareName && !allZero ? '<p class="text-[10px] text-slate-400 mt-1.5">검색결과가 6곳 미만이라 상위 평균 기준으로 등급을 매겼습니다.</p>' : ''}
           ${IS_REPORT && BOUNDARY_NOTE_KEYS[label] ? reportNoteHtml(BOUNDARY_NOTE_KEYS[label]) : ''}
