@@ -605,6 +605,7 @@
       activeGuide = { card, target: targetEl, placement };
       queueGuidePosition();
       requestAnimationFrame(() => card.classList.add('is-visible'));
+      return activeGuide;
     }
 
     window.addEventListener('resize', queueGuidePosition);
@@ -716,7 +717,7 @@
     }
 
     // 공통: 버튼에 로딩 텍스트 순환 연출을 걸고 비동기 작업 실행
-    async function withLoading(btn, texts, task) {
+    async function withLoading(btn, texts, task, guide) {
       // 재진입 방지: 이미 진행 중이면 무시. (Enter키는 버튼 disabled 여부와 무관하게 다시
       // 호출되므로, 이 가드가 없으면 공용 loadingInterval이 덮어써져 먼저 시작된 인터벌이
       // 영원히 안 멎는 버그가 났었다.)
@@ -731,6 +732,7 @@
       btn.disabled = true;
       let idx = 0;
       btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> <span id="btnLoadingText">${texts[0]}</span>`;
+      const loadingGuide = guide && showGuide({ target: guide.target || btn, pose: 'search', placement: guide.placement || 'above-right', message: guide.message });
       const loadingInterval = setInterval(() => {
         idx = (idx + 1) % texts.length;
         const el = document.getElementById('btnLoadingText');
@@ -739,6 +741,7 @@
 
       try {
         await task();
+        if (activeGuide === loadingGuide) hideGuide();
       } catch (err) {
         // 검색 한도 초과처럼 입력 문제가 아닌 에러는 "올바른 입력인지 확인해주세요" 안 붙임
         const feedback = document.getElementById('searchFeedback');
@@ -828,6 +831,9 @@
         document.getElementById('step2Input').classList.remove('hidden');
         document.getElementById('step2Result').classList.add('hidden');
         document.getElementById('step1Result').scrollIntoView({ behavior: 'smooth' });
+      }, {
+        target: '#step1Card',
+        message: `네이버에 접속해 '${input}' 업체 정보를 찾고 있어요.`
       });
     }
 
@@ -873,6 +879,9 @@
           clearInterval(progressTimer);
           progress.classList.add('hidden');
         }
+      }, {
+        target: '#step2Input',
+        message: `네이버에서 '${keyword}' 검색 결과를 차례로 확인하고 있어요.`
       });
     }
 
@@ -914,7 +923,7 @@
     document.getElementById('keywordInput').addEventListener('focus', () => {
       if (keywordGuideShown) return;
       keywordGuideShown = true;
-      showGuide({ target: '#keywordInput', pose: 'tip', placement: 'above-right', message: '실제 고객이 검색할 지역명과 업종을 입력하면 비교가 정확해져요.' });
+      showGuide({ target: '#keywordInput', pose: 'tip', placement: 'above-right', message: '상위노출을 원하는 검색어를 입력하세요. 실제 고객이 많이 검색하는 단어를 입력해야 비교가 정확해요. 예) 강남 회식장소, 서초동 변호사, 부산 다이어트 한의원' });
     }, { once: true });
 
     // 공유 링크 복원 (?shareId= 또는 리포트 모드의 __REPORT_SHARE_ID__)
