@@ -530,6 +530,7 @@
     let guideFrame = 0;
     let inputGuideShown = false;
     let keywordGuideShown = false;
+    let reportGuideObserver = null;
     const guideImages = {
       basic: '/images/guide_basic.png', point: '/images/guide_point.png', down: '/images/guide_down.png',
       tip: '/images/guide_tip.png', phone: '/images/guide_phone.png', search: '/images/guide_search.png',
@@ -558,7 +559,10 @@
       let left;
       let top;
 
-      if (activeGuide.placement === 'above-right' && !mobile) {
+      if (activeGuide.placement === 'bottom-right') {
+        left = window.innerWidth - cardRect.width - margin;
+        top = window.innerHeight - cardRect.height - margin;
+      } else if (activeGuide.placement === 'above-right' && !mobile) {
         card.classList.add('is-left');
         character.classList.add('is-flipped');
         left = target.right - cardRect.width;
@@ -606,6 +610,24 @@
       queueGuidePosition();
       requestAnimationFrame(() => card.classList.add('is-visible'));
       return activeGuide;
+    }
+
+    function showReportRequestGuide() {
+      reportGuideObserver?.disconnect();
+      const reportBox = document.getElementById('reportRequestBox');
+      if (!reportBox || reportBox.classList.contains('hidden')) return;
+      reportGuideObserver = new IntersectionObserver((entries, observer) => {
+        if (!entries[0].isIntersecting) return;
+        showGuide({
+          target: reportBox,
+          pose: 'success',
+          type: 'success',
+          placement: 'above-right',
+          message: '이메일로 진단 보고서를 요청하세요. 항목별 개선 방법을 정리해 바로 보내드려요.'
+        });
+        observer.disconnect();
+      }, { threshold: 0.45 });
+      reportGuideObserver.observe(reportBox);
     }
 
     window.addEventListener('resize', queueGuidePosition);
@@ -870,7 +892,8 @@
           renderGap(data);
           document.getElementById('step2Result').classList.remove('hidden');
           document.getElementById('step2Result').scrollIntoView({ behavior: 'smooth' });
-          showGuide({ target: '#defiSummary', pose: data.grade === 'A' ? 'success' : 'warning', type: data.grade === 'A' ? 'success' : 'warning', message: data.grade === 'A' ? '주요 지표가 상위 업체와 비교해 양호해요.' : '우선 개선할 항목을 아래 지표에서 확인해 보세요.' });
+          showGuide({ target: '#defiSummary', pose: data.grade === 'A' ? 'success' : 'warning', type: data.grade === 'A' ? 'success' : 'warning', placement: 'bottom-right', message: data.grade === 'A' ? '주요 지표가 상위 업체와 비교해 양호해요.' : '우선 개선할 항목을 아래 지표에서 확인해 보세요.' });
+          showReportRequestGuide();
           if (data.shareId) {
             currentShareId = data.shareId;
             window.history.pushState({}, '', `?shareId=${data.shareId}`);
