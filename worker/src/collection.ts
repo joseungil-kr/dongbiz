@@ -3,7 +3,7 @@ export type CollectionCode = 'RATE_LIMITED' | 'BLOCKED' | 'UPSTREAM_HTTP' | 'TIM
 export class CollectionError extends Error {
   constructor(public code: CollectionCode, public stage: string, public upstreamStatus?: number) {
     super(code === 'PARSE_CHANGED'
-      ? '네이버 응답에서 필요한 정보를 확인하지 못했습니다. 잠시 후 다시 시도해주세요.'
+      ? '네이버 응답에서 필요한 정보를 확인하지 못했습니다. 전화번호 또는 공유주소로 검색해 보시거나 잠시 후 다시 시도해주세요.'
       : '네이버 정보 수집이 일시적으로 지연되고 있습니다. 잠시 후 다시 시도해주세요.');
     this.name = 'CollectionError';
   }
