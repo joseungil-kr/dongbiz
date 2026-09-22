@@ -776,7 +776,7 @@
         }
         const isGapSearch = btn.id === 'gapBtn';
         showGuide({
-          target: isGapSearch ? '#keywordInput' : '#storeInput',
+          target: isGapSearch ? '#keywordInput' : '#step1Card',
           pose: 'warning', type: 'warning', placement: isGapSearch ? 'above-right' : 'above-right',
           message: isGapSearch ? msg : '입력 정보를 찾지 못했어요. 업체명에는 지역명을 함께 넣거나 네이버 공유주소를 사용해 보세요.'
         });
@@ -801,7 +801,7 @@
       if (searchBusy) return;
       const input = typeof selectedId === 'string' ? selectedId : document.getElementById('storeInput').value.trim();
       if (!input) {
-        showGuide({ target: '#storeInput', pose: 'point', type: 'warning', placement: 'above-right', message: '업체명·전화번호·네이버 공유주소 중 하나를 입력해 주세요.' });
+        showGuide({ target: '#step1Card', pose: 'point', type: 'warning', placement: 'above-right', message: '업체명·전화번호·네이버 공유주소 중 하나를 입력해 주세요.' });
         alert('전화번호 또는 상호명을 입력해주세요.');
         return;
       }
@@ -941,7 +941,7 @@
     document.getElementById('storeInput').addEventListener('focus', () => {
       if (inputGuideShown) return;
       inputGuideShown = true;
-      showGuide({ target: '#storeInput', pose: 'point', placement: 'above-right', message: '업체명·전화번호·네이버 공유주소 중 하나만 입력해 주세요.' });
+      showGuide({ target: '#step1Card', pose: 'point', placement: 'above-right', message: '업체명·전화번호·네이버 공유주소 중 하나만 입력해 주세요.' });
     }, { once: true });
     document.getElementById('keywordInput').addEventListener('focus', () => {
       if (keywordGuideShown) return;
