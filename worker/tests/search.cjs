@@ -197,6 +197,13 @@ test('place selection returns focus to the Step 1 search card', () => {
   assert.match(html, /function focusStep1ForSelection\(\)/);
   assert.match(html, /focusStep1ForSelection\(\);\s*runDiagnose\(candidate\.placeId\)/);
 });
+test('report guide is anchored below the email form and does not imply a 350-result scan', () => {
+  const html = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'public', 'index.html'), 'utf8');
+  assert.match(html, /target: '#reportEmailForm'/);
+  assert.match(html, /placement: 'below-right'/);
+  assert.match(html, /네이버 지도 목록을 확인하고 있습니다/);
+  assert.doesNotMatch(html, /현재 예상 확인 구간/);
+});
 test('rank trend and six benchmark charts are present and client script parses', () => {
   const html = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'public', 'index.html'), 'utf8');
   assert.match(html, /id="rankTrendChart"/); assert.match(html, /▲ \$\{change\}/); assert.match(html, /▼ \$\{Math\.abs\(change\)\}/);
