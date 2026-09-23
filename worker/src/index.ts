@@ -1857,13 +1857,18 @@ app.get('/admin/analytics', async (c) => {
 // 부르면 이것도 똑같이 subrequest 한도(50)를 넘는다.
 app.get('/admin/periodic-keywords', async (c) => {
   const { results } = await c.env.DB.prepare(`
-    SELECT keyword, category, active, interval_hours, last_attempt_at, last_success_at, last_error_code, next_run_at
-    FROM periodic_keywords ORDER BY active DESC, keyword
+    SELECT pk.*, (
+      SELECT COUNT(DISTINCT rs.collected_at) FROM rank_snapshots rs
+      WHERE rs.keyword = pk.keyword AND rs.rank IS NOT NULL
+        AND (rs.sort_mode = 'popular' OR rs.sort_mode IS NULL)
+        AND (rs.is_ad = 0 OR rs.is_ad IS NULL)
+    ) AS observations
+    FROM periodic_keywords pk ORDER BY active DESC, keyword
   `).all();
   const rows = (results as any[]).map(r => `<tr>
     <td><b>${escapeHtml(r.keyword)}</b><br><span style="font-size:11px;color:#64748B">${escapeHtml(r.category)}</span></td>
     <td>${r.active ? '활성' : '중지'}</td>
-    <td>${r.interval_hours}시간</td>
+    <td>${r.interval_hours}시간<br><span style="font-size:11px;color:#64748B">관측 ${r.observations}/2회 ${r.observations >= 2 ? '· 공개 가능' : '· 1회 더 필요'}</span></td>
     <td>${escapeHtml(fmtKST(r.last_success_at) || '-')}</td>
     <td>${escapeHtml(fmtKST(r.next_run_at) || '-')}</td>
     <td>${escapeHtml(r.last_error_code || '-')}</td>
@@ -1872,13 +1877,14 @@ app.get('/admin/periodic-keywords', async (c) => {
   return c.html(`<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><title>동네장사 관리자 - 주기 키워드</title><style>${ADMIN_STYLE}</style></head><body>
   ${ADMIN_NAV}<h1>공개 순위 주기 키워드</h1>
   <p style="font-size:13px;color:#64748B">매장·사용자 진단은 요청 시에만 수집합니다. 매일 15:00 KST에 실행 가능한 키워드 1개만 관련도 목록으로 관측합니다.</p>
+  ${c.req.query('result') ? `<p role="status" style="background:#ECFDF5;border:1px solid #A7F3D0;color:#065F46;border-radius:8px;padding:10px 12px;font-size:13px">${escapeHtml(c.req.query('result')!)}. 공개 순위 페이지는 같은 키워드가 2회 관측된 뒤 표시됩니다.</p>` : ''}
   <form method="post" action="/admin/periodic-keywords" class="card" style="display:flex;gap:8px;align-items:end;flex-wrap:wrap">
     <label>키워드<br><input name="keyword" required maxlength="60" placeholder="예: 안산 닭한마리 맛집"></label>
     <label>업종<br><select name="category"><option value="restaurant">음식점</option><option value="hairshop">미용실</option></select></label>
     <label>주기(시간)<br><input name="intervalHours" type="number" min="24" value="72"></label>
     <button type="submit">등록</button>
   </form>
-  <p><a href="/admin/cron/run/periodic">지금 실행 가능한 키워드 1개 수집</a></p>
+  <form method="post" action="/admin/periodic-keywords/run"><button type="submit">지금 실행 가능한 키워드 1개 수집</button></form>
   <table><thead><tr><th>키워드</th><th>상태</th><th>주기</th><th>최근 성공</th><th>다음 실행</th><th>최근 오류</th><th></th></tr></thead><tbody>${rows || '<tr><td colspan="7">등록된 키워드가 없습니다.</td></tr>'}</tbody></table>
   </body></html>`);
 });
@@ -1905,6 +1911,11 @@ app.post('/admin/periodic-keywords/:keyword/toggle', async (c) => {
     WHERE keyword = ?
   `).bind(keyword).run();
   return c.redirect('/admin/periodic-keywords', 303);
+});
+
+app.post('/admin/periodic-keywords/run', async (c) => {
+  const result = await runOnePeriodicKeyword(c.env);
+  return c.redirect(`/admin/periodic-keywords?result=${encodeURIComponent(result)}`, 303);
 });
 
 app.get('/admin/cron/run/:job', async (c) => {

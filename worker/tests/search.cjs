@@ -260,6 +260,13 @@ test('only registered periodic keywords are scheduled for rank collection', () =
   assert.match(source, /event\.cron === PERIODIC_KEYWORD_CRON/);
   assert.match(wrangler, /crons = \["0 6 \* \* \*"\]/);
 });
+test('periodic keyword admin reports collection progress before a public rank page exists', () => {
+  const source = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'src', 'index.ts'), 'utf8');
+  assert.match(source, /관측 \$\{r\.observations\}\/2회/);
+  assert.match(source, /공개 순위 페이지는 같은 키워드가 2회 관측된 뒤 표시됩니다/);
+  assert.match(source, /app\.post\('\/admin\/periodic-keywords\/run'/);
+  assert.match(source, /role="status"/);
+});
 test('report guide is anchored below the email form and does not imply a 350-result scan', () => {
   const html = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'public', 'index.html'), 'utf8');
   assert.match(html, /target: '#reportEmailForm'/);
