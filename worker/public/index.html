@@ -209,7 +209,7 @@
 
           <!-- SECTION 2 -->
           <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm">
-            <h4 class="text-xs font-bold text-blue-600 mb-3 border-b pb-2">상위노출 랭킹 알고리즘 정량 지표 (SEO Scores)</h4>
+            <h4 class="text-xs font-bold text-blue-600 mb-3 border-b pb-2">플레이스 주요 지표</h4>
             <ul class="space-y-2.5 text-[13px]">
               <li class="flex justify-between items-center"><span class="text-slate-500">방문자(영수증) 총 리뷰 <i class="fa-regular fa-circle-question text-slate-300 text-[10px]" title="방문자 리뷰(영수증리뷰+예약리뷰)의 합계 숫자입니다. 후기를 적지 않고 평가만 진행한 경우까지 집계하므로 네이버 통계와 다를 수 있습니다."></i></span> <span id="guiRevV" class="font-bold text-slate-900 bg-slate-100 px-2 py-0.5 rounded"></span></li>
               <li class="flex justify-between items-center"><span class="text-slate-500">블로그/카페 총 리뷰 <i class="fa-regular fa-circle-question text-slate-300 text-[10px]" title="네이버 검색에 노출된 블로그·카페 후기 글의 총 개수입니다."></i></span> <span id="guiRevB" class="font-bold text-slate-900 bg-slate-100 px-2 py-0.5 rounded"></span></li>
@@ -221,8 +221,8 @@
               <li class="flex justify-between items-center"><span class="text-slate-500">키워드 투표 참여수 <i class="fa-regular fa-circle-question text-slate-300 text-[10px]" title="방문자가 리뷰 작성 시 선택한 키워드(예: 친절해요, 맛있어요)의 총 투표 참여 횟수입니다."></i></span> <span id="guiVote" class="font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded"></span></li>
               <li class="flex justify-between items-center"><span class="text-slate-500">대표 사진 등록 수 <i class="fa-regular fa-circle-question text-slate-300 text-[10px]" title="플레이스에 등록된 대표 사진의 총 개수입니다."></i></span> <span id="guiPhoto" class="font-bold text-slate-900 bg-slate-100 px-2 py-0.5 rounded"></span></li>
               <li class="flex justify-between items-center"><span class="text-slate-500">메뉴/상품 등록 수 <i class="fa-regular fa-circle-question text-slate-300 text-[10px]" title="등록된 메뉴 또는 판매 상품의 개수입니다."></i></span> <span id="guiMenu" class="font-bold text-slate-900 bg-slate-100 px-2 py-0.5 rounded"></span></li>
-              <li class="flex justify-between items-center pt-2 border-t"><span class="text-slate-500">최근 소식 (2개월) <i class="fa-regular fa-circle-question text-slate-300 text-[10px]" title="최근 2개월 이내 매장 소식(이벤트/공지) 등록 여부입니다. 자주 갱신할수록 네이버 알고리즘 가산점에 유리합니다."></i></span> <span id="guiNews" class="font-bold text-slate-900 text-[12px]"></span></li>
-              <li class="flex justify-between items-center"><span class="text-slate-500">설명 분량 <i class="fa-regular fa-circle-question text-slate-300 text-[10px]" title="매장 상세설명 글자 수입니다. 최대 2,000자까지 등록 가능하며, 등록 키워드를 설명에 포함하면 SEO에 유리합니다."></i></span> <span id="guiDescLen" class="font-bold text-slate-900 bg-slate-100 px-2 py-0.5 rounded"></span></li>
+              <li class="flex justify-between items-center pt-2 border-t"><span class="text-slate-500">최근 소식 (2개월) <i class="fa-regular fa-circle-question text-slate-300 text-[10px]" title="최근 2개월 이내 매장 소식(이벤트·공지) 등록 여부입니다."></i></span> <span id="guiNews" class="font-bold text-slate-900 text-[12px]"></span></li>
+              <li class="flex justify-between items-center"><span class="text-slate-500">설명 분량 <i class="fa-regular fa-circle-question text-slate-300 text-[10px]" title="매장 상세설명 글자 수입니다. 최대 2,000자까지 등록할 수 있습니다."></i></span> <span id="guiDescLen" class="font-bold text-slate-900 bg-slate-100 px-2 py-0.5 rounded"></span></li>
               <li class="flex justify-between items-center"><span class="text-slate-500">찾아오시는 길 분량 <i class="fa-regular fa-circle-question text-slate-300 text-[10px]" title="스마트플레이스에 등록한 '찾아오는 길' 안내문의 글자 수입니다."></i></span> <span id="guiDirLen" class="font-bold text-slate-900 bg-slate-100 px-2 py-0.5 rounded"></span></li>
             </ul>
           </div>
@@ -311,7 +311,7 @@
         </button>
       </div>
 
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+      <div id="resultOverviewGrid" class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
         <!-- 같은 수집 출처의 진단 이력만 사용하는 순위 추이 -->
         <div class="bg-slate-50 rounded-2xl p-5 border border-slate-200/80">
           <h4 id="rankTrendTitle" class="text-xs font-bold text-slate-600 mb-3">최근 순위 변화</h4>
@@ -328,7 +328,7 @@
         </div>
 
         <!-- 자동 발행된 모바일 미니홈피 프리뷰 -->
-        <div class="bg-slate-900 text-white rounded-2xl p-5 flex flex-col justify-between">
+        <div class="hidden bg-slate-900 text-white rounded-2xl p-5 flex flex-col justify-between" aria-hidden="true">
           <div>
             <div class="flex justify-between items-center mb-3">
               <span class="text-xs font-bold text-emerald-400 flex items-center gap-1.5">
@@ -365,8 +365,8 @@
       <div id="boundaryCards" class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-8"></div>
 
       <!-- 결핍 자극 UI -->
-      <div class="pt-8 border-t border-slate-200">
-        <h3 class="font-bold text-slate-900 text-lg mb-4">🚨 마케팅 결핍 진단</h3>
+      <div id="prioritySummary" class="pt-8 border-t border-slate-200">
+        <h3 class="font-bold text-slate-900 text-lg mb-4">지금 먼저 개선할 항목</h3>
         <div id="defiSummary" class="bg-rose-50 border border-rose-200 rounded-2xl p-4 mb-4 text-sm font-semibold text-rose-800 flex items-start gap-2">
           <i class="fa-solid fa-triangle-exclamation text-rose-500 mt-0.5"></i>
           <span>
@@ -380,7 +380,7 @@
             <div>
               <div class="flex items-center gap-2 mb-2">
                 <i id="defiFreshIcon" class="fa-solid fa-traffic-light text-slate-500"></i>
-                <h4 class="font-bold text-slate-900 text-sm">매장 생명력 지수</h4>
+                <h4 class="font-bold text-slate-900 text-sm">플레이스 정보 보완 항목</h4>
                 <span id="defiFreshBadge" class="ml-auto text-[11px] font-bold px-2 py-0.5 rounded-full"></span>
               </div>
               <p class="text-[11px] text-slate-600 leading-relaxed mb-3">
@@ -1509,6 +1509,11 @@
       if (!data.isDirectCompare && stats.distanceFromMeKm?.count) {
         rankMeta.textContent += ` · 상위 경쟁사와의 평균 직선거리 ${stats.distanceFromMeKm.avg.toLocaleString()}km`;
       }
+
+      // 결과에서 먼저 결론을 보고, 이후에 순위·세부 지표를 확인할 수 있게 한다.
+      const prioritySummary = document.getElementById('prioritySummary');
+      const resultOverviewGrid = document.getElementById('resultOverviewGrid');
+      if (prioritySummary && resultOverviewGrid) resultOverviewGrid.before(prioritySummary);
 
       const gradeColors = { A: 'bg-emerald-50 text-emerald-700', B: 'bg-amber-50 text-amber-700', C: 'bg-rose-50 text-rose-700' };
       const gradeBadge = document.getElementById('gradeBadge');
