@@ -1,0 +1,282 @@
+query getPlaceDetail(
+  $id: String!, $referrer: String, $deviceType: String, $checkRedirect: Boolean,
+  $buttonsAndBadgesInput: PlaceDetailButtonsAndBadgesInput
+) {
+  business: placeDetail(input: {id: $id, isNx: false, deviceType: $deviceType, referrer: $referrer, checkRedirect: $checkRedirect}) {
+    tabs {
+      ...PlaceDetailTab
+    }
+    houseBanners {
+      ...HouseBanners
+    }
+    accessor {
+      accessor
+      hasAccessor
+      accessorBanner {
+        ...PlaceAccessorBanner
+      }
+    }
+    base {
+      ...PlaceDetailBase
+    }
+    beachInfo {
+      id
+      coveragePeriod {
+        start
+        end
+      }
+      ripCurrent {
+        message
+        measuredAt
+      }
+    }
+    weatherInfo {
+      ...WeatherInfo
+    }
+    weather {
+      landingCode
+    }
+    ${a.cG}
+    visitorReviewPenalty
+    naverBooking {
+      ...PlaceDetailNaverBooking
+    }
+    businessHours {
+      ...BusinessHour
+    }
+    brandPromotion {
+      ...BrandPromotion
+    }
+    cesco {
+      ...Cesco
+    }
+    fsasReviews {
+      ...FsasReviews
+    }
+    visitorReviewStats {
+      ...VisitorReviewStats
+    }
+    busStations {
+      ...BusStation
+    }
+    hasCoupon {
+      ...HasCoupon
+    }
+    hasFeed {
+      ...HasFeed
+    }
+    shopWindow {
+      ...ShopWindow
+    }
+    directories(input: { display: ${c.Su} })  {
+      ...Directories
+    }
+    festivalPerformance {
+      ...FestivalPerformance
+    }
+    encyclopedia {
+      ...Encyclopedia
+    }
+    tickets {
+      ...Tickets
+    }
+    themepark {
+      ...Themepark
+    }
+    businessTools {
+      ...BusinessTools
+    }
+    photoTabInfo {
+      ...PhotoTabInfo
+    }
+    kinQna {
+      ...KinQna
+    }
+    excludeTargets {
+      ...DetailExcludeTargets
+    }
+    newBusinessHours {
+      ...NewBusinessHours
+    }
+    lottery {
+      productNames
+      shopBusinessType
+      isParkingAvailable
+      isAccountTransferAvailable
+      businessHours {
+        ...NewBusinessHours
+      }
+    }
+    tsInspection {
+      tsId
+    }
+    themeparkAttraction {
+      ...ThemeparkAttraction
+    }
+    subwayStations {
+      ...SubwayStations
+    }
+    land {
+      ...ComplexInfo
+    }
+    bank {
+      ...BankResult
+    }
+    movieTimes {
+      ...MovieTime
+    }
+    evChargingStation {
+      ...EvChargingStationResult
+    }
+    hydrogenStation {
+      ...HydrogenStationResult
+    }
+    menuImages {
+      ...MenuImage
+    }
+    mountain {
+      ...Mountain
+    }
+    opinet {
+      ...Opinet
+    }
+    toilet {
+      ...Toilet
+    }
+    nadle {
+      ...Nadle
+    }
+    shelter {
+      ...Shelter
+    }
+    pollingStation {
+      ...PollingStation
+    }
+    informationTab {
+      ...CommonInformation
+    }
+    restArea {
+      ...RestArea
+    }
+    homepages {
+      ...Homepage
+    }
+    sites {
+      ...Sites
+    }
+    jto {
+      ...Jto
+    }
+    parkingPartners {
+      ...ParkingPartner
+    }
+    aniPharm {
+      ...AniPharm
+    }
+    gift {
+      ...Gift
+    }
+    menus {
+      ...Menu
+    }
+    shoppingBranchSummary {
+      ...PlaceShoppingBranchSummary
+    }
+    goodPrice {
+      ...GoodPrice
+    }
+    exp {
+      ${a.co}
+    }
+    relatedPopupstore {
+      ...RelatedPopupstore
+    }
+    description
+    martOffInfo
+    is100YearCertified
+    is100YearSmallManufacturer
+    isAntiqueStore
+    isKtOtherLocal
+    isPostOffice
+    isNFASafetyCertified
+    newOpening
+    visitorReviewMediasTotal
+    isKoreaGrandSale
+    hasAroundItems
+    acceptsCultureDeductionCoupon
+    panorama {
+      indoor {
+        ...PanoramaItem
+      }
+    }
+    dock {
+      ...Dock
+    }
+    panoramaThumbnail {
+      url
+    }
+    images {
+      ...Images
+    }
+    topPhotos {
+      ...TopPhotos
+    }
+    phoneInfo {
+      ...PhoneInfo
+    }
+  }
+}
+${a.T1}
+${a.Fj}
+${a.ht}
+${a.V2}
+${a.SY}
+${a.L2}
+${a.jt}
+${a.x6}
+${a.Yp}
+${a.P2}
+${a.Pf}
+${a.zO}
+${a.S0}
+${a.Ui}
+${a.tm}
+${a.Qh}
+${a.EJ}
+${a.Ol}
+${a.DM}
+${a.sb}
+${a.vp}
+${a.Mg}
+${a.ut}
+${a.qh}
+${a._3}
+${a.vB}
+${a.AF}
+${a.GV}
+${a.wR}
+${a.Wt}
+${a.LY}
+${a.Ry}
+${a.Uh}
+${a.bC}
+${a.UK}
+${a.A_}
+${a.z}
+${a.fn}
+${a.Ld}
+${a.XF}
+${a.ZS}
+${a.Dt}
+${a.zA}
+${a._g}
+${a.oG}
+${a.R_}
+${a.Yr}
+${a.EE}
+${a.BL}
+${a.Y_}
+${a.VV}
+${a.Hb}
+${a.EB}
+${i.k([
