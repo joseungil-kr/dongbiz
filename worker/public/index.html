@@ -1509,6 +1509,11 @@
       if (!data.isDirectCompare && stats.distanceFromMeKm?.count) {
         rankMeta.textContent += ` · 상위 경쟁사와의 평균 직선거리 ${stats.distanceFromMeKm.avg.toLocaleString()}km`;
       }
+      if (observation?.stale) {
+        const retryAt = observation.retryAfter ? new Date(observation.retryAfter).toLocaleString('ko-KR') : '잠시 후';
+        rankMeta.textContent = `최근 성공 관측값을 표시하고 있습니다. 새 수집은 ${retryAt} 이후에 다시 시도합니다. ` + rankMeta.textContent;
+        rankMeta.className = 'text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-xl p-3 my-3 leading-relaxed';
+      }
 
       // 결과에서 먼저 결론을 보고, 이후에 순위·세부 지표를 확인할 수 있게 한다.
       const prioritySummary = document.getElementById('prioritySummary');

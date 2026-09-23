@@ -157,6 +157,35 @@ test('failed collection and failed persistence do not spend daily allowance', as
   }
 });
 
+test('rate-limited keyword reuses its latest successful map observation without a widget retry', async () => {
+  const cache = kv(), keyword = 'Stale keyword';
+  let blocked = false, mapCalls = 0;
+  const app = load('src/index.ts', async (url, init) => {
+    if (url.includes('pcmap-api')) {
+      mapCalls++;
+      if (blocked) return new Response('', { status: 429 });
+      return graphql(Array.from({length: 6}, (_, i) => ({ id: i === 0 ? id : String(8000100 + i), name: 'Store ' + i })), 6);
+    }
+    if (url.endsWith('/feed')) return new Response(feed);
+    const match = url.match(/place\/(\d+)\/home/);
+    assert.ok(match, 'stale observation must not use the legacy search widget');
+    return new Response(detail.replaceAll(id, match[1]));
+  }).default;
+  const ctx = { waitUntil() {} };
+  const request = () => new Request(`https://local/api/gap?placeId=${id}&keyword=${encodeURIComponent(keyword)}`);
+  const first = await app.fetch(request(), { CACHE: cache }, ctx);
+  assert.equal(first.status, 200, await first.text());
+  cache.values.delete(`v9:map-list:v2:place:${keyword}`);
+  blocked = true;
+  const second = await app.fetch(request(), { CACHE: cache }, ctx);
+  const data = await second.json();
+  assert.equal(second.status, 200);
+  assert.equal(data.rankObservation.status, 'stale_success');
+  assert.equal(data.rankObservation.stale, true);
+  assert.equal(mapCalls, 2);
+  assert.ok([...cache.values.keys()].some(key => key.includes(':map-observation:v1:place:') && key.endsWith(':cooldown')));
+});
+
 test('keyword volume keeps related ad keywords, caches them, and never consumes the gap limit', async () => {
   let adCalls = 0;
   const app = load('src/index.ts', async url => {

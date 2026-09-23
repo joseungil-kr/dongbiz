@@ -107,6 +107,14 @@ async function checkKeywordVolumeLimit(env: Env, ip: string): Promise<boolean> {
 
 const PLACE_TTL = 60 * 60 * 24; // 24h
 const KEYWORD_TTL = 60 * 60 * 6; // 6h
+const OBSERVATION_SUCCESS_TTL = 60 * 60 * 24 * 7;
+const OBSERVATION_COOLDOWN_TTL = 60 * 60 * 24;
+type StoredObservation = { listing: SearchListing; savedAt: string };
+type ObservationCooldown = { retryAfter: string; code: string };
+
+function observationKey(category: string, keyword: string) {
+  return `${CACHE_VERSION}:map-observation:v1:${category}:${encodeURIComponent(keyword.toLowerCase())}`;
+}
 
 // places 테이블 upsert. search_histories.place_id가 FK로 이 테이블을 참조하므로,
 // 매장이 관련된 모든 진입점(place/gap)에서 먼저 이 테이블에 존재를 보장해야 한다.
@@ -369,16 +377,45 @@ app.get('/api/gap', async (c) => {
       const category = /미용실|헤어|살롱/.test(keyword! + myStore.category) ? 'hairshop'
         : /맛집|밥집|식당|고기|횟집|카페|음식|한식|중식|일식|양식|백숙|삼계탕/.test(keyword! + myStore.category) ? 'restaurant' : 'place';
       const listKey = `${CACHE_VERSION}:map-list:v2:${category}:${keyword}`;
+      const observationPrefix = observationKey(category, keyword!);
+      const [recentSuccess, cooldown] = await Promise.all([
+        c.env.CACHE?.get<StoredObservation>(`${observationPrefix}:success`, 'json'),
+        c.env.CACHE?.get<ObservationCooldown>(`${observationPrefix}:cooldown`, 'json'),
+      ]);
       let listing = await c.env.CACHE?.get<SearchListing>(listKey, 'json');
       try {
+        if (!listing && cooldown && new Date(cooldown.retryAfter).getTime() > Date.now()) {
+          throw new CollectionError('RATE_LIMITED', 'list');
+        }
         if (!listing) {
           listing = await collectSearchListing(keyword!, category);
-          // A partial failure is usable with an explicit warning, never a six-hour successful cache.
-          if (listing.stopReason !== 'collection_failed') await c.env.CACHE?.put(listKey, JSON.stringify(listing), { expirationTtl: KEYWORD_TTL });
+          if (listing.stopReason !== 'collection_failed') {
+            await Promise.all([
+              c.env.CACHE?.put(listKey, JSON.stringify(listing), { expirationTtl: KEYWORD_TTL }),
+              c.env.CACHE?.put(`${observationPrefix}:success`, JSON.stringify({ listing, savedAt: new Date().toISOString() }), { expirationTtl: OBSERVATION_SUCCESS_TTL }),
+            ]);
+          } else if (listing.errorCode === 'RATE_LIMITED' || listing.errorCode === 'BLOCKED') {
+            const retryAfter = new Date(Date.now() + OBSERVATION_COOLDOWN_TTL * 1000).toISOString();
+            await c.env.CACHE?.put(`${observationPrefix}:cooldown`, JSON.stringify({ retryAfter, code: listing.errorCode }), { expirationTtl: OBSERVATION_COOLDOWN_TTL });
+            if (recentSuccess?.listing) listing = { ...recentSuccess.listing, stale: true, retryAfter, errorCode: listing.errorCode };
+          }
         }
         ranking = listing.items.map(item => item.placeId);
         rankObservation = { ...listing, category };
       } catch (err) {
+        if (err instanceof CollectionError && (err.code === 'RATE_LIMITED' || err.code === 'BLOCKED')) {
+          const retryAfter = cooldown?.retryAfter || new Date(Date.now() + OBSERVATION_COOLDOWN_TTL * 1000).toISOString();
+          if (!cooldown) {
+            await c.env.CACHE?.put(`${observationPrefix}:cooldown`, JSON.stringify({ retryAfter, code: err.code }), { expirationTtl: OBSERVATION_COOLDOWN_TTL });
+          }
+          if (recentSuccess?.listing) {
+            listing = { ...recentSuccess.listing, stale: true, retryAfter, errorCode: err.code };
+            ranking = listing.items.map(item => item.placeId);
+            rankObservation = { ...listing, category };
+          } else {
+            throw err;
+          }
+        } else {
         // Keep existing diagnoses available when the separate map endpoint is blocked.
         const widget = await cached(c.env, `widget:v1:${keyword}`, KEYWORD_TTL, async () => ({
           ids: await getOrganicRanking(keyword!, 14), collectedAt: new Date().toISOString(),
@@ -387,6 +424,7 @@ app.get('/api/gap', async (c) => {
         rankObservation = { source: 'naver-search-widget', collectedAt: widget.collectedAt,
           complete: false, stopReason: 'collection_failed', limit: 350, pages: 0,
           errorCode: err instanceof CollectionError ? err.code : 'UNKNOWN', items: [] };
+        }
       }
       if (!ranking || ranking.length === 0) {
         return c.json({ error: `"${keyword}" 키워드의 검색 결과를 찾을 수 없습니다.` }, 404);
@@ -395,7 +433,7 @@ app.get('/api/gap', async (c) => {
       const myRankIndex = ranking.indexOf(placeId);
       myRank = myRankIndex >= 0 ? myRankIndex + 1 : null;
       rankObservation = { ...rankObservation, searched: ranking.length,
-        status: myRank ? 'found' : rankObservation.stopReason === 'collection_failed' ? 'unconfirmed' : 'not_found_in_range' };
+        status: rankObservation.stale ? 'stale_success' : (myRank ? 'found' : rankObservation.stopReason === 'collection_failed' ? 'unconfirmed' : 'not_found_in_range') };
 
       const top10Ids = ranking.slice(0, TOP_N).filter(id => id !== placeId);
       if (top10Ids.length === 0) {
@@ -2694,8 +2732,6 @@ export default {
     }
   },
 };
-
-
 
 
 

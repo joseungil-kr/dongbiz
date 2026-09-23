@@ -111,7 +111,7 @@ test('legacy cached empty ranking is ignored and failures are not re-cached', as
   let calls = 0;
   const app = load('src/index.ts', async () => { calls++; return new Response('blocked', { status: 429 }); }).default;
   const res = await app.fetch(new Request(`https://local.test/api/gap?placeId=${id}&keyword=test`), { CACHE: cache }, { waitUntil() {} });
-  assert.equal(res.status, 503); assert.equal(calls, 2); // map request then legacy widget fallback
+  assert.equal(res.status, 503); assert.equal(calls, 1); // rate limit must not trigger a legacy widget retry
   assert.equal((await res.json()).code, 'RATE_LIMITED');
 });
 
