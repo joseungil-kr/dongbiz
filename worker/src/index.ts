@@ -140,7 +140,7 @@ async function insertRankSnapshotRows(
   db: D1Database | undefined,
   keyword: string,
   entries: SnapshotEntry[],
-  source: 'user' | 'cron'
+  source: 'user' | 'cron' | 'analytics'
 ) {
   if (!db || entries.length === 0) return;
   try {
@@ -1067,6 +1067,7 @@ async function eligibleRankKeywordSummaries(db: D1Database): Promise<any[]> {
            COUNT(DISTINCT place_id) AS places
     FROM rank_snapshots
     WHERE keyword != '__watch__' AND rank IS NOT NULL
+      AND (source IS NULL OR source != 'analytics')
       AND (sort_mode = 'popular' OR sort_mode IS NULL)
       AND (is_ad = 0 OR is_ad IS NULL)
     GROUP BY keyword HAVING obs >= 2
@@ -1428,6 +1429,7 @@ app.get('/rank/:keyword', async (c) => {
     SELECT place_id, place_name, rank, visitor_reviews, blog_reviews, vote_count, photo_count, source, collected_at
     FROM rank_snapshots
     WHERE keyword = ? AND rank IS NOT NULL
+      AND (source IS NULL OR source != 'analytics')
       AND (sort_mode = 'popular' OR sort_mode IS NULL)
       AND (is_ad = 0 OR is_ad IS NULL)
     ORDER BY collected_at ASC
@@ -1677,20 +1679,11 @@ const navItem = (href: string, label: string, tip: string, blank = false) =>
 const ADMIN_NAV = `<nav class="nav">
   <span class="sep first">진단</span>
   ${navItem('/admin', '진단 리스트', '사장님들이 실제로 돌린 진단 최신 100건. 원본 데이터 검증용.')}
-  ${navItem('/admin?view=report', '개선리포트', '같은 목록을 "고객에게 보낼 리포트 찾기" 관점으로 본다. 매장명을 누르면 주석 달린 리포트가 열리고, 인쇄로 PDF 저장.')}
   <span class="sep">분석</span>
   ${navItem('/admin/analytics', '지표 분석', '키워드별 순위 시계열. 순위가 바뀐 시점에 어떤 지표가 함께 움직였는지 대조한다. 리버스엔지니어링의 핵심 화면.')}
-  ${navItem('/admin/analytics/market', '시장 통계', '고정 리서치 키워드 8개의 상위권 평균/중앙값. "이 시장이 얼마나 경쟁적인가"를 본다. 의료 업종은 분리 표기.')}
-  ${navItem('/admin/text-match', '키워드 매칭', '검색 키워드가 상위권 업체의 대표키워드·상세설명·메뉴명·투표키워드에 들어 있는지 대조한다. 단면 비교라 인과가 아니다 — 화면 안의 경고를 읽을 것.')}
   <span class="sep">공개</span>
   ${navItem('/rank', '순위 페이지', '고객에게 공개되는 키워드별 순위 문서. 검색 유입용.', true)}
-  ${navItem('/admin/periodic-keywords', '주기 키워드', '공개 순위용 키워드만 등록합니다. 매장·사용자 진단 키워드는 자동 수집하지 않습니다.')}
-  <span class="sep">수동 수집</span>
-  ${navItem('/admin/cron/run/fixed-a', '고정A', '누르면 즉시 실행 · 고정 리서치 키워드 앞 4개(강남맛집·명동맛집·부산맛집·해운대맛집)를 개별 스크랩. 자동으로는 매일 13:00 KST. 같은 job을 연타하면 네이버 일시 제한에 걸린다.')}
-  ${navItem('/admin/cron/run/fixed-b', '고정B', '누르면 즉시 실행 · 고정 리서치 키워드 뒤 4개(제주도맛집·강남미용실·홍대미용실·강남성형외과)를 개별 스크랩. 자동으로는 매일 21:00 KST. 앞뒤로 나눈 이유는 8개를 한 번에 돌리면 요청 한도를 넘기 때문.')}
-  ${navItem('/admin/cron/run/user-driven', '사용자 키워드', '누르면 즉시 실행 · 사장님들이 검색했던 키워드를 최근순으로 최대 3개 재수집해 시계열을 잇는다. 자동으로는 매일 17:00 KST.')}
-  ${navItem('/admin/cron/run/place-lists', '목록수집', '누르면 즉시 실행 · pcmap 목록에서 키워드당 최대 50곳을 정렬 3축(관련도·저장순·요즘뜨는)으로 수집 + 워치리스트 개별 추적. 저장수가 여기서만 나온다. 자동으로는 매일 15:00 KST. 약 75초 걸린다.')}
-  ${navItem('/admin/cron/run/place-texts', '텍스트수집', '누르면 즉시 실행 · 키워드별 상위 10곳의 개별 페이지에서 대표키워드·상세설명·메뉴명·투표키워드를 받아온다. 목록수집에는 이 4개가 없다. 최근 30일 안에 받아둔 업체는 건너뛰므로 두 번째부터는 거의 즉시 끝난다. 자동으로는 매일 17:00 KST.')}
+  ${navItem('/admin/periodic-keywords', '주기 수집', '공개 순위 또는 지표 분석용 키워드만 등록합니다. 매장·사용자 진단 키워드는 자동 수집하지 않습니다.')}
   <span class="sep">연동</span>
   ${navItem('/admin/cron/run/indexnow', 'IndexNow 통보', '누르면 즉시 실행 · 사이트맵의 모든 URL을 IndexNow(네이버, 빙 등)에 실시간으로 색인(Indexing) 통보합니다.')}
 </nav>`;
@@ -1795,7 +1788,7 @@ app.get("/api/test-graphql2", async (c) => {
       <td>${r.my_rank ? r.my_rank + '위' : '미발견/미확인'}</td>
       <td><span class="badge grade-${escapeHtml(r.grade_reviews || 'B')}">${escapeHtml(r.grade_reviews || '-')}</span></td>
       <td>${r.my_reviews ?? '-'} / 평균 ${r.top10_avg_reviews ?? '-'}</td>
-      <td><a href="/admin/${escapeHtml(r.share_id)}/report" target="_blank"><b>개선리포트</b></a> · <a href="/admin/${escapeHtml(r.share_id)}">원본데이터</a> · <a href="/share/${escapeHtml(r.share_id)}" target="_blank">공유링크</a></td>
+      <td><a href="/share/${escapeHtml(r.share_id)}" target="_blank"><b>원본리포트</b></a> · <a href="/admin/${escapeHtml(r.share_id)}/report-email-preview" target="_blank">개선리포트(이메일)</a> · <a href="/admin/${escapeHtml(r.share_id)}/report" target="_blank">개선리포트(관리자)</a> <span style="color:#64748B;font-size:11px;">: 하단에 관리자 전용 월간검색량 포함됨</span> · <a href="/admin/${escapeHtml(r.share_id)}">원본데이터</a></td>
     </tr>`).join('');
 
   const bypassUrl = c.env.RATE_LIMIT_BYPASS_TOKEN ? `/?bypass=${c.env.RATE_LIMIT_BYPASS_TOKEN}` : null;
@@ -1843,7 +1836,7 @@ app.get('/admin/analytics', async (c) => {
 <body>
   ${ADMIN_NAV}
   <h1>상위노출 지표 분석 — 키워드별 관측 현황</h1>
-  <p style="font-size:13px;color:#64748B;margin:8px 0 16px;">업체별 순위 추이(순위가 바뀔 때 어떤 지표가 같이 움직였는지). 사용자가 직접 진단한 키워드는 한 번 검색하면 매일 자동 재수집되고(cron, 최대 ${CRON_KEYWORD_BATCH_LIMIT}개/일), 강남맛집 등 고정 리서치 키워드 8개도 매일 상위 7곳씩 여기 함께 쌓인다. 위 "시장 통계"는 같은 고정 키워드의 평균/중앙값 집계만 따로 본다.</p>
+  <p style="font-size:13px;color:#64748B;margin:8px 0 16px;">업체별 순위 추이와 지표 변화를 대조합니다. 같은 날 여러 번 기록된 경우 마지막 관측만 표시합니다. 주기 수집 화면에서 ‘지표 분석’ 키워드를 등록하면 야간 수집 대상으로 관리할 수 있습니다.</p>
   <table>
     <thead><tr><th>키워드</th><th>스냅샷</th><th>관측 기간</th><th>자동수집</th><th></th></tr></thead>
     <tbody>${rows || '<tr><td colspan="5">아직 수집된 데이터가 없습니다.</td></tr>'}</tbody>
@@ -1860,41 +1853,41 @@ app.get('/admin/periodic-keywords', async (c) => {
     SELECT pk.*, (
       SELECT COUNT(DISTINCT rs.collected_at) FROM rank_snapshots rs
       WHERE rs.keyword = pk.keyword AND rs.rank IS NOT NULL
+        AND (rs.source IS NULL OR rs.source != 'analytics')
         AND (rs.sort_mode = 'popular' OR rs.sort_mode IS NULL)
         AND (rs.is_ad = 0 OR rs.is_ad IS NULL)
     ) AS observations
     FROM periodic_keywords pk ORDER BY active DESC, keyword
   `).all();
   const rows = (results as any[]).map(r => `<tr>
-    <td><b>${escapeHtml(r.keyword)}</b><br><span style="font-size:11px;color:#64748B">${escapeHtml(r.category)}</span></td>
+    <td><b>${escapeHtml(r.keyword)}</b><br><span style="font-size:11px;color:#64748B">공개 순위 · 상세 지표</span></td>
     <td>${r.active ? '활성' : '중지'}</td>
     <td>${r.interval_hours}시간<br><span style="font-size:11px;color:#64748B">관측 ${r.observations}/2회 ${r.observations >= 2 ? '· 공개 가능' : '· 1회 더 필요'}</span></td>
     <td>${escapeHtml(fmtKST(r.last_success_at) || '-')}</td>
-    <td>${escapeHtml(fmtKST(r.next_run_at) || '-')}</td>
+    <td>${escapeHtml(fmtKST(r.next_run_at) || '-')}<br><span style="font-size:11px;color:#64748B">예상 실행 ${escapeHtml(fmtKST(nextPeriodicSlot(r.next_run_at)))}</span></td>
     <td>${escapeHtml(r.last_error_code || '-')}</td>
     <td><form method="post" action="/admin/periodic-keywords/${encodeURIComponent(r.keyword)}/toggle"><button>${r.active ? '중지' : '활성화'}</button></form></td>
   </tr>`).join('');
   return c.html(`<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><title>동네장사 관리자 - 주기 키워드</title><style>${ADMIN_STYLE}</style></head><body>
-  ${ADMIN_NAV}<h1>공개 순위 주기 키워드</h1>
-  <p style="font-size:13px;color:#64748B">매장·사용자 진단은 요청 시에만 수집합니다. 매일 15:00 KST에 실행 가능한 키워드 1개만 관련도 목록으로 관측합니다.</p>
-  ${c.req.query('result') ? `<p role="status" style="background:#ECFDF5;border:1px solid #A7F3D0;color:#065F46;border-radius:8px;padding:10px 12px;font-size:13px">${escapeHtml(c.req.query('result')!)}. 공개 순위 페이지는 같은 키워드가 2회 관측된 뒤 표시됩니다.</p>` : ''}
+  ${ADMIN_NAV}<h1>주기 수집 키워드</h1>
+  <p style="font-size:13px;color:#64748B">매장·사용자 진단은 요청 시에만 수집합니다. KST 01:00–05:00에 15분 간격으로 실행 가능한 키워드 1개만 처리합니다.</p>
+  ${c.req.query('result') ? `<p role="status" style="background:#ECFDF5;border:1px solid #A7F3D0;color:#065F46;border-radius:8px;padding:10px 12px;font-size:13px">${escapeHtml(c.req.query('result')!)}. 공개 순위는 같은 키워드가 2회 관측된 뒤 표시됩니다.</p>` : ''}
   <form method="post" action="/admin/periodic-keywords" class="card" style="display:flex;gap:8px;align-items:end;flex-wrap:wrap">
     <label>키워드<br><input name="keyword" required maxlength="60" placeholder="예: 안산 닭한마리 맛집"></label>
-    <label>업종<br><select name="category"><option value="restaurant">음식점</option><option value="hairshop">미용실</option></select></label>
-    <label>주기(시간)<br><input name="intervalHours" type="number" min="24" value="72"></label>
+    <label>주기(시간)<br><input name="intervalHours" type="number" min="24" value="48"></label>
     <button type="submit">등록</button>
   </form>
   <form method="post" action="/admin/periodic-keywords/run"><button type="submit">지금 실행 가능한 키워드 1개 수집</button></form>
-  <table><thead><tr><th>키워드</th><th>상태</th><th>주기</th><th>최근 성공</th><th>다음 실행</th><th>최근 오류</th><th></th></tr></thead><tbody>${rows || '<tr><td colspan="7">등록된 키워드가 없습니다.</td></tr>'}</tbody></table>
+  <table><thead><tr><th>키워드</th><th>상태</th><th>주기</th><th>최근 성공</th><th>다음 수집 가능</th><th>최근 오류</th><th></th></tr></thead><tbody>${rows || '<tr><td colspan="7">등록된 키워드가 없습니다.</td></tr>'}</tbody></table>
   </body></html>`);
 });
 
 app.post('/admin/periodic-keywords', async (c) => {
   const body = await c.req.parseBody();
   const keyword = String(body.keyword || '').trim().replace(/\s+/g, ' ');
-  const category = String(body.category || '');
-  const intervalHours = Math.max(24, Math.min(24 * 30, Number(body.intervalHours) || 72));
-  if (!keyword || keyword.length > 60 || !['restaurant', 'hairshop'].includes(category)) return c.text('입력값이 올바르지 않습니다.', 400);
+  const category = inferPeriodicCategory(keyword);
+  const intervalHours = Math.max(24, Math.min(24 * 30, Number(body.intervalHours) || 48));
+  if (!keyword || keyword.length > 60) return c.text('입력값이 올바르지 않습니다.', 400);
   await c.env.DB.prepare(`
     INSERT INTO periodic_keywords (keyword, category, interval_hours, active)
     VALUES (?, ?, ?, 1)
@@ -1919,6 +1912,7 @@ app.post('/admin/periodic-keywords/run', async (c) => {
 });
 
 app.get('/admin/cron/run/:job', async (c) => {
+  return c.text('이전 수동 수집 기능은 제거되었습니다. 주기 수집 화면을 사용하세요.', 410);
   const job = c.req.param('job');
   if (job === 'periodic') return c.text(await runOnePeriodicKeyword(c.env));
   if (job === 'fixed-a') {
@@ -2114,51 +2108,6 @@ app.get('/admin/text-match/:keyword', async (c) => {
 </body></html>`);
 });
 
-// 관리자: 리서치 고정 키워드 시장 통계 — 업체 식별 없이 상위 10곳 평균/중앙값/비율만.
-// medical(성형외과 등)은 의료광고법상 랭킹 로직이 다를 수 있어 표를 분리한다.
-app.get('/admin/analytics/market', async (c) => {
-  const db = c.env.DB;
-  if (!db) return c.text('DB 미설정', 500);
-
-  const { results } = await db.prepare(`
-    SELECT k.* FROM keyword_rank_stats k
-    INNER JOIN (SELECT keyword, MAX(collected_at) as max_c FROM keyword_rank_stats GROUP BY keyword) m
-      ON k.keyword = m.keyword AND k.collected_at = m.max_c
-    ORDER BY k.category, k.keyword
-  `).all();
-
-  const rowsFor = (rows: any[]) => rows.map(r => `
-    <tr>
-      <td><b>${escapeHtml(r.keyword)}</b></td>
-      <td>${r.organic_count}곳</td>
-      <td>${r.avg_visitor_reviews} / ${r.median_visitor_reviews}</td>
-      <td>${r.avg_blog_reviews} / ${r.median_blog_reviews}</td>
-      <td>${r.avg_vote_count}</td>
-      <td>${r.avg_photo_count}</td>
-      <td>${r.avg_review_score ?? '-'}</td>
-      <td>${Math.round((r.booking_rate ?? 0) * 100)}%</td>
-      <td>${Math.round((r.new_opening_rate ?? 0) * 100)}%</td>
-      <td style="color:#94A3B8;font-size:11px;">${escapeHtml(fmtKST(r.collected_at))}</td>
-    </tr>`).join('');
-
-  const general = (results as any[]).filter(r => r.category !== 'medical');
-  const medical = (results as any[]).filter(r => r.category === 'medical');
-  const thead = `<thead><tr><th>키워드</th><th>오가닉수</th><th>방문자리뷰(평균/중앙)</th><th>블로그리뷰(평균/중앙)</th><th>투표수(평균)</th><th>사진수(평균)</th><th>평점(평균)</th><th>예약연동율</th><th>신규오픈율</th><th>최근수집</th></tr></thead>`;
-
-  return c.html(`<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><title>동네장사 관리자 - 리서치 시장 통계</title><style>${ADMIN_STYLE}</style></head>
-<body>
-  ${ADMIN_NAV}
-  <h1>리서치 고정 키워드 — 시장 통계</h1>
-  <p style="font-size:13px;color:#64748B;margin:-8px 0 16px;">경쟁이 치열해 순위 변동이 잦은 유명 키워드를 매일 고정 관측한다. 업체 식별 없이 상위 10곳의 평균/중앙값/비율만 남긴다.</p>
-
-  <h2 style="font-size:15px;">일반 업종</h2>
-  <table>${thead}<tbody>${rowsFor(general) || '<tr><td colspan="10">아직 수집된 데이터가 없습니다. cron이 하루 한 번 자동 수집합니다.</td></tr>'}</tbody></table>
-
-  <h2 style="font-size:15px;margin-top:24px;">⚕️ 의료 업종 (분석 시 반드시 분리 — 의료광고법상 랭킹 로직이 다를 수 있음)</h2>
-  <table>${thead}<tbody>${rowsFor(medical) || '<tr><td colspan="10">아직 수집된 데이터가 없습니다.</td></tr>'}</tbody></table>
-</body></html>`);
-});
-
 // 관리자: 키워드 1개의 순위 추이 + 순위변동 이벤트(지표 델타). 리버스엔지니어링의 핵심 화면.
 app.get('/admin/analytics/:keyword', async (c) => {
   const db = c.env.DB;
@@ -2171,10 +2120,17 @@ app.get('/admin/analytics/:keyword', async (c) => {
   // 반드시 축 하나만 골라서 본다. 구버전 행은 sort_mode가 NULL이고 관련도순에 해당한다.
   const sortMode = c.req.query('sort') || 'popular';
   const { results } = await db.prepare(`
-    SELECT * FROM rank_snapshots
-    WHERE keyword = ? AND (sort_mode = ? OR (sort_mode IS NULL AND ? = 'popular'))
-    ORDER BY collected_at ASC
-  `).bind(keyword, sortMode, sortMode).all();
+    WITH latest_daily AS (
+      SELECT MAX(collected_at) AS collected_at
+      FROM rank_snapshots
+      WHERE keyword = ? AND (sort_mode = ? OR (sort_mode IS NULL AND ? = 'popular'))
+      GROUP BY date(collected_at, '+9 hours')
+    )
+    SELECT rs.* FROM rank_snapshots rs
+    INNER JOIN latest_daily d ON d.collected_at = rs.collected_at
+    WHERE rs.keyword = ? AND (rs.sort_mode = ? OR (rs.sort_mode IS NULL AND ? = 'popular'))
+    ORDER BY rs.collected_at ASC
+  `).bind(keyword, sortMode, sortMode, keyword, sortMode, sortMode).all();
 
   const snapshots = results as any[];
   if (snapshots.length === 0) {
@@ -2479,11 +2435,31 @@ type PeriodicKeyword = {
   interval_hours: number;
 };
 
-const PERIODIC_KEYWORD_CRON = '0 6 * * *'; // 15:00 KST, one due keyword at a time
+const PERIODIC_KEYWORD_CRONS = new Set(['*/15 16-19 * * *', '0 20 * * *']);
 const PERIODIC_FAILURE_COOLDOWN_HOURS = 24;
 
 function sqlDateAfter(hours: number) {
   return new Date(Date.now() + hours * 60 * 60 * 1000).toISOString().slice(0, 19).replace('T', ' ');
+}
+
+function nextPeriodicSlot(eligibleAt: string | null | undefined): string {
+  const eligible = eligibleAt ? new Date(eligibleAt.replace(' ', 'T') + 'Z') : new Date();
+  const base = new Date(Math.max(eligible.getTime(), Date.now()));
+  const kst = new Date(base.getTime() + 9 * 60 * 60 * 1000);
+  let year = kst.getUTCFullYear(), month = kst.getUTCMonth(), day = kst.getUTCDate();
+  let hour = kst.getUTCHours(), minute = kst.getUTCMinutes();
+  if (hour < 1) { hour = 1; minute = 0; }
+  else if (hour > 5 || (hour === 5 && (minute > 0 || kst.getUTCSeconds() > 0))) { day += 1; hour = 1; minute = 0; }
+  else {
+    minute = Math.ceil(minute / 15) * 15;
+    if (minute === 60) { hour += 1; minute = 0; }
+    if (hour > 5 || (hour === 5 && minute > 0)) { day += 1; hour = 1; minute = 0; }
+  }
+  return new Date(Date.UTC(year, month, day, hour - 9, minute)).toISOString().slice(0, 19).replace('T', ' ');
+}
+
+function inferPeriodicCategory(keyword: string): 'restaurant' | 'hairshop' {
+  return /미용실|헤어|살롱/.test(keyword) ? 'hairshop' : 'restaurant';
 }
 
 async function collectPeriodicKeyword(env: Env, target: PeriodicKeyword): Promise<string> {
@@ -2507,13 +2483,15 @@ async function collectPeriodicKeyword(env: Env, target: PeriodicKeyword): Promis
       item.visitorReviewCount, item.blogCafeReviewCount, item.totalReviewCount, item.imageCount,
       item.saveCountRaw, item.saveCountMin, item.isAd ? 1 : 0, item.hasBooking ? 1 : 0,
     ));
-    writes.push(db.prepare(`
+    await db.batch(writes);
+    const detailed = await collectKeywordSnapshot(env, target.keyword, 'analytics');
+    if (!detailed) throw new Error('EMPTY_DETAIL_RESULT');
+    await db.prepare(`
       UPDATE periodic_keywords
       SET last_success_at = CURRENT_TIMESTAMP, last_error_code = NULL, next_run_at = ?, updated_at = CURRENT_TIMESTAMP
       WHERE keyword = ?
-    `).bind(sqlDateAfter(target.interval_hours), target.keyword));
-    await db.batch(writes);
-    return `${target.keyword}: 관련도 목록 ${items.length}곳 기록`;
+    `).bind(sqlDateAfter(target.interval_hours), target.keyword).run();
+    return `${target.keyword}: 관련도 목록 ${items.length}곳 · 상세 지표 ${detailed}곳 기록`;
   } catch (err) {
     const code = err instanceof CollectionError ? err.code : (err instanceof Error ? err.message : 'UNKNOWN');
     await db.prepare(`
@@ -2554,19 +2532,21 @@ const FIXED_RESEARCH_KEYWORDS: Array<{ keyword: string; category: 'general' | 'm
   { keyword: '강남성형외과', category: 'medical' },
 ];
 
-async function collectKeywordSnapshot(env: Env, keyword: string) {
+async function collectKeywordSnapshot(env: Env, keyword: string, source: 'cron' | 'analytics' = 'cron'): Promise<number> {
   try {
     const ranking = await getOrganicRanking(keyword, 14);
-    if (ranking.length === 0) return;
+    if (ranking.length === 0) return 0;
     const topIds = ranking.slice(0, 10);
     const stores = await Promise.all(topIds.map(id => scrapeFullPlaceMetrics(id)));
     stores.forEach((s: any) => {
       s.rankFactors = { ...keywordMatch(keyword, s.name, s.category), distanceFromMeKm: null };
     });
     const entries: SnapshotEntry[] = stores.map((s: any, i: number) => ({ id: s.placeId, name: s.name, rank: i + 1, s }));
-    await insertRankSnapshotRows(env.DB, keyword, entries, 'cron');
+    await insertRankSnapshotRows(env.DB, keyword, entries, source);
+    return entries.length;
   } catch (err) {
     console.error(`키워드 자동수집 실패("${keyword}"):`, err);
+    throw err;
   }
 }
 
@@ -2863,6 +2843,6 @@ const CRON_TIMES = {
 export default {
   fetch: app.fetch,
   scheduled: async (event: ScheduledEvent, env: Env, ctx: ExecutionContext) => {
-    if (event.cron === PERIODIC_KEYWORD_CRON) ctx.waitUntil(runOnePeriodicKeyword(env));
+    if (PERIODIC_KEYWORD_CRONS.has(event.cron)) ctx.waitUntil(runOnePeriodicKeyword(env));
   },
 };

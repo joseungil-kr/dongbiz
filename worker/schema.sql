@@ -24,8 +24,9 @@ CREATE TABLE IF NOT EXISTS places (
 CREATE TABLE IF NOT EXISTS periodic_keywords (
     keyword TEXT PRIMARY KEY,
     category TEXT NOT NULL CHECK (category IN ('restaurant', 'hairshop')),
+    collection_mode TEXT NOT NULL DEFAULT 'rank' CHECK (collection_mode IN ('rank', 'analytics')),
     active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
-    interval_hours INTEGER NOT NULL DEFAULT 72 CHECK (interval_hours >= 24),
+    interval_hours INTEGER NOT NULL DEFAULT 48 CHECK (interval_hours >= 24),
     last_attempt_at DATETIME,
     last_success_at DATETIME,
     last_error_code TEXT,

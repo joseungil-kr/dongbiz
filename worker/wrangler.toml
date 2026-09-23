@@ -24,7 +24,8 @@ id = "4063e07d64ba4db4a7e8ff6195e6735b"
 # 사용자 검색 재수집, pcmap 목록, 워치리스트, 텍스트 수집 및 백세보리밥 헬스체크를 실행하지 않는다.
 # 고객이 직접 실행하는 Step 1/2 요청은 이 설정과 별개로 유지한다.
 [triggers]
-crons = ["0 6 * * *"]
+# UTC 16:00–20:00 = KST 01:00–05:00. One due keyword runs per 15-minute slot.
+crons = ["*/15 16-19 * * *", "0 20 * * *"]
 
 # 텔레그램/구글시트 알림 시크릿 (§8.2-A). 값은 git에 올리지 않는다.
 # 배포: npx wrangler secret put TELEGRAM_BOT_TOKEN  (TELEGRAM_CHAT_ID, SHEETS_WEBHOOK_URL도 동일)

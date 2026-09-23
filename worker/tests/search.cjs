@@ -256,16 +256,43 @@ test('only registered periodic keywords are scheduled for rank collection', () =
   assert.match(migration, /안산 닭한마리 맛집/); assert.match(migration, /강남 미용실/);
   assert.match(source, /async function runOnePeriodicKeyword/);
   assert.match(source, /LIMIT 1/);
-  assert.match(source, /PERIODIC_KEYWORD_CRON = '0 6 \* \* \*'/);
-  assert.match(source, /event\.cron === PERIODIC_KEYWORD_CRON/);
-  assert.match(wrangler, /crons = \["0 6 \* \* \*"\]/);
+  assert.match(source, /PERIODIC_KEYWORD_CRONS = new Set/);
+  assert.match(source, /PERIODIC_KEYWORD_CRONS\.has\(event\.cron\)/);
+  assert.match(wrangler, /\*\/15 16-19 \* \* \*/);
+  assert.match(wrangler, /0 20 \* \* \*/);
 });
 test('periodic keyword admin reports collection progress before a public rank page exists', () => {
   const source = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'src', 'index.ts'), 'utf8');
   assert.match(source, /관측 \$\{r\.observations\}\/2회/);
-  assert.match(source, /공개 순위 페이지는 같은 키워드가 2회 관측된 뒤 표시됩니다/);
+  assert.match(source, /공개 순위는 같은 키워드가 2회 관측된 뒤 표시됩니다/);
   assert.match(source, /app\.post\('\/admin\/periodic-keywords\/run'/);
   assert.match(source, /role="status"/);
+  assert.match(source, /function inferPeriodicCategory/);
+  assert.match(source, /관련도 목록 \$\{items\.length\}곳 · 상세 지표 \$\{detailed\}곳 기록/);
+  assert.match(source, /value="48"/);
+  assert.doesNotMatch(source, /name="mode"/);
+  assert.doesNotMatch(source, /name="category"/);
+});
+test('analytics chart keeps only the last KST observation batch for each day', () => {
+  const source = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'src', 'index.ts'), 'utf8');
+  assert.match(source, /WITH latest_daily AS/);
+  assert.match(source, /GROUP BY date\(collected_at, '\+9 hours'\)/);
+  assert.match(source, /MAX\(collected_at\) AS collected_at/);
+});
+test('admin links separate customer, email, admin and raw report views', () => {
+  const source = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'src', 'index.ts'), 'utf8');
+  assert.match(source, /원본리포트/);
+  assert.match(source, /개선리포트\(이메일\)/);
+  assert.match(source, /개선리포트\(관리자\)/);
+  assert.match(source, /원본데이터/);
+  assert.doesNotMatch(source, /navItem\('\/admin\?view=report'/);
+});
+test('periodic admin distinguishes eligible time from the next night slot', () => {
+  const source = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'src', 'index.ts'), 'utf8');
+  assert.match(source, /다음 수집 가능/);
+  assert.match(source, /예상 실행/);
+  assert.match(source, /function nextPeriodicSlot/);
+  assert.match(source, /Math\.ceil\(minute \/ 15\) \* 15/);
 });
 test('report guide is anchored below the email form and does not imply a 350-result scan', () => {
   const html = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'public', 'index.html'), 'utf8');
