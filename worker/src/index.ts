@@ -1684,6 +1684,7 @@ const ADMIN_NAV = `<nav class="nav">
   ${navItem('/admin/text-match', '키워드 매칭', '검색 키워드가 상위권 업체의 대표키워드·상세설명·메뉴명·투표키워드에 들어 있는지 대조한다. 단면 비교라 인과가 아니다 — 화면 안의 경고를 읽을 것.')}
   <span class="sep">공개</span>
   ${navItem('/rank', '순위 페이지', '고객에게 공개되는 키워드별 순위 문서. 검색 유입용.', true)}
+  ${navItem('/admin/periodic-keywords', '주기 키워드', '공개 순위용 키워드만 등록합니다. 매장·사용자 진단 키워드는 자동 수집하지 않습니다.')}
   <span class="sep">수동 수집</span>
   ${navItem('/admin/cron/run/fixed-a', '고정A', '누르면 즉시 실행 · 고정 리서치 키워드 앞 4개(강남맛집·명동맛집·부산맛집·해운대맛집)를 개별 스크랩. 자동으로는 매일 13:00 KST. 같은 job을 연타하면 네이버 일시 제한에 걸린다.')}
   ${navItem('/admin/cron/run/fixed-b', '고정B', '누르면 즉시 실행 · 고정 리서치 키워드 뒤 4개(제주도맛집·강남미용실·홍대미용실·강남성형외과)를 개별 스크랩. 자동으로는 매일 21:00 KST. 앞뒤로 나눈 이유는 8개를 한 번에 돌리면 요청 한도를 넘기 때문.')}
@@ -1854,8 +1855,61 @@ app.get('/admin/analytics', async (c) => {
 // "다음 정기 실행까지 안 기다리고 지금 바로 씨앗 심고 싶다" 같은 경우에 쓴다.
 // 고정 키워드는 원래 크론과 동일하게 앞/뒤 4개씩 나눠서 호출해야 한다 — 8개를 한 번에
 // 부르면 이것도 똑같이 subrequest 한도(50)를 넘는다.
+app.get('/admin/periodic-keywords', async (c) => {
+  const { results } = await c.env.DB.prepare(`
+    SELECT keyword, category, active, interval_hours, last_attempt_at, last_success_at, last_error_code, next_run_at
+    FROM periodic_keywords ORDER BY active DESC, keyword
+  `).all();
+  const rows = (results as any[]).map(r => `<tr>
+    <td><b>${escapeHtml(r.keyword)}</b><br><span style="font-size:11px;color:#64748B">${escapeHtml(r.category)}</span></td>
+    <td>${r.active ? '활성' : '중지'}</td>
+    <td>${r.interval_hours}시간</td>
+    <td>${escapeHtml(fmtKST(r.last_success_at) || '-')}</td>
+    <td>${escapeHtml(fmtKST(r.next_run_at) || '-')}</td>
+    <td>${escapeHtml(r.last_error_code || '-')}</td>
+    <td><form method="post" action="/admin/periodic-keywords/${encodeURIComponent(r.keyword)}/toggle"><button>${r.active ? '중지' : '활성화'}</button></form></td>
+  </tr>`).join('');
+  return c.html(`<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><title>동네장사 관리자 - 주기 키워드</title><style>${ADMIN_STYLE}</style></head><body>
+  ${ADMIN_NAV}<h1>공개 순위 주기 키워드</h1>
+  <p style="font-size:13px;color:#64748B">매장·사용자 진단은 요청 시에만 수집합니다. 매일 15:00 KST에 실행 가능한 키워드 1개만 관련도 목록으로 관측합니다.</p>
+  <form method="post" action="/admin/periodic-keywords" class="card" style="display:flex;gap:8px;align-items:end;flex-wrap:wrap">
+    <label>키워드<br><input name="keyword" required maxlength="60" placeholder="예: 안산 닭한마리 맛집"></label>
+    <label>업종<br><select name="category"><option value="restaurant">음식점</option><option value="hairshop">미용실</option></select></label>
+    <label>주기(시간)<br><input name="intervalHours" type="number" min="24" value="72"></label>
+    <button type="submit">등록</button>
+  </form>
+  <p><a href="/admin/cron/run/periodic">지금 실행 가능한 키워드 1개 수집</a></p>
+  <table><thead><tr><th>키워드</th><th>상태</th><th>주기</th><th>최근 성공</th><th>다음 실행</th><th>최근 오류</th><th></th></tr></thead><tbody>${rows || '<tr><td colspan="7">등록된 키워드가 없습니다.</td></tr>'}</tbody></table>
+  </body></html>`);
+});
+
+app.post('/admin/periodic-keywords', async (c) => {
+  const body = await c.req.parseBody();
+  const keyword = String(body.keyword || '').trim().replace(/\s+/g, ' ');
+  const category = String(body.category || '');
+  const intervalHours = Math.max(24, Math.min(24 * 30, Number(body.intervalHours) || 72));
+  if (!keyword || keyword.length > 60 || !['restaurant', 'hairshop'].includes(category)) return c.text('입력값이 올바르지 않습니다.', 400);
+  await c.env.DB.prepare(`
+    INSERT INTO periodic_keywords (keyword, category, interval_hours, active)
+    VALUES (?, ?, ?, 1)
+    ON CONFLICT(keyword) DO UPDATE SET category = excluded.category, interval_hours = excluded.interval_hours,
+      active = 1, updated_at = CURRENT_TIMESTAMP
+  `).bind(keyword, category, intervalHours).run();
+  return c.redirect('/admin/periodic-keywords', 303);
+});
+
+app.post('/admin/periodic-keywords/:keyword/toggle', async (c) => {
+  const keyword = decodeURIComponent(c.req.param('keyword'));
+  await c.env.DB.prepare(`
+    UPDATE periodic_keywords SET active = CASE active WHEN 1 THEN 0 ELSE 1 END, updated_at = CURRENT_TIMESTAMP
+    WHERE keyword = ?
+  `).bind(keyword).run();
+  return c.redirect('/admin/periodic-keywords', 303);
+});
+
 app.get('/admin/cron/run/:job', async (c) => {
   const job = c.req.param('job');
+  if (job === 'periodic') return c.text(await runOnePeriodicKeyword(c.env));
   if (job === 'fixed-a') {
     await runFixedKeywordCollection(c.env, FIXED_RESEARCH_KEYWORDS.slice(0, 4));
     return c.text(`완료: 고정 키워드 앞 4개(${FIXED_RESEARCH_KEYWORDS.slice(0, 4).map(k => k.keyword).join(', ')}) 수집됨.`);
@@ -2408,6 +2462,72 @@ async function runHealthcheck(env: Env) {
 // 검색 1회 + 업체 최대 10회 + D1 기록 1회 = 최대 12로 보고, 넉넉하게 3개로 제한한다.
 const CRON_KEYWORD_BATCH_LIMIT = 3;
 
+type PeriodicKeyword = {
+  keyword: string;
+  category: 'restaurant' | 'hairshop';
+  interval_hours: number;
+};
+
+const PERIODIC_KEYWORD_CRON = '0 6 * * *'; // 15:00 KST, one due keyword at a time
+const PERIODIC_FAILURE_COOLDOWN_HOURS = 24;
+
+function sqlDateAfter(hours: number) {
+  return new Date(Date.now() + hours * 60 * 60 * 1000).toISOString().slice(0, 19).replace('T', ' ');
+}
+
+async function collectPeriodicKeyword(env: Env, target: PeriodicKeyword): Promise<string> {
+  const db = env.DB;
+  if (!db) return 'DB 미설정';
+  await db.prepare(`
+    UPDATE periodic_keywords SET last_attempt_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+    WHERE keyword = ?
+  `).bind(target.keyword).run();
+  try {
+    const items = await getPlaceList(target.keyword, { category: target.category, sort: 'popular' });
+    if (!items.length) throw new Error('EMPTY_RESULT');
+    const writes = items.map(item => db.prepare(`
+      INSERT INTO rank_snapshots (
+        id, keyword, place_id, place_name, rank, sort_mode,
+        visitor_reviews, blog_reviews, total_review_count, image_count,
+        save_count_raw, save_count_min, is_ad, has_booking, source
+      ) VALUES (?, ?, ?, ?, ?, 'popular', ?, ?, ?, ?, ?, ?, ?, ?, 'cron')
+    `).bind(
+      crypto.randomUUID(), target.keyword, item.placeId, item.name, item.rank,
+      item.visitorReviewCount, item.blogCafeReviewCount, item.totalReviewCount, item.imageCount,
+      item.saveCountRaw, item.saveCountMin, item.isAd ? 1 : 0, item.hasBooking ? 1 : 0,
+    ));
+    writes.push(db.prepare(`
+      UPDATE periodic_keywords
+      SET last_success_at = CURRENT_TIMESTAMP, last_error_code = NULL, next_run_at = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE keyword = ?
+    `).bind(sqlDateAfter(target.interval_hours), target.keyword));
+    await db.batch(writes);
+    return `${target.keyword}: 관련도 목록 ${items.length}곳 기록`;
+  } catch (err) {
+    const code = err instanceof CollectionError ? err.code : (err instanceof Error ? err.message : 'UNKNOWN');
+    await db.prepare(`
+      UPDATE periodic_keywords
+      SET last_error_code = ?, next_run_at = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE keyword = ?
+    `).bind(code, sqlDateAfter(PERIODIC_FAILURE_COOLDOWN_HOURS), target.keyword).run();
+    console.error(`주기 키워드 관측 실패("${target.keyword}"):`, err);
+    return `${target.keyword}: 실패 (${code})`;
+  }
+}
+
+async function runOnePeriodicKeyword(env: Env): Promise<string> {
+  const db = env.DB;
+  if (!db) return 'DB 미설정';
+  const target = await db.prepare(`
+    SELECT keyword, category, interval_hours
+    FROM periodic_keywords
+    WHERE active = 1 AND (next_run_at IS NULL OR next_run_at <= CURRENT_TIMESTAMP)
+    ORDER BY COALESCE(next_run_at, '1970-01-01 00:00:00'), keyword
+    LIMIT 1
+  `).first<PeriodicKeyword>();
+  return target ? collectPeriodicKeyword(env, target) : '실행할 주기 키워드 없음';
+}
+
 // 리서치용 고정 키워드(사용자 지정) — 경쟁이 치열해 순위 변동이 잦은 유명 키워드를 매일
 // 고정으로 관측한다. 특정 업체를 추적할 필요는 없다고 판단해 개별 지표 대신 상위 10곳의
 // 평균/중앙값/비율만 keyword_rank_stats에 한 행으로 남긴다.
@@ -2732,29 +2852,6 @@ const CRON_TIMES = {
 export default {
   fetch: app.fetch,
   scheduled: async (event: ScheduledEvent, env: Env, ctx: ExecutionContext) => {
-    if (event.cron === CRON_TIMES.HEALTHCHECK_AND_FIXED_A) {
-      ctx.waitUntil(runHealthcheck(env));
-      ctx.waitUntil(runFixedKeywordCollection(env, FIXED_RESEARCH_KEYWORDS.slice(0, 4)));
-    } else if (event.cron === CRON_TIMES.PLACE_LISTS) {
-      // 다른 작업과 같은 슬롯에 넣지 않는다 — 스로틀 대기가 길고 subrequest도 따로 쓴다.
-      ctx.waitUntil((async () => {
-        await collectPlaceLists(env, [...FIXED_RESEARCH_KEYWORDS.map(f => f.keyword), ...LIST_ONLY_KEYWORDS]);
-        await collectWatchlist(env);
-      })());
-    } else if (event.cron === CRON_TIMES.FIXED_B) {
-      ctx.waitUntil(runFixedKeywordCollection(env, FIXED_RESEARCH_KEYWORDS.slice(4)));
-      // 순위 하락은 3일에 걸쳐 쿠션을 주며 진행된다(§9.11.4). 하루 1점으로는 그 램프가
-      // 3점으로 뭉개진다. 크론 트리거가 4개 상한이라 전용 슬롯을 못 만들므로,
-      // 여유 있는 슬롯(15·17·21시)에 얹어 하루 3점을 만든다. 워치 1곳당 2 subrequest.
-      ctx.waitUntil(collectWatchlist(env));
-    } else {
-      ctx.waitUntil(runDailyKeywordCollection(env));
-      ctx.waitUntil(collectWatchlist(env));
-      // 텍스트 수집(§9.13). 정상 상태에서는 요청이 0이다 — 최근 30일 안에 받아둔 업체를
-      // 건너뛰므로, 순위권에 못 보던 업체가 들어왔을 때만 실제로 네이버를 부른다.
-      ctx.waitUntil(collectPlaceTexts(env, FIXED_RESEARCH_KEYWORDS.map(f => f.keyword)));
-    }
+    if (event.cron === PERIODIC_KEYWORD_CRON) ctx.waitUntil(runOnePeriodicKeyword(env));
   },
 };
-
-

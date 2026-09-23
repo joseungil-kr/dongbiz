@@ -19,6 +19,21 @@ CREATE TABLE IF NOT EXISTS places (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 공개 /rank 페이지를 위한 공통 키워드 관측 대상.
+-- 개별 매장 진단·사용자 요청 키워드는 이 테이블에 넣지 않는다.
+CREATE TABLE IF NOT EXISTS periodic_keywords (
+    keyword TEXT PRIMARY KEY,
+    category TEXT NOT NULL CHECK (category IN ('restaurant', 'hairshop')),
+    active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
+    interval_hours INTEGER NOT NULL DEFAULT 72 CHECK (interval_hours >= 24),
+    last_attempt_at DATETIME,
+    last_success_at DATETIME,
+    last_error_code TEXT,
+    next_run_at DATETIME,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 -- 3. 검색 히스토리 및 진단 기록 (고유 공유 링크용)
 CREATE TABLE IF NOT EXISTS search_histories (
     share_id TEXT PRIMARY KEY,       -- 고유 링크용 ID

@@ -247,6 +247,19 @@ test('public rank pages expose observation metadata and exclude non-relevance ro
   assert.match(source, /sort_mode = 'popular' OR sort_mode IS NULL/);
   assert.match(source, /is_ad = 0 OR is_ad IS NULL/);
 });
+test('only registered periodic keywords are scheduled for rank collection', () => {
+  const fs = require('node:fs'), path = require('node:path');
+  const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'index.ts'), 'utf8');
+  const migration = fs.readFileSync(path.join(__dirname, '..', 'migrations', '0001_periodic_keywords.sql'), 'utf8');
+  const wrangler = fs.readFileSync(path.join(__dirname, '..', 'wrangler.toml'), 'utf8');
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS periodic_keywords/);
+  assert.match(migration, /안산 닭한마리 맛집/); assert.match(migration, /강남 미용실/);
+  assert.match(source, /async function runOnePeriodicKeyword/);
+  assert.match(source, /LIMIT 1/);
+  assert.match(source, /PERIODIC_KEYWORD_CRON = '0 6 \* \* \*'/);
+  assert.match(source, /event\.cron === PERIODIC_KEYWORD_CRON/);
+  assert.match(wrangler, /crons = \["0 6 \* \* \*"\]/);
+});
 test('report guide is anchored below the email form and does not imply a 350-result scan', () => {
   const html = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'public', 'index.html'), 'utf8');
   assert.match(html, /target: '#reportEmailForm'/);
