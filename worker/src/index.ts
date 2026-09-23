@@ -1020,6 +1020,10 @@ ${SITE_NAV_CSS}
   footer{margin-top:32px;font-size:11px;color:#94A3B8;border-top:1px solid #E2E8F0;padding-top:16px}
   .kwlist{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
   .kwlist a{background:#fff;border:1px solid #E2E8F0;border-radius:999px;padding:7px 14px;font-size:13px;font-weight:600;color:#334155;text-decoration:none}
+  .kwlist a .obs{display:block;margin-top:3px;font-size:11px;font-weight:500;color:#64748B}
+  .observation{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:0 0 18px}
+  .observation span{background:#F8FAFC;border:1px solid #E2E8F0;border-radius:10px;padding:9px 10px;font-size:11px;color:#64748B;line-height:1.45}
+  .observation b{display:block;color:#0F172A;font-size:12px;margin-top:2px}
   .navcards{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:22px}
   .navcards a{display:block;background:#fff;border:1px solid #E2E8F0;border-radius:14px;padding:14px 16px;text-decoration:none;color:#0F172A}
   .navcards .t{display:flex;justify-content:space-between;align-items:center;gap:10px;font-weight:800;font-size:14px}
@@ -1057,10 +1061,14 @@ function normKeyword(k: string): string {
 // 공개 자격: 관측 2회 이상. 1회짜리는 집계·변동성이 성립하지 않아 껍데기 페이지가 된다(§6.1.2).
 // 띄어쓰기만 다른 표기는 관측이 많은 쪽 하나만 대표로 공개한다 — 안 그러면 내용이 같은
 // 페이지가 여러 장 색인되어 §6.1.3의 대량생성 리스크를 스스로 키운다.
-async function eligibleRankKeywords(db: D1Database): Promise<string[]> {
+async function eligibleRankKeywordSummaries(db: D1Database): Promise<any[]> {
   const { results } = await db.prepare(`
-    SELECT keyword, COUNT(DISTINCT collected_at) AS obs, MAX(collected_at) AS last_at
+    SELECT keyword, COUNT(DISTINCT collected_at) AS obs, MAX(collected_at) AS last_at,
+           COUNT(DISTINCT place_id) AS places
     FROM rank_snapshots
+    WHERE keyword != '__watch__' AND rank IS NOT NULL
+      AND (sort_mode = 'popular' OR sort_mode IS NULL)
+      AND (is_ad = 0 OR is_ad IS NULL)
     GROUP BY keyword HAVING obs >= 2
     ORDER BY last_at DESC
   `).all();
@@ -1070,7 +1078,11 @@ async function eligibleRankKeywords(db: D1Database): Promise<string[]> {
     const cur = rep.get(key);
     if (!cur || r.obs > cur.obs) rep.set(key, r);
   }
-  return [...rep.values()].map(r => r.keyword);
+  return [...rep.values()];
+}
+
+async function eligibleRankKeywords(db: D1Database): Promise<string[]> {
+  return (await eligibleRankKeywordSummaries(db)).map(r => r.keyword);
 }
 
 // 매장 전용 미니홈피 (§6.11, 샘플 단계). 전 페이지 noindex — 결제 연동 전까지 색인되면 안 된다.
@@ -1105,9 +1117,9 @@ app.get('/blog', (c) => c.html(renderBlogPage()));
 app.get('/rank', async (c) => {
   const db = c.env.DB;
   if (!db) return c.text('DB 미설정', 500);
-  const keywords = await eligibleRankKeywords(db);
+  const keywords = await eligibleRankKeywordSummaries(db);
   const items = keywords.map(k =>
-    `<a href="/rank/${encodeURIComponent(k)}">${escapeHtml(k)}</a>`
+    `<a href="/rank/${encodeURIComponent(k.keyword)}">${escapeHtml(k.keyword)}<span class="obs">관측 ${Number(k.obs)}회 · 업체 ${Number(k.places)}곳 · ${escapeHtml(fmtKST(k.last_at).slice(0, 10))}</span></a>`
   ).join('');
   return c.html(`<!DOCTYPE html><html lang="ko"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -1181,6 +1193,9 @@ function renderRankPageHtml(keyword: string, rows: any[], repKeyword: string, si
   const top = dedupeByPlace(
     rows.filter(r => r.collected_at === latest && r.rank).sort((a, b) => a.rank - b.rank)
   ).slice(0, TOP_N);
+  const latestRows = dedupeByPlace(rows.filter(r => r.collected_at === latest && r.rank).sort((a, b) => a.rank - b.rank));
+  const sourceLabel = [...new Set(latestRows.map(r => r.source))]
+    .map(source => source === 'cron' ? '자동 관측 기록' : '사용자 진단 기록').join(' · ') || '관측 기록';
 
   // 변동성: 연속한 관측 사이에 상위권 순서가 바뀐 횟수. 개별 업체의 궤적은 드러내지 않는
   // 집계 수치라 §6.1.2b의 1단에 해당한다.
@@ -1352,6 +1367,11 @@ function renderRankPageHtml(keyword: string, rows: any[], repKeyword: string, si
 <header><a href="/">동네장사</a> · <a href="/rank">키워드 전체 목록</a> · <a href="/guide">상위노출 가이드</a></header>
 <h1>${escapeHtml(title)}</h1>
 <p class="meta">기준일 ${escapeHtml(fmtKST(latest))} · 관측 ${batches.length}회 누적 · 네이버 통합검색 플레이스 영역 기준</p>
+<div class="observation" aria-label="관측 정보">
+  <span>마지막 확인<b>${escapeHtml(fmtKST(latest))}</b></span>
+  <span>마지막 표본<b>광고 제외 ${latestRows.length}곳</b></span>
+  <span>기록 출처<b>${escapeHtml(sourceLabel)}</b></span>
+</div>
 <p class="answer" id="aeo-direct-answer">'${escapeHtml(keyword)}' 검색 시 1페이지에 노출되는 업체는 ${top.length}곳이며, 마지막 자리 업체의 방문자 리뷰는 ${boundary.toLocaleString()}건입니다. 상위권 리뷰 중앙값은 ${mid.toLocaleString()}건, 사진 중앙값은 ${midPhoto.toLocaleString()}장입니다. 진입에 필요한 수준으로 보면 <b>${tier.label}</b>에 해당합니다.</p>
 <table>
   <thead><tr><th>순위</th><th>업체명</th><th class="num">방문자 리뷰</th><th class="num">블로그 리뷰</th><th class="num">키워드 투표</th><th class="num">사진</th></tr></thead>
@@ -1405,8 +1425,12 @@ app.get('/rank/:keyword', async (c) => {
   const keyword = decodeURIComponent(c.req.param('keyword'));
 
   const { results } = await db.prepare(`
-    SELECT place_id, place_name, rank, visitor_reviews, blog_reviews, vote_count, photo_count, collected_at
-    FROM rank_snapshots WHERE keyword = ? ORDER BY collected_at ASC
+    SELECT place_id, place_name, rank, visitor_reviews, blog_reviews, vote_count, photo_count, source, collected_at
+    FROM rank_snapshots
+    WHERE keyword = ? AND rank IS NOT NULL
+      AND (sort_mode = 'popular' OR sort_mode IS NULL)
+      AND (is_ad = 0 OR is_ad IS NULL)
+    ORDER BY collected_at ASC
   `).bind(keyword).all();
   const rows = results as any[];
 
@@ -2732,10 +2756,5 @@ export default {
     }
   },
 };
-
-
-
-
-
 
 

@@ -237,6 +237,16 @@ test('gap result leads with priorities and hides the mini-site preview', () => {
   assert.doesNotMatch(html, /네이버 알고리즘 가산점에 유리합니다/);
   assert.doesNotMatch(html, /등록 키워드를 설명에 포함하면 SEO에 유리합니다/);
 });
+test('public rank pages expose observation metadata and exclude non-relevance rows', () => {
+  const source = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'src', 'index.ts'), 'utf8');
+  assert.match(source, /eligibleRankKeywordSummaries/);
+  assert.match(source, /COUNT\(DISTINCT place_id\) AS places/);
+  assert.match(source, /마지막 표본/);
+  assert.match(source, /기록 출처/);
+  assert.match(source, /WHERE keyword = \? AND rank IS NOT NULL/);
+  assert.match(source, /sort_mode = 'popular' OR sort_mode IS NULL/);
+  assert.match(source, /is_ad = 0 OR is_ad IS NULL/);
+});
 test('report guide is anchored below the email form and does not imply a 350-result scan', () => {
   const html = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'public', 'index.html'), 'utf8');
   assert.match(html, /target: '#reportEmailForm'/);
