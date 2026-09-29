@@ -7,7 +7,7 @@ import { basicAuth } from 'hono/basic-auth';
 import { scrapeFullPlaceMetrics, getOrganicRanking, getPlaceList, SortMode, PlaceListItem } from './scraper';
 import { notify, logDiagnosisToSheet, sendCustomerEmail, NotifyEnv } from './notify';
 import { GUIDES, GUIDE_BY_SLUG } from './guides';
-import { renderAdsPage, renderBlogPage, renderKeywordVolumePage, siteNav, SITE_NAV_CSS } from './pages';
+import { renderAdsPage, renderBlogPage, renderKeywordVolumePage, siteFooter, siteNav, SITE_FOOTER_CSS, SITE_NAV_CSS } from './pages';
 import { pickTopics, renderMiniHome, renderMiniTopic } from './minisite';
 import { getKeywordVolumes, lookupKeywordVolume, describeVolume, autocomplete, brandVariants, brandCore, normalizeKeyword, SearchAdEnv } from './searchad';
 
@@ -1124,7 +1124,7 @@ app.get('/rank', async (c) => {
   ).join('');
   return c.html(`<!DOCTYPE html><html lang="ko"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>네이버 플레이스 키워드별 순위 현황 | 동네장사</title>
+<title>동네장사 | 네이버 플레이스 키워드별 순위 현황</title>
 <meta name="description" content="네이버 플레이스 키워드별 상위 노출 업체 순위와 리뷰·사진 등 지표 현황을 실측 데이터로 정리했습니다.">
 <link rel="canonical" href="https://dongbiz.com/rank">
 <style>${RANK_PAGE_STYLE}</style></head><body>${siteNav('place')}<div class="wrap">
@@ -1132,8 +1132,7 @@ app.get('/rank', async (c) => {
 <p class="meta">관측이 2회 이상 누적된 키워드만 공개합니다. 총 ${keywords.length}개.</p>
 <div class="kwlist">${items || '<span class="meta">아직 공개 가능한 키워드가 없습니다.</span>'}</div>
 <a class="cta" href="/">내 매장 순위 무료로 진단하기</a>
-<footer>상호 : 인터피아드 · 사업자등록번호 : 124-35-56796 · 문의 : interpiad@gmail.com</footer>
-</div></body></html>`);
+</div>${siteFooter()}</body></html>`);
 });
 
 // 형제 링크용 관련 키워드 선정(사양 §1.7 횡 연결). 허브에서만 링크되면 페이지가 늘수록
@@ -1354,7 +1353,7 @@ function renderRankPageHtml(keyword: string, rows: any[], repKeyword: string, si
 
   return `<!DOCTYPE html><html lang="ko"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${escapeHtml(title)} | 동네장사</title>
+<title>동네장사 | ${escapeHtml(title)}</title>
 <meta name="description" content="${escapeHtml(desc)}">
 <link rel="canonical" href="${escapeHtml(canonical)}">
 <meta property="og:title" content="${escapeHtml(title)}">
@@ -1364,7 +1363,7 @@ function renderRankPageHtml(keyword: string, rows: any[], repKeyword: string, si
 <meta name="twitter:card" content="summary_large_image">
 <script type="application/ld+json">${jsonLd}</script>
 <script type="application/ld+json">${faqLd(faqs)}</script>
-<style>${RANK_PAGE_STYLE}</style></head><body><div class="wrap">
+<style>${RANK_PAGE_STYLE}${SITE_FOOTER_CSS}</style></head><body><div class="wrap">
 <header><a href="/">동네장사</a> · <a href="/rank">키워드 전체 목록</a> · <a href="/guide">상위노출 가이드</a></header>
 <h1>${escapeHtml(title)}</h1>
 <p class="meta">기준일 ${escapeHtml(fmtKST(latest))} · 관측 ${batches.length}회 누적 · 네이버 통합검색 플레이스 영역 기준</p>
@@ -1416,8 +1415,7 @@ ${siblings.length ? `<h2>다른 키워드 순위 현황</h2>
   <a href="/rank"><span class="t">전체 키워드 순위 현황<span class="arw">→</span></span><span class="d">관측 중인 키워드를 한눈에 봅니다</span></a>
   <a href="/guide"><span class="t">플레이스 상위노출 가이드<span class="arw">→</span></span><span class="d">순위를 올리는 기준과 방법</span></a>
 </div>
-<footer>본 페이지는 네이버 통합검색 결과에서 수집한 공개 정보를 집계한 것이며, 순위는 검색자의 위치에 따라 다르게 표시될 수 있습니다.<br>상호 : 인터피아드 · 사업자등록번호 : 124-35-56796 · 문의 : interpiad@gmail.com</footer>
-</div></body></html>`;
+</div>${siteFooter()}</body></html>`;
 }
 
 app.get('/rank/:keyword', async (c) => {
@@ -1440,11 +1438,11 @@ app.get('/rank/:keyword', async (c) => {
   const hasRanked = rows.some(r => r.rank);
   if (batches.size < 2 || !hasRanked) {
     return c.html(`<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8">
-<meta name="robots" content="noindex"><title>준비 중 | 동네장사</title><style>${RANK_PAGE_STYLE}</style></head>
+<meta name="robots" content="noindex"><title>동네장사 | 준비 중</title><style>${RANK_PAGE_STYLE}${SITE_FOOTER_CSS}</style></head>
 <body>${siteNav('place')}<div class="wrap">
 <h1>아직 공개 기준을 채우지 못한 키워드입니다</h1>
 <p class="meta">관측이 2회 이상 누적되면 공개됩니다.</p>
-<a class="cta" href="/">내 매장 순위 무료로 진단하기</a></div></body></html>`, 404);
+<a class="cta" href="/">내 매장 순위 무료로 진단하기</a></div>${siteFooter()}</body></html>`, 404);
   }
 
   // 띄어쓰기 변형으로 들어와도 대표 표기 한 곳으로 canonical을 모아 중복 색인을 막는다.
@@ -1460,6 +1458,7 @@ app.get('/rank/:keyword', async (c) => {
 
 const GUIDE_STYLE = `
 ${SITE_NAV_CSS}
+${SITE_FOOTER_CSS}
   *{box-sizing:border-box} body{margin:0;padding:0;font-family:-apple-system,'Pretendard',sans-serif;color:#0F172A;background:#F8FAFC;line-height:1.75}
   .wrap{max-width:760px;margin:0 auto;padding:24px 16px 56px}
   .crumb{font-size:12px;color:#94A3B8;margin:18px 0 6px}
@@ -1479,7 +1478,6 @@ ${SITE_NAV_CSS}
   .sources{background:#F1F5F9;border-radius:12px;padding:14px 14px 14px 30px;margin:0;font-size:13px;color:#475569}
   .sources li{margin-bottom:7px}
   .sources li:last-child{margin-bottom:0}
-  footer{margin-top:32px;font-size:11px;color:#94A3B8;border-top:1px solid #E2E8F0;padding-top:16px}
 `;
 
 app.get('/guide', (c) => {
@@ -1488,7 +1486,7 @@ app.get('/guide', (c) => {
   ).join('');
   return c.html(`<!DOCTYPE html><html lang="ko"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>네이버 플레이스 상위노출 가이드 | 동네장사</title>
+<title>동네장사 | 네이버 플레이스 상위노출 가이드</title>
 <meta name="description" content="네이버 플레이스 순위 조회, 순위 하락 원인, 대표키워드 설정, 상위노출 방법을 실측 데이터를 근거로 정리한 가이드입니다.">
 <link rel="canonical" href="https://dongbiz.com/guide">
 <style>${GUIDE_STYLE}</style></head><body>${siteNav('place')}<div class="wrap">
@@ -1496,8 +1494,7 @@ app.get('/guide', (c) => {
 <p class="meta">실제로 수집한 순위·지표 데이터를 근거로 씁니다.</p>
 <div class="more" style="border:none;padding:0;margin-top:8px">${items}</div>
 <a class="cta" href="/">내 매장 순위 무료로 진단하기</a>
-<footer>상호 : 인터피아드 · 사업자등록번호 : 124-35-56796 · 문의 : interpiad@gmail.com</footer>
-</div></body></html>`);
+</div>${siteFooter()}</body></html>`);
 });
 
 app.get('/guide/:slug', (c) => {
@@ -1558,7 +1555,7 @@ app.get('/guide/:slug', (c) => {
 
   return c.html(`<!DOCTYPE html><html lang="ko"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${escapeHtml(g.title)} | 동네장사</title>
+<title>동네장사 | ${escapeHtml(g.title)}</title>
 <meta name="description" content="${escapeHtml(g.desc)}">
 <link rel="canonical" href="${escapeHtml(canonical)}">
 <meta property="og:type" content="article">
@@ -1581,8 +1578,7 @@ ${faqs}
 <a class="cta" href="/">내 매장은 지금 몇 위인지 무료로 진단하기</a>
 <div class="more"><h2>함께 보면 좋은 글</h2>${others}
 <a href="/rank">키워드별 네이버 플레이스 순위 현황</a></div>
-<footer>본 문서는 네이버 공개 정보를 수집·집계한 자체 분석에 근거하며, 네이버 공식 자료가 아닙니다.<br>상호 : 인터피아드 · 사업자등록번호 : 124-35-56796 · 문의 : interpiad@gmail.com</footer>
-</div></body></html>`);
+</div>${siteFooter()}</body></html>`);
 });
 
 app.get('/sitemap.xml', async (c) => {

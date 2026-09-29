@@ -103,6 +103,17 @@ export const SITE_NAV_CSS = `
 
 `;
 
+export const SITE_FOOTER_CSS = `
+  footer.site-foot{background:#14171A;color:#8A929B;padding:46px 0 32px;font-size:12.5px}
+  footer.site-foot .wrap{max-width:1180px;margin:0 auto;padding:0 28px}
+  footer.site-foot .cols{display:grid;grid-template-columns:1.6fr 1fr 1fr;gap:34px;margin-bottom:28px}
+  footer.site-foot h4{color:#fff;font-size:11.5px;letter-spacing:.1em;margin:0 0 14px;font-weight:800}
+  footer.site-foot a{display:block;margin-bottom:9px;color:#8A929B}
+  footer.site-foot a:hover{color:#fff}
+  footer.site-foot .fine{border-top:1px solid #22272C;padding-top:22px;line-height:1.8}
+  @media (max-width:920px){footer.site-foot .cols{grid-template-columns:1fr;gap:26px}}
+`;
+
 const PAGE_SCRIPT = `
   // 등장 애니메이션. 한 번 보이면 관찰을 끊는다 — 되돌릴 때 다시 흐려지면 산만하다.
   const io = new IntersectionObserver((es) => {
@@ -211,12 +222,7 @@ ${SITE_NAV_CSS}
   .pill-ok{display:inline-block;font-size:10.5px;font-weight:800;padding:3px 9px;border-radius:999px;background:var(--accent-soft);color:var(--accent-ink)}
   .mock-foot{padding:12px 18px;font-size:11.5px;color:#94A3B8;background:#FAFBF9;border-top:1px solid #F0F2EE}
 
-  footer.site-foot{background:#14171A;color:#8A929B;padding:46px 0 32px;font-size:12.5px}
-  footer.site-foot .cols{display:grid;grid-template-columns:1.6fr 1fr 1fr;gap:34px;margin-bottom:28px}
-  footer.site-foot h4{color:#fff;font-size:11.5px;letter-spacing:.1em;margin:0 0 14px;font-weight:800}
-  footer.site-foot a{display:block;margin-bottom:9px;color:#8A929B}
-  footer.site-foot a:hover{color:#fff}
-  footer.site-foot .fine{border-top:1px solid #22272C;padding-top:22px;line-height:1.8}
+  ${SITE_FOOTER_CSS}
 
   @media (max-width:920px){
     section{padding:44px 0}
@@ -225,7 +231,6 @@ ${SITE_NAV_CSS}
     .step{opacity:1;padding:26px 0}
     .head-cta{display:none}
     .site-nav a{padding:8px 10px;font-size:13px}
-    footer.site-foot .cols{grid-template-columns:1fr;gap:26px}
   }
 `;
 
@@ -360,7 +365,7 @@ const ADS_STYLE = `
   }
 `;
 
-function siteFooter(): string {
+export function siteFooter(): string {
   return `<footer class="site-foot"><div class="wrap">
     <div class="cols">
       <div>
@@ -393,15 +398,16 @@ function siteFooter(): string {
 }
 
 function shell(o: { title: string; description: string; canonical: string; active: 'place' | 'volume' | 'ads' | 'blog'; style: string; body: string; darkNav?: boolean }): string {
+  const title = o.title.endsWith(' | 동네장사') ? `동네장사 | ${o.title.slice(0, -' | 동네장사'.length)}` : o.title;
   return `<!DOCTYPE html><html lang="ko"><head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${escapeHtml(o.title)}</title>
+<title>${escapeHtml(title)}</title>
 <meta name="description" content="${escapeHtml(o.description)}">
 <link rel="canonical" href="${escapeHtml(o.canonical)}">
 <meta property="og:type" content="website">
 <meta property="og:url" content="${escapeHtml(o.canonical)}">
-<meta property="og:title" content="${escapeHtml(o.title)}">
+<meta property="og:title" content="${escapeHtml(title)}">
 <meta property="og:description" content="${escapeHtml(o.description)}">
 <meta name="twitter:card" content="summary">
 <style>${BASE_STYLE}${o.style}</style>

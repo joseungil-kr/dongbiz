@@ -264,5 +264,5 @@ ${others.length ? `<h2>다른 정보</h2>
 <div class="pages">${others.map(t => `<a href="${base}/${t.slug}">${esc(t.title)}</a>`).join('')}</div>` : ''}
 <p style="margin-top:22px"><a href="${base}">← ${esc(store.name)} 전체 정보</a></p>`;
 
-  return shell({ title: `${topic.title} | 동네장사`, desc: `${store.name} ${topic.title}`, store, body });
+  return shell({ title: `동네장사 | ${topic.title}`, desc: `${store.name} ${topic.title}`, store, body });
 }
