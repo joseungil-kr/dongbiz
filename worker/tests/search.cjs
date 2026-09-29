@@ -220,6 +220,14 @@ test('keyword volume page has its menu and a parsable client interaction script'
   new Function(script[0].slice('<script>'.length, -'</script>'.length));
 });
 
+test('five new place guides are publicly available', async () => {
+  const app = load('src/index.ts', async () => { throw new Error('no network'); }).default;
+  for (const slug of ['플레이스대표키워드설정', '플레이스순위하락원인', '플레이스방문자리뷰운영', '플레이스사진등록', '플레이스경쟁분석']) {
+    const response = await app.fetch(new Request(`https://local/guide/${encodeURIComponent(slug)}`), {}, { waitUntil() {} });
+    assert.equal(response.status, 200, slug);
+  }
+});
+
 test('place selection returns focus to the Step 1 search card', () => {
   const html = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'public', 'index.html'), 'utf8');
   assert.match(html, /id="step1Card"/);
