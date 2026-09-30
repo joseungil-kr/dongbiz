@@ -1478,12 +1478,51 @@ ${SITE_FOOTER_CSS}
   .sources{background:#F1F5F9;border-radius:12px;padding:14px 14px 14px 30px;margin:0;font-size:13px;color:#475569}
   .sources li{margin-bottom:7px}
   .sources li:last-child{margin-bottom:0}
+
+  /* 기사 목차 스타일 */
+  .guide-list{display:flex;flex-direction:column;gap:14px;margin:20px 0 32px}
+  .guide-card{display:flex;gap:16px;align-items:stretch;background:#fff;border:1px solid #E2E8F0;border-radius:14px;padding:14px;text-decoration:none;color:inherit;transition:all .2s ease;box-shadow:0 1px 3px rgba(0,0,0,0.02)}
+  .guide-card:hover{border-color:#CBD5E1;box-shadow:0 4px 14px rgba(15,23,42,0.07);transform:translateY(-2px)}
+  .guide-thumb-wrap{width:140px;min-width:140px;height:96px;border-radius:10px;overflow:hidden;background:#F1F5F9;flex-shrink:0;position:relative}
+  .guide-thumb{width:100%;height:100%;object-fit:cover;display:block;transition:transform .25s ease}
+  .guide-card:hover .guide-thumb{transform:scale(1.04)}
+  .guide-body{flex:1;min-width:0;display:flex;flex-direction:column;justify-content:space-between}
+  .guide-title{font-size:16px;font-weight:700;color:#0F172A;line-height:1.4;margin:0 0 6px;letter-spacing:-0.01em;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .guide-card:hover .guide-title{color:#2563EB}
+  .guide-summary{font-size:13px;color:#64748B;line-height:1.55;margin:0 0 8px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .guide-meta{display:flex;align-items:center;justify-content:space-between;font-size:12px;color:#94A3B8;margin-top:auto}
+  .guide-meta .badge{background:#F1F5F9;color:#475569;padding:2px 8px;border-radius:6px;font-weight:600;font-size:11px}
+  .guide-meta .read-more{color:#2563EB;font-weight:700;font-size:12px}
+  @media (max-width: 600px) {
+    .guide-card{gap:12px;padding:12px}
+    .guide-thumb-wrap{width:100px;min-width:100px;height:75px;border-radius:8px}
+    .guide-title{font-size:14.5px;margin-bottom:4px;line-height:1.35}
+    .guide-summary{font-size:12px;line-height:1.45;margin-bottom:6px}
+    .guide-meta{font-size:11px}
+    .guide-meta .badge{display:none}
+  }
 `;
 
 app.get('/guide', (c) => {
-  const items = GUIDES.map(g =>
-    `<a href="/guide/${encodeURIComponent(g.slug)}">${escapeHtml(g.title)}<span style="display:block;font-weight:500;color:#64748B;font-size:12px;margin-top:3px">${escapeHtml(g.desc)}</span></a>`
-  ).join('');
+  const items = GUIDES.map(g => {
+    const thumb = g.sections.find(s => s.img)?.img || '/og-image.png';
+    const summary = (g as any).summary || g.desc || (g.answer ? g.answer.slice(0, 100) + '...' : '');
+    return `
+    <a class="guide-card" href="/guide/${encodeURIComponent(g.slug)}">
+      <div class="guide-thumb-wrap">
+        <img src="${escapeHtml(thumb)}" alt="${escapeHtml(g.title)}" class="guide-thumb" loading="lazy" decoding="async">
+      </div>
+      <div class="guide-body">
+        <h2 class="guide-title">${escapeHtml(g.title)}</h2>
+        <p class="guide-summary">${escapeHtml(summary)}</p>
+        <div class="guide-meta">
+          <span class="badge">플레이스 실전 가이드</span>
+          <span class="guide-date">${escapeHtml(g.updated || '')}</span>
+          <span class="read-more">자세히 보기 &rarr;</span>
+        </div>
+      </div>
+    </a>`;
+  }).join('');
 
   const org = {
     '@type': 'Organization',
@@ -1536,7 +1575,7 @@ app.get('/guide', (c) => {
 <style>${GUIDE_STYLE}</style></head><body>${siteNav('place')}<div class="wrap">
 <h1>네이버 플레이스 상위노출 가이드</h1>
 <p class="meta">실제로 수집한 순위·지표 데이터를 근거로 씁니다.</p>
-<div class="more" style="border:none;padding:0;margin-top:8px">${items}</div>
+<div class="guide-list">${items}</div>
 <a class="cta" href="/">내 매장 순위 무료로 진단하기</a>
 </div>${siteFooter()}</body></html>`);
 });

@@ -15,6 +15,8 @@ export interface Guide {
   slug: string;
   title: string;
   desc: string;
+  /** SEO 및 목록 노출용 요약글 (desc와 동등) */
+  summary?: string;
   answer: string;
   sections: { h: string; p: string[]; img?: string }[];
   faqs: { q: string; a: string }[];
