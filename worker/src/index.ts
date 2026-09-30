@@ -1484,11 +1484,55 @@ app.get('/guide', (c) => {
   const items = GUIDES.map(g =>
     `<a href="/guide/${encodeURIComponent(g.slug)}">${escapeHtml(g.title)}<span style="display:block;font-weight:500;color:#64748B;font-size:12px;margin-top:3px">${escapeHtml(g.desc)}</span></a>`
   ).join('');
+
+  const org = {
+    '@type': 'Organization',
+    name: '동네장사',
+    url: 'https://dongbiz.com/',
+    logo: 'https://dongbiz.com/og-image.png',
+  };
+  const jsonLd = JSON.stringify([
+    {
+      '@context': 'https://schema.org',
+      '@type': 'CollectionPage',
+      name: '동네장사 | 네이버 플레이스 상위노출 가이드',
+      description: '네이버 플레이스 순위 조회, 순위 하락 원인, 대표키워드 설정, 상위노출 방법을 실측 데이터를 근거로 정리한 가이드입니다.',
+      url: 'https://dongbiz.com/guide',
+      publisher: org,
+      mainEntity: {
+        '@type': 'ItemList',
+        itemListElement: GUIDES.map((g, i) => ({
+          '@type': 'ListItem',
+          position: i + 1,
+          name: g.title,
+          url: `https://dongbiz.com/guide/${encodeURIComponent(g.slug)}`,
+        })),
+      },
+    },
+    {
+      '@context': 'https://schema.org',
+      '@type': 'BreadcrumbList',
+      itemListElement: [
+        { '@type': 'ListItem', position: 1, name: '홈', item: 'https://dongbiz.com/' },
+        { '@type': 'ListItem', position: 2, name: '가이드', item: 'https://dongbiz.com/guide' },
+      ],
+    },
+    { '@context': 'https://schema.org', ...org },
+  ]).replace(/</g, '\\u003c');
+
   return c.html(`<!DOCTYPE html><html lang="ko"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>동네장사 | 네이버 플레이스 상위노출 가이드</title>
 <meta name="description" content="네이버 플레이스 순위 조회, 순위 하락 원인, 대표키워드 설정, 상위노출 방법을 실측 데이터를 근거로 정리한 가이드입니다.">
 <link rel="canonical" href="https://dongbiz.com/guide">
+<meta property="og:type" content="website">
+<meta property="og:title" content="동네장사 | 네이버 플레이스 상위노출 가이드">
+<meta property="og:description" content="네이버 플레이스 순위 조회, 순위 하락 원인, 대표키워드 설정, 상위노출 방법을 실측 데이터를 근거로 정리한 가이드입니다.">
+<meta property="og:url" content="https://dongbiz.com/guide">
+<meta property="og:image" content="https://dongbiz.com/og-image.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://dongbiz.com/og-image.png">
+<script type="application/ld+json">${jsonLd}</script>
 <style>${GUIDE_STYLE}</style></head><body>${siteNav('place')}<div class="wrap">
 <h1>네이버 플레이스 상위노출 가이드</h1>
 <p class="meta">실제로 수집한 순위·지표 데이터를 근거로 씁니다.</p>
@@ -1521,12 +1565,16 @@ app.get('/guide/:slug', (c) => {
     url: 'https://dongbiz.com/',
     logo: 'https://dongbiz.com/og-image.png',
   };
+  const firstImg = g.sections.find(s => s.img)?.img;
+  const guideImage = firstImg ? `https://dongbiz.com${firstImg}` : 'https://dongbiz.com/og-image.png';
+
   const jsonLd = JSON.stringify([
     {
       '@context': 'https://schema.org',
       '@type': 'Article',
       headline: g.title,
       description: g.desc,
+      image: [guideImage],
       datePublished: g.updated,
       dateModified: g.updated,
       publisher: org,
@@ -1562,8 +1610,9 @@ app.get('/guide/:slug', (c) => {
 <meta property="og:title" content="${escapeHtml(g.title)}">
 <meta property="og:description" content="${escapeHtml(g.desc)}">
 <meta property="og:url" content="${escapeHtml(canonical)}">
-<meta property="og:image" content="https://dongbiz.com/og-image.png">
+<meta property="og:image" content="${escapeHtml(guideImage)}">
 <meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="${escapeHtml(guideImage)}">
 <script type="application/ld+json">${jsonLd}</script>
 <style>${GUIDE_STYLE}</style></head><body>${siteNav('place')}<div class="wrap">
 <p class="crumb"><a href="/">홈</a> › <a href="/guide">가이드</a></p>
