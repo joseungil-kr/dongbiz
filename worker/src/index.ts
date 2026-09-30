@@ -1547,11 +1547,21 @@ app.get('/guide/:slug', (c) => {
   if (!g) return c.notFound();
 
   const canonical = `https://dongbiz.com/guide/${encodeURIComponent(g.slug)}`;
-  const body = g.sections.map(s =>
-    `<h2>${escapeHtml(s.h)}</h2>` +
-    (s.img ? `<img src="${escapeHtml(s.img)}" alt="${escapeHtml(s.h)}" loading="lazy" decoding="async" style="max-width:100%;height:auto;margin:1.5rem 0;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.1);" />` : '') +
-    s.p.map(t => `<p>${escapeHtml(t)}</p>`).join('')
-  ).join('');
+  const body = g.sections.map(s => {
+    const isContact = s.h.includes('상담') || s.h.includes('문의');
+    const hTag = isContact
+      ? `<div style="background:#F8FAFC;border:1px solid #E2E8F0;border-left:4px solid #03C75A;border-radius:12px;padding:20px;margin:2rem 0;"><h2 style="margin-top:0;color:#0F172A;font-size:18px;">${escapeHtml(s.h)}</h2>`
+      : `<h2>${escapeHtml(s.h)}</h2>`;
+    const imgTag = s.img ? `<img src="${escapeHtml(s.img)}" alt="${escapeHtml(s.h)}" loading="lazy" decoding="async" style="max-width:100%;height:auto;margin:1.5rem 0;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.1);" />` : '';
+    const pTags = s.p.map(t => {
+      let pText = escapeHtml(t);
+      if (pText.includes('interpiad.com')) {
+        pText = pText.replace('interpiad.com', '<a href="https://interpiad.com" target="_blank" rel="noopener" style="color:#03C75A;font-weight:700;text-decoration:underline;">interpiad.com</a>');
+      }
+      return `<p style="${isContact ? 'margin-bottom:8px;color:#334155;' : ''}">${pText}</p>`;
+    }).join('');
+    return hTag + imgTag + pTags + (isContact ? '</div>' : '');
+  }).join('');
   const faqs = g.faqs.map(f =>
     `<details><summary>${escapeHtml(f.q)}</summary><p>${escapeHtml(f.a)}</p></details>`
   ).join('');
