@@ -5,7 +5,7 @@
   "scripts": {
     "test:collection": "node tests/collection.cjs && node tests/search.cjs",
     "dev": "wrangler dev",
-    "deploy": "wrangler deploy"
+    "deploy": "wrangler deploy && node scripts/ping_indexnow.cjs"
   },
   "dependencies": {
     "hono": "^4.0.0"
