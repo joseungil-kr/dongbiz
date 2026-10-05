@@ -2561,7 +2561,7 @@ function nextPeriodicSlot(eligibleAt: string | null | undefined): string {
 
 function inferPeriodicTarget(keyword: string): Pick<PeriodicKeyword, 'category' | 'market'> {
   if (/미용실|헤어|살롱/.test(keyword)) return { category: 'hairshop', market: 'local_service' };
-  if (/맛집|음식|식당|고기|횟집|카페/.test(keyword)) return { category: 'restaurant', market: 'food' };
+  if (/맛집|음식|식당|한식|고기|고깃집|고기집|삼겹살|칼국수|보리밥|카페|베이커리|빵집|술집|횟집|회식/.test(keyword)) return { category: 'restaurant', market: 'food' };
   if (/변호사|법무|법률/.test(keyword)) return { category: 'place', market: 'legal' };
   if (/병원|치과|의원|한의|피부과|성형/.test(keyword)) return { category: 'place', market: 'medical' };
   return { category: 'place', market: 'local_service' };

@@ -263,10 +263,17 @@ test('queue split keeps NEW list-only, DETAIL top-six, refresh and seed invarian
   assert.match(migration, /CREATE TABLE IF NOT EXISTS periodic_keywords/);
   const queueMigration = fs.readFileSync(path.join(__dirname, '..', 'migrations', '0003_rank_queue_rework.sql'), 'utf8');
   assert.match(queueMigration, /INSERT OR IGNORE INTO periodic_keywords/);
-  assert.equal((queueMigration.match(/'place','legal',48/g) || []).length, 20);
-  assert.equal((queueMigration.match(/'place','medical',48/g) || []).length, 20);
-  assert.equal((queueMigration.match(/'restaurant','food',48/g) || []).length, 8);
-  assert.equal((queueMigration.match(/'place','local_service',48/g) || []).length, 12);
+  const seeds = [...queueMigration.matchAll(/\('([^']+)',\s*'(restaurant|hairshop|place)',\s*'(legal|medical|food|local_service)',48\)/g)]
+    .map(([, keyword, category, market]) => ({ keyword, category, market }));
+  assert.equal(seeds.length, 60); assert.equal(new Set(seeds.map(s => s.keyword)).size, 60);
+  assert.equal(seeds.filter(s => s.market === 'legal' && s.category === 'place').length, 20);
+  assert.equal(seeds.filter(s => s.market === 'medical' && s.category === 'place').length, 20);
+  assert.equal(seeds.filter(s => s.market === 'food' && s.category === 'restaurant').length, 8);
+  assert.equal(seeds.filter(s => s.market === 'local_service').length, 12);
+  for (const keyword of ['강남역 이혼전문 변호사', '서초동 부동산 변호사', '종로 다이어트 한의원', '수원 산부인과', '봉명동 삼겹살', '안산 가족모임 식당', '봉명동 미용실', '안산 에어컨청소']) assert.ok(seeds.some(s => s.keyword === keyword), keyword);
+  const schema = fs.readFileSync(path.join(__dirname, '..', 'schema.sql'), 'utf8');
+  for (const column of ['market TEXT NOT NULL', 'detail_due_at DATETIME', 'detail_completed_at DATETIME', 'empty_result_count INTEGER NOT NULL DEFAULT 0']) assert.match(schema, new RegExp(column));
+  assert.match(schema, /interval_hours INTEGER NOT NULL DEFAULT 48 CHECK \(interval_hours BETWEEN 24 AND 72\)/);
   assert.match(queueMigration, /'place'/);
   assert.match(source, /async function runOnePeriodicKeyword/);
   assert.match(source, /async function runOnePeriodicDetail/);
