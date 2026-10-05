@@ -255,28 +255,40 @@ test('public rank pages expose observation metadata and exclude non-relevance ro
   assert.match(source, /sort_mode = 'popular' OR sort_mode IS NULL/);
   assert.match(source, /is_ad = 0 OR is_ad IS NULL/);
 });
-test('only registered periodic keywords are scheduled for rank collection', () => {
+test('queue split keeps NEW list-only, DETAIL top-six, refresh and seed invariants', () => {
   const fs = require('node:fs'), path = require('node:path');
   const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'index.ts'), 'utf8');
   const migration = fs.readFileSync(path.join(__dirname, '..', 'migrations', '0001_periodic_keywords.sql'), 'utf8');
   const wrangler = fs.readFileSync(path.join(__dirname, '..', 'wrangler.toml'), 'utf8');
   assert.match(migration, /CREATE TABLE IF NOT EXISTS periodic_keywords/);
-  assert.match(migration, /안산 닭한마리 맛집/); assert.match(migration, /강남 미용실/);
+  const queueMigration = fs.readFileSync(path.join(__dirname, '..', 'migrations', '0003_rank_queue_rework.sql'), 'utf8');
+  assert.match(queueMigration, /INSERT OR IGNORE INTO periodic_keywords/);
+  assert.equal((queueMigration.match(/'place','legal',48/g) || []).length, 20);
+  assert.equal((queueMigration.match(/'place','medical',48/g) || []).length, 20);
+  assert.equal((queueMigration.match(/'restaurant','food',48/g) || []).length, 8);
+  assert.equal((queueMigration.match(/'place','local_service',48/g) || []).length, 12);
+  assert.match(queueMigration, /'place'/);
   assert.match(source, /async function runOnePeriodicKeyword/);
+  assert.match(source, /async function runOnePeriodicDetail/);
+  assert.match(source, /ORDER BY rank LIMIT 6/);
+  assert.match(source, /Exactly one pcmap list request/);
+  assert.match(source, /NEW_CRON = '\*\/10 \* \* \* \*'/);
+  assert.match(source, /REFRESH_CRONS/);
+  assert.match(source, /EMPTY_RESULT/);
   assert.match(source, /LIMIT 1/);
-  assert.match(source, /PERIODIC_KEYWORD_CRONS = new Set/);
-  assert.match(source, /PERIODIC_KEYWORD_CRONS\.has\(event\.cron\)/);
-  assert.match(wrangler, /\*\/15 16-19 \* \* \*/);
-  assert.match(wrangler, /0 20 \* \* \*/);
+  assert.match(source, /event\.cron === NEW_CRON/);
+  assert.match(wrangler, /\*\/10 \* \* \* \*/);
+  assert.match(wrangler, /7,37 \* \* \* \*/);
 });
-test('periodic keyword admin reports collection progress before a public rank page exists', () => {
+test('periodic admin and public pages use first-observation publication safely', () => {
   const source = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'src', 'index.ts'), 'utf8');
-  assert.match(source, /관측 \$\{r\.observations\}\/2회/);
-  assert.match(source, /공개 순위는 같은 키워드가 2회 관측된 뒤 표시됩니다/);
+  assert.match(source, /HAVING obs >= 1/);
+  assert.match(source, /첫 정상 관측부터 공개합니다/);
+  assert.match(source, /첫 관측 데이터/);
   assert.match(source, /app\.post\('\/admin\/periodic-keywords\/run'/);
   assert.match(source, /role="status"/);
-  assert.match(source, /function inferPeriodicCategory/);
-  assert.match(source, /관련도 목록 \$\{items\.length\}곳 · 상세 지표 \$\{detailed\}곳 기록/);
+  assert.match(source, /function inferPeriodicTarget/);
+  assert.match(source, /pcmap 목록 1회/);
   assert.match(source, /value="48"/);
   assert.doesNotMatch(source, /name="mode"/);
   assert.doesNotMatch(source, /name="category"/);

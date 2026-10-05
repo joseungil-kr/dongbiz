@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS places (
 -- 개별 매장 진단·사용자 요청 키워드는 이 테이블에 넣지 않는다.
 CREATE TABLE IF NOT EXISTS periodic_keywords (
     keyword TEXT PRIMARY KEY,
-    category TEXT NOT NULL CHECK (category IN ('restaurant', 'hairshop')),
+  category TEXT NOT NULL CHECK (category IN ('restaurant', 'hairshop', 'place')),
     collection_mode TEXT NOT NULL DEFAULT 'rank' CHECK (collection_mode IN ('rank', 'analytics')),
     active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
     interval_hours INTEGER NOT NULL DEFAULT 48 CHECK (interval_hours >= 24),
