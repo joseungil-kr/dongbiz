@@ -11,6 +11,7 @@ CREATE TABLE periodic_keywords_new (
   last_success_at DATETIME,
   last_error_code TEXT,
   next_run_at DATETIME,
+  detail_due_at DATETIME,
   detail_completed_at DATETIME,
   empty_result_count INTEGER NOT NULL DEFAULT 0,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,

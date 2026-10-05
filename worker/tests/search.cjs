@@ -272,6 +272,10 @@ test('queue split keeps NEW list-only, DETAIL top-six, refresh and seed invarian
   assert.match(source, /async function runOnePeriodicDetail/);
   assert.match(source, /ORDER BY rank LIMIT 6/);
   assert.match(source, /Exactly one pcmap list request/);
+  assert.match(source, /detail_due_at = \?/);
+  assert.match(source, /sqlDateAfterMinutes\(30\)/);
+  assert.match(source, /ORDER BY detail_due_at, keyword LIMIT 1/);
+  assert.match(source, /A DETAIL failure must not delay REFRESH/);
   assert.match(source, /NEW_CRON = '\*\/10 \* \* \* \*'/);
   assert.match(source, /REFRESH_CRONS/);
   assert.match(source, /EMPTY_RESULT/);

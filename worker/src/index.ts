@@ -2539,6 +2539,10 @@ function sqlDateAfter(hours: number) {
   return new Date(Date.now() + hours * 60 * 60 * 1000).toISOString().slice(0, 19).replace('T', ' ');
 }
 
+function sqlDateAfterMinutes(minutes: number) {
+  return new Date(Date.now() + minutes * 60 * 1000).toISOString().slice(0, 19).replace('T', ' ');
+}
+
 function nextPeriodicSlot(eligibleAt: string | null | undefined): string {
   const eligible = eligibleAt ? new Date(eligibleAt.replace(' ', 'T') + 'Z') : new Date();
   const base = new Date(Math.max(eligible.getTime(), Date.now()));
@@ -2588,10 +2592,10 @@ async function collectPeriodicList(env: Env, target: PeriodicKeyword, kind: 'NEW
     await db.batch(writes);
     await db.prepare(`
       UPDATE periodic_keywords
-      SET last_success_at = CURRENT_TIMESTAMP, last_error_code = NULL, empty_result_count = 0, detail_completed_at = NULL,
-          next_run_at = ?, updated_at = CURRENT_TIMESTAMP
+      SET last_success_at = CURRENT_TIMESTAMP, last_error_code = NULL, empty_result_count = 0,
+          detail_completed_at = NULL, detail_due_at = ?, next_run_at = ?, updated_at = CURRENT_TIMESTAMP
       WHERE keyword = ?
-    `).bind(sqlDateAfter(target.interval_hours), target.keyword).run();
+    `).bind(sqlDateAfterMinutes(30), sqlDateAfter(target.interval_hours), target.keyword).run();
     return `${kind} ${target.keyword}: pcmap 목록 1회 · ${items.length}곳 기록`;
   } catch (err) {
     const code = err instanceof CollectionError ? err.code : (err instanceof Error ? err.message : 'UNKNOWN');
@@ -2625,8 +2629,8 @@ async function runOnePeriodicDetail(env: Env): Promise<string> {
   if (!db) return 'DB 미설정';
   const target = await db.prepare(`SELECT keyword FROM periodic_keywords
     WHERE active = 1 AND last_success_at IS NOT NULL AND detail_completed_at IS NULL
-      AND (next_run_at IS NULL OR next_run_at <= CURRENT_TIMESTAMP)
-    ORDER BY last_success_at, keyword LIMIT 1`).first<{ keyword: string }>();
+      AND detail_due_at IS NOT NULL AND detail_due_at <= CURRENT_TIMESTAMP
+    ORDER BY detail_due_at, keyword LIMIT 1`).first<{ keyword: string }>();
   if (!target) return '실행할 DETAIL 키워드 없음';
   try {
     const { results } = await db.prepare(`SELECT place_id FROM rank_snapshots WHERE keyword = ?
@@ -2640,11 +2644,12 @@ async function runOnePeriodicDetail(env: Env): Promise<string> {
         WHERE keyword = ? AND place_id = ? AND collected_at = (SELECT MAX(collected_at) FROM rank_snapshots WHERE keyword = ?)`)
         .bind(m.visitorReviewsTotal || null, m.cafeBlogReviewsTotal || null, m.totalVoteCount || null, m.photoCount || null, target.keyword, row.place_id, target.keyword).run();
     }
-    await db.prepare(`UPDATE periodic_keywords SET detail_completed_at = CURRENT_TIMESTAMP, last_error_code = NULL, updated_at = CURRENT_TIMESTAMP WHERE keyword = ?`).bind(target.keyword).run();
+    await db.prepare(`UPDATE periodic_keywords SET detail_completed_at = CURRENT_TIMESTAMP, detail_due_at = NULL, last_error_code = NULL, updated_at = CURRENT_TIMESTAMP WHERE keyword = ?`).bind(target.keyword).run();
     return `DETAIL ${target.keyword}: 상위 ${results.length}곳 상세 기록`;
   } catch (err) {
     const code = err instanceof CollectionError ? err.code : (err instanceof Error ? err.message : 'UNKNOWN');
-    await db.prepare(`UPDATE periodic_keywords SET last_error_code = ?, next_run_at = ?, updated_at = CURRENT_TIMESTAMP WHERE keyword = ?`)
+    // A DETAIL failure must not delay REFRESH. Its own due time is the cooldown gate.
+    await db.prepare(`UPDATE periodic_keywords SET last_error_code = ?, detail_due_at = ?, updated_at = CURRENT_TIMESTAMP WHERE keyword = ?`)
       .bind(code, sqlDateAfter(PERIODIC_FAILURE_COOLDOWN_HOURS), target.keyword).run();
     return `DETAIL ${target.keyword}: 실패 (${code})`;
   }
