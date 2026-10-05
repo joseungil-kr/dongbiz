@@ -259,8 +259,10 @@ test('queue split keeps NEW list-only, DETAIL top-six, refresh and seed invarian
   const fs = require('node:fs'), path = require('node:path');
   const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'index.ts'), 'utf8');
   const migration = fs.readFileSync(path.join(__dirname, '..', 'migrations', '0001_periodic_keywords.sql'), 'utf8');
+  const modeMigration = fs.readFileSync(path.join(__dirname, '..', 'migrations', '0002_periodic_keyword_modes.sql'), 'utf8');
   const wrangler = fs.readFileSync(path.join(__dirname, '..', 'wrangler.toml'), 'utf8');
   assert.match(migration, /CREATE TABLE IF NOT EXISTS periodic_keywords/);
+  assert.match(modeMigration, /SELECT 1/); assert.doesNotMatch(modeMigration, /ADD COLUMN/);
   const queueMigration = fs.readFileSync(path.join(__dirname, '..', 'migrations', '0003_rank_queue_rework.sql'), 'utf8');
   assert.match(queueMigration, /INSERT OR IGNORE INTO periodic_keywords/);
   const seeds = [...queueMigration.matchAll(/\('([^']+)',\s*'(restaurant|hairshop|place)',\s*'(legal|medical|food|local_service)',48\)/g)]
