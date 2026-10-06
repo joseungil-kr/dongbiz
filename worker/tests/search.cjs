@@ -258,6 +258,7 @@ test('public rank pages expose observation metadata and exclude non-relevance ro
 
 test('rank comments render safely, admin saves and disables them, and public nav appears once', async () => {
   const keyword = '강남역 상속 변호사';
+  const otherKeyword = '안산 맛집';
   const comments = new Map();
   let commentTableMissing = false;
   const snapshot = { place_id: '1234567', place_name: '업체', rank: 1, visitor_reviews: 12,
@@ -265,9 +266,16 @@ test('rank comments render safely, admin saves and disables them, and public nav
   const db = { prepare(sql) {
     let args = [];
     return { bind(...values) { args = values; return this; }, async all() {
+      if (sql.includes('FROM periodic_keywords pk')) return { results: [
+        { keyword, active: 1, interval_hours: 48, observations: 1, last_success_at: snapshot.collected_at },
+        { keyword: '첫 관측 대기', active: 1, interval_hours: 48, observations: 0 },
+      ] };
       if (sql.includes('FROM rank_snapshots') && sql.includes('WHERE keyword = ?')) return { results: args[0] === keyword ? [snapshot] : [] };
-      if (sql.includes('FROM rank_snapshots')) return { results: [{ keyword, obs: 1, places: 1, last_at: snapshot.collected_at }] };
-      if (sql.includes('FROM rank_page_comments')) return { results: [...comments.values()].filter(x => x.keyword.includes(args[0].replaceAll('%', ''))) };
+      if (sql.includes('FROM rank_snapshots')) return { results: [
+        { keyword, obs: 1, places: 1, last_at: snapshot.collected_at },
+        { keyword: otherKeyword, obs: 2, places: 3, last_at: '2026-10-05 02:00:00' },
+      ] };
+      if (sql.includes('FROM rank_page_comments')) return { results: [...comments.values()] };
       return { results: [] };
     }, async first() {
       if (commentTableMissing && sql.includes('FROM rank_page_comments')) throw new Error('D1_ERROR: no such table: rank_page_comments');
@@ -299,12 +307,35 @@ test('rank comments render safely, admin saves and disables them, and public nav
   assert.equal(((await response.text()).match(/<nav class="site-nav">/g) || []).length, 1);
 
   const auth = { Authorization: 'Basic ' + Buffer.from('admin:pass').toString('base64') };
+  const adminPage = path => app.fetch(new Request('https://local' + path, { headers: auth }), env, ctx);
+  response = await adminPage('/admin/rank-comments'); html = await response.text();
+  assert.equal(response.status, 200);
+  assert.match(html, /최근 관측일/); assert.match(html, /관측 횟수/);
+  assert.match(html, new RegExp(`href="/admin/rank-comments\\?edit=${encodeURIComponent(keyword)}">한마디 작성`));
+  assert.match(html, new RegExp(`href="/admin/rank-comments\\?edit=${encodeURIComponent(otherKeyword)}">한마디 작성`));
+  assert.match(html, /코멘트 없음/);
+  assert.doesNotMatch(html, /<form method="post" action="\/admin\/rank-comments"/);
+  response = await adminPage('/admin/rank-comments?edit=' + encodeURIComponent(keyword)); html = await response.text();
+  assert.equal(response.status, 200); assert.match(html, /name="keyword" readonly/);
+  assert.match(html, /실제 페이지 보기 ↗/);
+  response = await adminPage('/admin/rank-comments?edit=' + encodeURIComponent('없는 키워드'));
+  assert.equal(response.status, 404);
   const comment = '첫 관측 <script>alert(1)</script>\n다음 줄';
-  const save = text => app.fetch(new Request('https://local/admin/rank-comments', {
+  const save = (text, targetKeyword = keyword) => app.fetch(new Request('https://local/admin/rank-comments', {
     method: 'POST', headers: { ...auth, 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({ keyword, comment_text: text }),
+    body: new URLSearchParams({ keyword: targetKeyword, comment_text: text }),
   }), env, ctx);
+  response = await save('잘못된 저장', '없는 키워드'); assert.equal(response.status, 400);
+  response = await save('아직 대기', '첫 관측 대기'); assert.equal(response.status, 400);
+  assert.equal(comments.size, 0);
   response = await save(comment); assert.equal(response.status, 303);
+  assert.match(response.headers.get('location'), /saved=1/);
+  response = await adminPage(response.headers.get('location')); html = await response.text();
+  assert.match(html, /저장 후 페이지 보기 ↗/);
+  assert.match(html, new RegExp(`href="/admin/rank-comments\\?edit=${encodeURIComponent(keyword)}">수정`));
+  response = await adminPage('/admin/periodic-keywords'); html = await response.text();
+  assert.match(html, new RegExp(`href="/admin/rank-comments\\?edit=${encodeURIComponent(keyword)}">수정`));
+  assert.match(html, new RegExp(`href="/admin/rank-comments\\?edit=${encodeURIComponent('첫 관측 대기')}">한마디 작성`));
   response = await publicPage(); html = await response.text();
   assert.match(html, /조강사의 한마디/);
   assert.match(html, /\/images\/jo_point\.png/);

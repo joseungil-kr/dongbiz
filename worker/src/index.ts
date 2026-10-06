@@ -1828,29 +1828,41 @@ const ADMIN_NAV = `<nav class="nav">
 
 app.get('/admin/rank-comments', async (c) => {
   const search = (c.req.query('keyword') || '').trim().slice(0, 60);
-  const editKeyword = (c.req.query('edit') || '').trim().slice(0, 60);
+  const editKeyword = (c.req.query('edit') || '').trim();
+  const keywords = await eligibleRankKeywordSummaries(c.env.DB);
   const { results } = await c.env.DB.prepare(`SELECT keyword, comment_text, source, approved, updated_at
-    FROM rank_page_comments WHERE keyword LIKE ? ORDER BY updated_at DESC LIMIT 200`).bind(`%${search}%`).all();
-  const editing = editKeyword ? await c.env.DB.prepare(`SELECT keyword, comment_text FROM rank_page_comments WHERE keyword = ?`)
-    .bind(editKeyword).first<{ keyword: string; comment_text: string }>() : null;
-  const rows = (results as any[]).map(row => `<tr>
+    FROM rank_page_comments`).all();
+  const comments = new Map((results as any[]).map(row => [row.keyword, row]));
+  const selected = editKeyword ? keywords.find(row => row.keyword === editKeyword) : null;
+  if (editKeyword && !selected) return c.html(`<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><title>공개 키워드 확인</title><style>${ADMIN_STYLE}</style></head><body>${ADMIN_NAV}
+    <h1>공개된 순위 페이지가 없는 키워드입니다</h1><p>첫 정상 관측 후 코멘트를 작성할 수 있습니다.</p><a href="/admin/rank-comments">공개 키워드 목록으로</a></body></html>`, 404);
+  const editing = selected ? comments.get(selected.keyword) : null;
+  const rows = keywords.filter(row => row.keyword.includes(search)).map(row => {
+    const comment = comments.get(row.keyword);
+    const rankUrl = `/rank/${encodeURIComponent(row.keyword)}`;
+    return `<tr>
     <td>${escapeHtml(row.keyword)}</td>
-    <td>${escapeHtml(String(row.comment_text).slice(0, 90))}${String(row.comment_text).length > 90 ? '…' : ''}</td>
-    <td>${escapeHtml(row.source)} · ${row.approved ? '게시 중' : '비공개'}</td>
-    <td>${escapeHtml(fmtKST(row.updated_at))}</td>
-    <td><a href="/admin/rank-comments?edit=${encodeURIComponent(row.keyword)}">수정</a>
-      <form method="post" action="/admin/rank-comments/${encodeURIComponent(row.keyword)}/toggle" style="display:inline;margin-left:8px"><button type="submit">${row.approved ? '비공개' : '다시 게시'}</button></form></td>
-  </tr>`).join('');
+    <td>${escapeHtml(fmtKST(row.last_at))}</td>
+    <td>${Number(row.obs)}회</td>
+    <td>${comment ? (comment.approved ? '게시 중' : '비공개') : '코멘트 없음'}</td>
+    <td>${comment ? escapeHtml(fmtKST(comment.updated_at)) : '-'}</td>
+    <td><a href="/admin/rank-comments?edit=${encodeURIComponent(row.keyword)}">${comment ? '수정' : '한마디 작성'}</a>
+      <a href="${rankUrl}" target="_blank" rel="noopener noreferrer" style="margin-left:8px">페이지 보기</a>
+      ${comment ? `<form method="post" action="/admin/rank-comments/${encodeURIComponent(row.keyword)}/toggle" style="display:inline;margin-left:8px"><button type="submit">${comment.approved ? '비공개' : '다시 게시'}</button></form>` : ''}</td>
+  </tr>`;
+  }).join('');
   return c.html(`<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>조강사의 한마디 관리</title><style>${ADMIN_STYLE}</style></head><body>${ADMIN_NAV}
 <h1>조강사의 한마디</h1>
 <form method="get" action="/admin/rank-comments" style="margin-bottom:16px"><label>키워드 검색 <input name="keyword" value="${escapeHtml(search)}"></label> <button>검색</button></form>
-<form method="post" action="/admin/rank-comments" class="card" style="margin-bottom:20px">
-  <label>키워드<br><input name="keyword" required maxlength="60" value="${escapeHtml(editing?.keyword || '')}" ${editing ? 'readonly' : ''} style="width:100%;max-width:420px"></label><br>
-  <label>코멘트<br><textarea name="comment_text" required maxlength="1000" rows="6" style="width:100%;max-width:640px;box-sizing:border-box">${escapeHtml(editing?.comment_text || '')}</textarea></label><br>
-  <button type="submit">${editing ? '수정 저장' : '저장'}</button>
-</form>
-<table><thead><tr><th>키워드</th><th>코멘트</th><th>출처·상태</th><th>수정일</th><th></th></tr></thead><tbody>${rows || '<tr><td colspan="5">등록된 코멘트가 없습니다.</td></tr>'}</tbody></table>
+${selected ? `<div class="card" style="margin-bottom:20px"><a href="/rank/${encodeURIComponent(selected.keyword)}" target="_blank" rel="noopener noreferrer">실제 페이지 보기 ↗</a>
+  ${c.req.query('saved') === '1' ? `<p role="status">저장했습니다. <a href="/rank/${encodeURIComponent(selected.keyword)}" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:8px 12px;background:#0F172A;color:#fff;border-radius:8px;text-decoration:none">저장 후 페이지 보기 ↗</a></p>` : ''}
+  <form method="post" action="/admin/rank-comments">
+    <label>키워드<br><input name="keyword" readonly value="${escapeHtml(selected.keyword)}" style="width:100%;max-width:420px"></label><br>
+    <label>코멘트<br><textarea name="comment_text" required maxlength="1000" rows="6" style="width:100%;max-width:640px;box-sizing:border-box">${escapeHtml(editing?.comment_text || '')}</textarea></label><br>
+    <button type="submit">${editing ? '수정 저장' : '저장'}</button>
+  </form></div>` : ''}
+<div style="overflow-x:auto"><table><thead><tr><th>키워드</th><th>최근 관측일</th><th>관측 횟수</th><th>코멘트 상태</th><th>수정일</th><th>작업</th></tr></thead><tbody>${rows || '<tr><td colspan="6">공개 가능한 순위 키워드가 없습니다.</td></tr>'}</tbody></table></div>
 </body></html>`);
 });
 
@@ -1859,11 +1871,13 @@ app.post('/admin/rank-comments', async (c) => {
   const keyword = String(body.keyword || '').trim().replace(/\s+/g, ' ');
   const commentText = String(body.comment_text || '').trim();
   if (!keyword || keyword.length > 60 || !commentText || commentText.length > 1000) return c.text('입력값이 올바르지 않습니다.', 400);
+  const eligible = await eligibleRankKeywords(c.env.DB);
+  if (!eligible.includes(keyword)) return c.text('공개된 순위 페이지가 없는 키워드입니다.', 400);
   await c.env.DB.prepare(`INSERT INTO rank_page_comments (keyword, comment_text, author, source, approved)
     VALUES (?, ?, '조강사', 'manual', 1)
     ON CONFLICT(keyword) DO UPDATE SET comment_text = excluded.comment_text, author = '조강사',
       source = 'manual', approved = 1, updated_at = CURRENT_TIMESTAMP`).bind(keyword, commentText).run();
-  return c.redirect(`/admin/rank-comments?edit=${encodeURIComponent(keyword)}`, 303);
+  return c.redirect(`/admin/rank-comments?edit=${encodeURIComponent(keyword)}&saved=1`, 303);
 });
 
 app.post('/admin/rank-comments/:keyword/toggle', async (c) => {
@@ -2044,6 +2058,8 @@ app.get('/admin/periodic-keywords', async (c) => {
     ) AS observations
     FROM periodic_keywords pk ORDER BY active DESC, keyword
   `).all();
+  const { results: commentRows } = await c.env.DB.prepare('SELECT keyword FROM rank_page_comments').all();
+  const commentedKeywords = new Set((commentRows as any[]).map(row => row.keyword));
   const rows = (results as any[]).map(r => `<tr>
     <td><b>${escapeHtml(r.keyword)}</b><br><span style="font-size:11px;color:#64748B">공개 순위 · 상세 지표</span></td>
     <td>${r.active ? '활성' : '중지'}</td>
@@ -2051,7 +2067,8 @@ app.get('/admin/periodic-keywords', async (c) => {
     <td>${escapeHtml(fmtKST(r.last_success_at) || '-')}</td>
     <td>${escapeHtml(fmtKST(r.next_run_at) || '-')}<br><span style="font-size:11px;color:#64748B">예상 실행 ${escapeHtml(fmtKST(nextPeriodicSlot(r.next_run_at, r.last_success_at ? 'REFRESH' : 'NEW')))}</span></td>
     <td>${escapeHtml(r.last_error_code || '-')}</td>
-    <td><form method="post" action="/admin/periodic-keywords/${encodeURIComponent(r.keyword)}/toggle"><button>${r.active ? '중지' : '활성화'}</button></form></td>
+    <td><form method="post" action="/admin/periodic-keywords/${encodeURIComponent(r.keyword)}/toggle"><button>${r.active ? '중지' : '활성화'}</button></form>
+      <a href="/admin/rank-comments?edit=${encodeURIComponent(r.keyword)}">${commentedKeywords.has(r.keyword) ? '수정' : '한마디 작성'}</a></td>
   </tr>`).join('');
   return c.html(`<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><title>동네장사 관리자 - 주기 키워드</title><style>${ADMIN_STYLE}</style></head><body>
   ${ADMIN_NAV}<h1>주기 수집 키워드</h1>
