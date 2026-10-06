@@ -255,6 +255,86 @@ test('public rank pages expose observation metadata and exclude non-relevance ro
   assert.match(source, /sort_mode = 'popular' OR sort_mode IS NULL/);
   assert.match(source, /is_ad = 0 OR is_ad IS NULL/);
 });
+
+test('rank comments render safely, admin saves and disables them, and public nav appears once', async () => {
+  const keyword = '강남역 상속 변호사';
+  const comments = new Map();
+  let commentTableMissing = false;
+  const snapshot = { place_id: '1234567', place_name: '업체', rank: 1, visitor_reviews: 12,
+    blog_reviews: 3, vote_count: 1, photo_count: 2, source: 'cron', collected_at: '2026-10-06 01:00:00' };
+  const db = { prepare(sql) {
+    let args = [];
+    return { bind(...values) { args = values; return this; }, async all() {
+      if (sql.includes('FROM rank_snapshots') && sql.includes('WHERE keyword = ?')) return { results: args[0] === keyword ? [snapshot] : [] };
+      if (sql.includes('FROM rank_snapshots')) return { results: [{ keyword, obs: 1, places: 1, last_at: snapshot.collected_at }] };
+      if (sql.includes('FROM rank_page_comments')) return { results: [...comments.values()].filter(x => x.keyword.includes(args[0].replaceAll('%', ''))) };
+      return { results: [] };
+    }, async first() {
+      if (commentTableMissing && sql.includes('FROM rank_page_comments')) throw new Error('D1_ERROR: no such table: rank_page_comments');
+      const row = comments.get(args[0]);
+      return row && (!sql.includes('approved = 1') || row.approved) ? row : null;
+    }, async run() {
+      if (sql.includes('INSERT INTO rank_page_comments')) comments.set(args[0], { keyword: args[0], comment_text: args[1], source: 'manual', approved: 1, updated_at: snapshot.collected_at });
+      if (sql.includes('UPDATE rank_page_comments SET approved')) comments.get(args[0]).approved ^= 1;
+      return { success: true };
+    } };
+  } };
+  const app = load('src/index.ts', async () => { throw new Error('unexpected external fetch'); }).default;
+  const env = { DB: db, ADMIN_USER: 'admin', ADMIN_PASS: 'pass' }, ctx = { waitUntil() {} };
+  const rankUrl = 'https://local/rank/' + encodeURIComponent(keyword);
+  const publicPage = async () => app.fetch(new Request(rankUrl), env, ctx);
+  let response = await publicPage(), html = await response.text();
+  assert.equal(response.status, 200);
+  assert.equal((html.match(/<nav class="site-nav">/g) || []).length, 1);
+  assert.match(html, /\.site-nav\{display:flex/);
+  assert.doesNotMatch(html, /class="jo-note"/);
+  response = await app.fetch(new Request('https://local/rank'), env, ctx);
+  assert.equal(response.status, 200);
+  assert.equal(((await response.text()).match(/<nav class="site-nav">/g) || []).length, 1);
+  commentTableMissing = true;
+  response = await publicPage(); assert.equal(response.status, 200);
+  commentTableMissing = false;
+  response = await app.fetch(new Request('https://local/rank/missing'), env, ctx);
+  assert.equal(response.status, 404);
+  assert.equal(((await response.text()).match(/<nav class="site-nav">/g) || []).length, 1);
+
+  const auth = { Authorization: 'Basic ' + Buffer.from('admin:pass').toString('base64') };
+  const comment = '첫 관측 <script>alert(1)</script>\n다음 줄';
+  const save = text => app.fetch(new Request('https://local/admin/rank-comments', {
+    method: 'POST', headers: { ...auth, 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ keyword, comment_text: text }),
+  }), env, ctx);
+  response = await save(comment); assert.equal(response.status, 303);
+  response = await publicPage(); html = await response.text();
+  assert.match(html, /조강사의 한마디/);
+  assert.match(html, /\/images\/jo_point\.png/);
+  assert.match(html, /&lt;script&gt;alert\(1\)&lt;\/script&gt;<br>다음 줄/);
+  assert.doesNotMatch(html, /<script>alert\(1\)<\/script>/);
+  assert.equal((html.match(/<nav class="site-nav">/g) || []).length, 1);
+  await save('수정한 코멘트');
+  response = await publicPage(); assert.match(await response.text(), /수정한 코멘트/);
+  response = await app.fetch(new Request('https://local/admin/rank-comments/' + encodeURIComponent(keyword) + '/toggle', { method: 'POST', headers: auth }), env, ctx);
+  assert.equal(response.status, 303);
+  response = await publicPage(); assert.doesNotMatch(await response.text(), /class="jo-note"/);
+  response = await app.fetch(new Request('https://local/admin/rank-comments', { headers: auth }), env, ctx);
+  assert.equal(response.status, 200); assert.match(await response.text(), /비공개/);
+  response = await app.fetch(new Request('https://local/admin/rank-comments'), env, ctx);
+  assert.equal(response.status, 401);
+});
+
+test('rank comment migration and mobile layout exist without changing the queue migration', () => {
+  const fs = require('node:fs'), path = require('node:path');
+  const migration = fs.readFileSync(path.join(__dirname, '..', 'migrations', '0004_rank_page_comments.sql'), 'utf8');
+  const schema = fs.readFileSync(path.join(__dirname, '..', 'schema.sql'), 'utf8');
+  const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'index.ts'), 'utf8');
+  for (const sql of [migration, schema]) {
+    assert.match(sql, /CREATE TABLE IF NOT EXISTS rank_page_comments/);
+    assert.match(sql, /source TEXT NOT NULL DEFAULT 'manual'/);
+    assert.match(sql, /approved INTEGER NOT NULL DEFAULT 1/);
+  }
+  assert.match(source, /@media\(max-width:520px\)\{\.jo-note\{display:block\}/);
+  assert.match(source, /WHERE keyword = \? AND approved = 1/);
+});
 test('queue split keeps NEW list-only, DETAIL top-six, refresh and seed invariants', () => {
   const fs = require('node:fs'), path = require('node:path');
   const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'index.ts'), 'utf8');

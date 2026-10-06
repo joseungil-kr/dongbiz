@@ -1041,6 +1041,14 @@ ${SITE_NAV_CSS}
   .rise{margin-top:7px;font-size:11px;color:#B45309;display:flex;flex-wrap:wrap;align-items:center;gap:6px}
   .riseBadge{background:#FEF3C7;color:#B45309;font-weight:800;padding:2px 8px;border-radius:999px;animation:riseUp 1.8s ease-in-out infinite}
   .riseBtn{background:#0F172A;color:#fff;font-weight:700;padding:4px 10px;border-radius:8px;text-decoration:none;white-space:nowrap}
+  .jo-note{display:flex;align-items:flex-end;gap:18px;margin:26px 0}
+  .jo-note-character{flex:0 0 120px;min-height:160px;display:flex;align-items:flex-end;justify-content:center}
+  .jo-note-character img{display:block;width:120px;max-height:180px;object-fit:contain}
+  .jo-note-bubble{position:relative;flex:1;min-width:0;background:#FFFBEB;border:1px solid #E7D8AC;border-radius:18px;padding:19px 22px;box-shadow:0 5px 18px rgba(64,52,22,.06)}
+  .jo-note-bubble:before{content:'';position:absolute;left:-10px;bottom:33px;width:18px;height:18px;background:#FFFBEB;border-left:1px solid #E7D8AC;border-bottom:1px solid #E7D8AC;transform:rotate(45deg)}
+  .jo-note-bubble h2{margin:0 0 8px;font-size:16px;color:#382F20}
+  .jo-note-bubble p{margin:0;color:#3F382C;font-size:14px;line-height:1.8;overflow-wrap:anywhere}
+  @media(max-width:520px){.jo-note{display:block}.jo-note-character{width:82px;min-height:0;margin:0 0 12px 18px}.jo-note-character img{width:82px;max-height:120px}.jo-note-bubble:before{left:40px;top:-10px;bottom:auto;transform:rotate(135deg)}}
   @keyframes riseUp{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
   @media (prefers-reduced-motion:reduce){.riseBadge{animation:none}}
 `;
@@ -1187,7 +1195,7 @@ function keywordTier(boundary: number | null): { label: string; color: string; d
   return { label: '고경쟁형', color: '#B91C1C;background:#FEF2F2', desc: '리뷰만으로 따라잡기 어려운 구간입니다. 더 좁은 키워드를 먼저 잡는 편이 현실적입니다.' };
 }
 
-function renderRankPageHtml(keyword: string, rows: any[], repKeyword: string, siblings: string[] = []): string {
+function renderRankPageHtml(keyword: string, rows: any[], repKeyword: string, siblings: string[] = [], comment?: { comment_text: string }): string {
   const batches = [...new Set(rows.map(r => r.collected_at))].sort();
   const latest = batches[batches.length - 1];
   const top = dedupeByPlace(
@@ -1350,6 +1358,10 @@ function renderRankPageHtml(keyword: string, rows: any[], repKeyword: string, si
   const title = `${keyword} 플레이스 순위 분석 · 상위 ${top.length}곳 지표 비교`;
   const desc = `'${keyword}' 플레이스 상위 ${top.length}곳의 순위와 방문자 리뷰·블로그 리뷰·사진 수 실측 데이터. 1페이지 진입선 ${boundary.toLocaleString()}건(${tier.label}). 기준일 ${fmtKST(latest).slice(0, 10)}.`;
   const canonical = `https://dongbiz.com/rank/${encodeURIComponent(repKeyword)}`;
+  const commentBlock = comment?.comment_text?.trim() ? `<section class="jo-note" aria-labelledby="jo-note-title">
+  <div class="jo-note-character"><img src="/images/jo_point.png" alt="오른쪽을 가리키는 조강사 캐릭터" width="120" height="172" loading="lazy"></div>
+  <div class="jo-note-bubble"><h2 id="jo-note-title">조강사의 한마디</h2><p>${escapeHtml(comment.comment_text).replace(/\r\n?|\n/g, '<br>')}</p></div>
+</section>` : '';
 
   return `<!DOCTYPE html><html lang="ko"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -1363,7 +1375,7 @@ function renderRankPageHtml(keyword: string, rows: any[], repKeyword: string, si
 <meta name="twitter:card" content="summary_large_image">
 <script type="application/ld+json">${jsonLd}</script>
 <script type="application/ld+json">${faqLd(faqs)}</script>
-<style>${RANK_PAGE_STYLE}${SITE_FOOTER_CSS}</style></head><body><div class="wrap">
+<style>${RANK_PAGE_STYLE}${SITE_FOOTER_CSS}</style></head><body>${siteNav('place')}<div class="wrap">
 <header><a href="/">동네장사</a> · <a href="/rank">키워드 전체 목록</a> · <a href="/guide">상위노출 가이드</a></header>
 <h1>${escapeHtml(title)}</h1>
 <p class="meta">기준일 ${escapeHtml(fmtKST(latest))} · 관측 ${batches.length}회 누적 · 네이버 통합검색 플레이스 영역 기준</p>
@@ -1383,6 +1395,7 @@ function renderRankPageHtml(keyword: string, rows: any[], repKeyword: string, si
   <div class="card"><span class="k">1페이지 진입선 (${top.length}위)</span><span class="v">${boundary.toLocaleString()}</span></div>
   ${batches.length > 1 ? `<div class="card"><span class="k">최근 관측 ${recent.length}회 중 순위 변동</span><span class="v">${changes}회</span></div>` : `<div class="card"><span class="k">관측 상태</span><span class="v">첫 관측 데이터</span></div>`}
 </div>
+${commentBlock}
 <p style="margin-top:14px">이 키워드는 <b>${tier.label}</b>입니다. ${escapeHtml(tier.desc)}</p>
 ${mid > 0 && boundary > 0 ? `<p>상위권 방문자 리뷰 중앙값은 ${mid.toLocaleString()}건인데 1페이지 진입선은 ${boundary.toLocaleString()}건입니다. ${
   boundary > mid * 1.5
@@ -1448,7 +1461,16 @@ app.get('/rank/:keyword', async (c) => {
   // 띄어쓰기 변형으로 들어와도 대표 표기 한 곳으로 canonical을 모아 중복 색인을 막는다.
   const reps = await eligibleRankKeywords(db);
   const repKeyword = reps.find(k => normKeyword(k) === normKeyword(keyword)) || keyword;
-  return c.html(renderRankPageHtml(keyword, rows, repKeyword, relatedKeywords(keyword, reps)));
+  let comment: { comment_text: string } | null = null;
+  try {
+    comment = await db.prepare(`SELECT comment_text FROM rank_page_comments WHERE keyword = ? AND approved = 1`)
+      .bind(repKeyword).first<{ comment_text: string }>();
+  } catch (error) {
+    // Public rank data must remain available if code is deployed before migration 0004.
+    if (!/no such table: rank_page_comments/i.test(String(error))) throw error;
+    console.error('rank_page_comments migration 0004 is pending');
+  }
+  return c.html(renderRankPageHtml(keyword, rows, repKeyword, relatedKeywords(keyword, reps), comment || undefined));
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1799,9 +1821,57 @@ const ADMIN_NAV = `<nav class="nav">
   <span class="sep">공개</span>
   ${navItem('/rank', '순위 페이지', '고객에게 공개되는 키워드별 순위 문서. 검색 유입용.', true)}
   ${navItem('/admin/periodic-keywords', '주기 수집', '공개 순위 또는 지표 분석용 키워드만 등록합니다. 매장·사용자 진단 키워드는 자동 수집하지 않습니다.')}
+  ${navItem('/admin/rank-comments', '조강사의 한마디', '공개 순위 페이지의 키워드별 코멘트를 직접 작성하고 승인합니다.')}
   <span class="sep">연동</span>
   ${navItem('/admin/cron/run/indexnow', 'IndexNow 통보', '누르면 즉시 실행 · 사이트맵의 모든 URL을 IndexNow(네이버, 빙 등)에 실시간으로 색인(Indexing) 통보합니다.')}
 </nav>`;
+
+app.get('/admin/rank-comments', async (c) => {
+  const search = (c.req.query('keyword') || '').trim().slice(0, 60);
+  const editKeyword = (c.req.query('edit') || '').trim().slice(0, 60);
+  const { results } = await c.env.DB.prepare(`SELECT keyword, comment_text, source, approved, updated_at
+    FROM rank_page_comments WHERE keyword LIKE ? ORDER BY updated_at DESC LIMIT 200`).bind(`%${search}%`).all();
+  const editing = editKeyword ? await c.env.DB.prepare(`SELECT keyword, comment_text FROM rank_page_comments WHERE keyword = ?`)
+    .bind(editKeyword).first<{ keyword: string; comment_text: string }>() : null;
+  const rows = (results as any[]).map(row => `<tr>
+    <td>${escapeHtml(row.keyword)}</td>
+    <td>${escapeHtml(String(row.comment_text).slice(0, 90))}${String(row.comment_text).length > 90 ? '…' : ''}</td>
+    <td>${escapeHtml(row.source)} · ${row.approved ? '게시 중' : '비공개'}</td>
+    <td>${escapeHtml(fmtKST(row.updated_at))}</td>
+    <td><a href="/admin/rank-comments?edit=${encodeURIComponent(row.keyword)}">수정</a>
+      <form method="post" action="/admin/rank-comments/${encodeURIComponent(row.keyword)}/toggle" style="display:inline;margin-left:8px"><button type="submit">${row.approved ? '비공개' : '다시 게시'}</button></form></td>
+  </tr>`).join('');
+  return c.html(`<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>조강사의 한마디 관리</title><style>${ADMIN_STYLE}</style></head><body>${ADMIN_NAV}
+<h1>조강사의 한마디</h1>
+<form method="get" action="/admin/rank-comments" style="margin-bottom:16px"><label>키워드 검색 <input name="keyword" value="${escapeHtml(search)}"></label> <button>검색</button></form>
+<form method="post" action="/admin/rank-comments" class="card" style="margin-bottom:20px">
+  <label>키워드<br><input name="keyword" required maxlength="60" value="${escapeHtml(editing?.keyword || '')}" ${editing ? 'readonly' : ''} style="width:100%;max-width:420px"></label><br>
+  <label>코멘트<br><textarea name="comment_text" required maxlength="1000" rows="6" style="width:100%;max-width:640px;box-sizing:border-box">${escapeHtml(editing?.comment_text || '')}</textarea></label><br>
+  <button type="submit">${editing ? '수정 저장' : '저장'}</button>
+</form>
+<table><thead><tr><th>키워드</th><th>코멘트</th><th>출처·상태</th><th>수정일</th><th></th></tr></thead><tbody>${rows || '<tr><td colspan="5">등록된 코멘트가 없습니다.</td></tr>'}</tbody></table>
+</body></html>`);
+});
+
+app.post('/admin/rank-comments', async (c) => {
+  const body = await c.req.parseBody();
+  const keyword = String(body.keyword || '').trim().replace(/\s+/g, ' ');
+  const commentText = String(body.comment_text || '').trim();
+  if (!keyword || keyword.length > 60 || !commentText || commentText.length > 1000) return c.text('입력값이 올바르지 않습니다.', 400);
+  await c.env.DB.prepare(`INSERT INTO rank_page_comments (keyword, comment_text, author, source, approved)
+    VALUES (?, ?, '조강사', 'manual', 1)
+    ON CONFLICT(keyword) DO UPDATE SET comment_text = excluded.comment_text, author = '조강사',
+      source = 'manual', approved = 1, updated_at = CURRENT_TIMESTAMP`).bind(keyword, commentText).run();
+  return c.redirect(`/admin/rank-comments?edit=${encodeURIComponent(keyword)}`, 303);
+});
+
+app.post('/admin/rank-comments/:keyword/toggle', async (c) => {
+  const keyword = c.req.param('keyword');
+  await c.env.DB.prepare(`UPDATE rank_page_comments SET approved = CASE approved WHEN 1 THEN 0 ELSE 1 END,
+    updated_at = CURRENT_TIMESTAMP WHERE keyword = ?`).bind(keyword).run();
+  return c.redirect('/admin/rank-comments', 303);
+});
 
 // 관리자: 진단 리스트 (최신 100건). §6 Phase C 신규 요청 — 관리자 자신이 raw데이터를 검증할 수 있어야 함.
 app.get("/api/test-graphql2", async (c) => {

@@ -39,6 +39,17 @@ CREATE TABLE IF NOT EXISTS periodic_keywords (
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 공개 순위 페이지에 표시할 관리자 승인 코멘트.
+CREATE TABLE IF NOT EXISTS rank_page_comments (
+    keyword TEXT PRIMARY KEY,
+    comment_text TEXT NOT NULL,
+    author TEXT NOT NULL DEFAULT '조강사',
+    source TEXT NOT NULL DEFAULT 'manual' CHECK (source IN ('manual', 'ai')),
+    approved INTEGER NOT NULL DEFAULT 1 CHECK (approved IN (0, 1)),
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 -- 3. 검색 히스토리 및 진단 기록 (고유 공유 링크용)
 CREATE TABLE IF NOT EXISTS search_histories (
     share_id TEXT PRIMARY KEY,       -- 고유 링크용 ID
