@@ -1705,6 +1705,27 @@ ${urls}
 const INDEXNOW_KEY = 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6';
 app.get(`/${INDEXNOW_KEY}.txt`, (c) => c.text(INDEXNOW_KEY));
 
+async function pingNewRankUrl(keyword: string): Promise<void> {
+  const payload = {
+    host: 'dongbiz.com',
+    key: INDEXNOW_KEY,
+    keyLocation: `https://dongbiz.com/${INDEXNOW_KEY}.txt`,
+    urlList: [`https://dongbiz.com/rank/${encodeURIComponent(keyword)}`],
+  };
+  await Promise.all(['https://searchadvisor.naver.com/indexnow', 'https://api.indexnow.org/indexnow'].map(async endpoint => {
+    try {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json; charset=utf-8' },
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) console.error(`IndexNow NEW ping failed (${response.status}): ${endpoint}`);
+    } catch (error) {
+      console.error(`IndexNow NEW ping failed: ${endpoint}`, error);
+    }
+  }));
+}
+
 // IndexNow Ping Route
 app.get('/admin/cron/run/indexnow', async (c) => {
   const db = c.env.DB;
@@ -1958,7 +1979,7 @@ app.get('/admin/periodic-keywords', async (c) => {
     <td>${r.active ? '활성' : '중지'}</td>
     <td>${r.interval_hours}시간<br><span style="font-size:11px;color:#64748B">관측 ${r.observations}회 ${r.observations >= 1 ? '· 공개 중' : '· 첫 관측 대기'}</span></td>
     <td>${escapeHtml(fmtKST(r.last_success_at) || '-')}</td>
-    <td>${escapeHtml(fmtKST(r.next_run_at) || '-')}<br><span style="font-size:11px;color:#64748B">예상 실행 ${escapeHtml(fmtKST(nextPeriodicSlot(r.next_run_at)))}</span></td>
+    <td>${escapeHtml(fmtKST(r.next_run_at) || '-')}<br><span style="font-size:11px;color:#64748B">예상 실행 ${escapeHtml(fmtKST(nextPeriodicSlot(r.next_run_at, r.last_success_at ? 'REFRESH' : 'NEW')))}</span></td>
     <td>${escapeHtml(r.last_error_code || '-')}</td>
     <td><form method="post" action="/admin/periodic-keywords/${encodeURIComponent(r.keyword)}/toggle"><button>${r.active ? '중지' : '활성화'}</button></form></td>
   </tr>`).join('');
@@ -1980,7 +2001,7 @@ app.post('/admin/periodic-keywords', async (c) => {
   const body = await c.req.parseBody();
   const keyword = String(body.keyword || '').trim().replace(/\s+/g, ' ');
   const target = inferPeriodicTarget(keyword);
-  const intervalHours = Math.max(24, Math.min(24 * 30, Number(body.intervalHours) || 48));
+  const intervalHours = Math.max(24, Math.min(72, Number(body.intervalHours) || 48));
   if (!keyword || keyword.length > 60) return c.text('입력값이 올바르지 않습니다.', 400);
   await c.env.DB.prepare(`
     INSERT INTO periodic_keywords (keyword, category, market, interval_hours, active)
@@ -2001,7 +2022,7 @@ app.post('/admin/periodic-keywords/:keyword/toggle', async (c) => {
 });
 
 app.post('/admin/periodic-keywords/run', async (c) => {
-  const result = await runOnePeriodicKeyword(c.env);
+  const result = await runOnePeriodicKeyword(c.env, 'NEW', c.executionCtx);
   return c.redirect(`/admin/periodic-keywords?result=${encodeURIComponent(result)}`, 303);
 });
 
@@ -2543,20 +2564,19 @@ function sqlDateAfterMinutes(minutes: number) {
   return new Date(Date.now() + minutes * 60 * 1000).toISOString().slice(0, 19).replace('T', ' ');
 }
 
-function nextPeriodicSlot(eligibleAt: string | null | undefined): string {
-  const eligible = eligibleAt ? new Date(eligibleAt.replace(' ', 'T') + 'Z') : new Date();
-  const base = new Date(Math.max(eligible.getTime(), Date.now()));
-  const kst = new Date(base.getTime() + 9 * 60 * 60 * 1000);
-  let year = kst.getUTCFullYear(), month = kst.getUTCMonth(), day = kst.getUTCDate();
-  let hour = kst.getUTCHours(), minute = kst.getUTCMinutes();
-  if (hour < 1) { hour = 1; minute = 0; }
-  else if (hour > 5 || (hour === 5 && (minute > 0 || kst.getUTCSeconds() > 0))) { day += 1; hour = 1; minute = 0; }
-  else {
-    minute = Math.ceil(minute / 15) * 15;
-    if (minute === 60) { hour += 1; minute = 0; }
-    if (hour > 5 || (hour === 5 && minute > 0)) { day += 1; hour = 1; minute = 0; }
+function nextPeriodicSlot(eligibleAt: string | null | undefined, kind: 'NEW' | 'REFRESH', now = new Date()): string {
+  const eligible = eligibleAt ? new Date(eligibleAt.replace(' ', 'T') + 'Z') : now;
+  const base = Math.max(eligible.getTime(), now.getTime());
+  const hour = new Date(base);
+  hour.setUTCMinutes(0, 0, 0);
+  const minutes = kind === 'NEW' ? [0, 10, 20, 30, 40, 50] : [3, 33];
+  for (let offset = 0; offset < 2; offset++) {
+    for (const minute of minutes) {
+      const slot = hour.getTime() + offset * 60 * 60 * 1000 + minute * 60 * 1000;
+      if (slot >= base) return new Date(slot).toISOString().slice(0, 19).replace('T', ' ');
+    }
   }
-  return new Date(Date.UTC(year, month, day, hour - 9, minute)).toISOString().slice(0, 19).replace('T', ' ');
+  throw new Error('No periodic slot found');
 }
 
 function inferPeriodicTarget(keyword: string): Pick<PeriodicKeyword, 'category' | 'market'> {
@@ -2567,7 +2587,7 @@ function inferPeriodicTarget(keyword: string): Pick<PeriodicKeyword, 'category' 
   return { category: 'place', market: 'local_service' };
 }
 
-async function collectPeriodicList(env: Env, target: PeriodicKeyword, kind: 'NEW' | 'REFRESH'): Promise<string> {
+async function collectPeriodicList(env: Env, target: PeriodicKeyword, kind: 'NEW' | 'REFRESH', ctx?: ExecutionContext): Promise<string> {
   const db = env.DB;
   if (!db) return 'DB 미설정';
   await db.prepare(`
@@ -2596,6 +2616,7 @@ async function collectPeriodicList(env: Env, target: PeriodicKeyword, kind: 'NEW
           detail_completed_at = NULL, detail_due_at = ?, next_run_at = ?, updated_at = CURRENT_TIMESTAMP
       WHERE keyword = ?
     `).bind(sqlDateAfterMinutes(30), sqlDateAfter(target.interval_hours), target.keyword).run();
+    if (kind === 'NEW') ctx?.waitUntil(pingNewRankUrl(target.keyword));
     return `${kind} ${target.keyword}: pcmap 목록 1회 · ${items.length}곳 기록`;
   } catch (err) {
     const code = err instanceof CollectionError ? err.code : (err instanceof Error ? err.message : 'UNKNOWN');
@@ -2610,7 +2631,7 @@ async function collectPeriodicList(env: Env, target: PeriodicKeyword, kind: 'NEW
   }
 }
 
-async function runOnePeriodicKeyword(env: Env, kind: 'NEW' | 'REFRESH' = 'NEW'): Promise<string> {
+async function runOnePeriodicKeyword(env: Env, kind: 'NEW' | 'REFRESH' = 'NEW', ctx?: ExecutionContext): Promise<string> {
   const db = env.DB;
   if (!db) return 'DB 미설정';
   const target = await db.prepare(`
@@ -2621,7 +2642,7 @@ async function runOnePeriodicKeyword(env: Env, kind: 'NEW' | 'REFRESH' = 'NEW'):
     ORDER BY COALESCE(next_run_at, '1970-01-01 00:00:00'), keyword
     LIMIT 1
   `).first<PeriodicKeyword>();
-  return target ? collectPeriodicList(env, target, kind) : `실행할 ${kind} 키워드 없음`;
+  return target ? collectPeriodicList(env, target, kind, ctx) : `실행할 ${kind} 키워드 없음`;
 }
 
 async function runOnePeriodicDetail(env: Env): Promise<string> {
@@ -2981,7 +3002,7 @@ const CRON_TIMES = {
 export default {
   fetch: app.fetch,
   scheduled: async (event: ScheduledEvent, env: Env, ctx: ExecutionContext) => {
-    if (event.cron === NEW_CRON) ctx.waitUntil(runOnePeriodicKeyword(env, 'NEW'));
+    if (event.cron === NEW_CRON) ctx.waitUntil(runOnePeriodicKeyword(env, 'NEW', ctx));
     else if (DETAIL_CRONS.has(event.cron)) ctx.waitUntil(runOnePeriodicDetail(env));
     else if (REFRESH_CRONS.has(event.cron)) ctx.waitUntil(runOnePeriodicKeyword(env, 'REFRESH'));
   },

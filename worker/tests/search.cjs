@@ -320,12 +320,39 @@ test('admin links separate customer, email, admin and raw report views', () => {
   assert.match(source, /원본데이터/);
   assert.doesNotMatch(source, /navItem\('\/admin\?view=report'/);
 });
-test('periodic admin distinguishes eligible time from the next night slot', () => {
+test('periodic admin shows the next slot for the NEW and REFRESH crons', () => {
   const source = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'src', 'index.ts'), 'utf8');
   assert.match(source, /다음 수집 가능/);
   assert.match(source, /예상 실행/);
-  assert.match(source, /function nextPeriodicSlot/);
-  assert.match(source, /Math\.ceil\(minute \/ 15\) \* 15/);
+  assert.match(source, /nextPeriodicSlot\(r\.next_run_at, r\.last_success_at \? 'REFRESH' : 'NEW'\)/);
+  assert.match(source, /Math\.max\(24, Math\.min\(72, Number\(body\.intervalHours\) \|\| 48\)\)/);
+  const snippet = source.slice(source.indexOf('function nextPeriodicSlot('), source.indexOf('function inferPeriodicTarget('));
+  const js = require('typescript').transpileModule(snippet, { compilerOptions: { target: 99 } }).outputText;
+  const nextPeriodicSlot = require('node:vm').runInNewContext(`${js}\nnextPeriodicSlot`, { Date, Error });
+  assert.equal(nextPeriodicSlot(null, 'NEW', new Date('2026-10-06T00:10:00Z')), '2026-10-06 00:10:00');
+  assert.equal(nextPeriodicSlot(null, 'NEW', new Date('2026-10-06T00:10:01Z')), '2026-10-06 00:20:00');
+  assert.equal(nextPeriodicSlot(null, 'REFRESH', new Date('2026-10-06T00:04:00Z')), '2026-10-06 00:33:00');
+  assert.equal(nextPeriodicSlot(null, 'REFRESH', new Date('2026-10-06T23:40:00Z')), '2026-10-07 00:03:00');
+  assert.equal(nextPeriodicSlot('2026-10-06 02:05:00', 'NEW', new Date('2026-10-06T00:00:00Z')), '2026-10-06 02:10:00');
+});
+
+test('NEW success pings only its published rank URL without failing collection on IndexNow errors', async () => {
+  const source = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'src', 'index.ts'), 'utf8');
+  assert.match(source, /if \(kind === 'NEW'\) ctx\?\.waitUntil\(pingNewRankUrl\(target\.keyword\)\)/);
+  assert.match(source, /runOnePeriodicKeyword\(env, 'NEW', ctx\)/);
+  const snippet = source.slice(source.indexOf('async function pingNewRankUrl('), source.indexOf('// IndexNow Ping Route'));
+  const js = require('typescript').transpileModule(snippet, { compilerOptions: { target: 99 } }).outputText;
+  const calls = [], errors = [];
+  const ping = require('node:vm').runInNewContext(`${js}\npingNewRankUrl`, {
+    INDEXNOW_KEY: 'public-test-key',
+    fetch: async (url, options) => { calls.push({ url, payload: JSON.parse(options.body) }); return { ok: url.includes('api.indexnow.org'), status: 429 }; },
+    console: { error: (...args) => errors.push(args) },
+  });
+  await ping('강남역 상속 변호사');
+  assert.equal(calls.length, 2);
+  assert.deepEqual(calls.map(c => c.url), ['https://searchadvisor.naver.com/indexnow', 'https://api.indexnow.org/indexnow']);
+  for (const call of calls) assert.deepEqual(call.payload.urlList, ['https://dongbiz.com/rank/' + encodeURIComponent('강남역 상속 변호사')]);
+  assert.equal(errors.length, 1);
 });
 test('report guide is anchored below the email form and does not imply a 350-result scan', () => {
   const html = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'public', 'index.html'), 'utf8');
