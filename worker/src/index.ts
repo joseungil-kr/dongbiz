@@ -1041,6 +1041,14 @@ ${SITE_NAV_CSS}
   .rise{margin-top:7px;font-size:11px;color:#B45309;display:flex;flex-wrap:wrap;align-items:center;gap:6px}
   .riseBadge{background:#FEF3C7;color:#B45309;font-weight:800;padding:2px 8px;border-radius:999px;animation:riseUp 1.8s ease-in-out infinite}
   .riseBtn{background:#0F172A;color:#fff;font-weight:700;padding:4px 10px;border-radius:8px;text-decoration:none;white-space:nowrap}
+  .jo-note{display:flex;align-items:flex-end;gap:18px;margin:26px 0}
+  .jo-note-character{flex:0 0 120px;min-height:160px;display:flex;align-items:flex-end;justify-content:center}
+  .jo-note-character img{display:block;width:120px;max-height:180px;object-fit:contain}
+  .jo-note-bubble{position:relative;flex:1;min-width:0;background:#FFFBEB;border:1px solid #E7D8AC;border-radius:18px;padding:19px 22px;box-shadow:0 5px 18px rgba(64,52,22,.06)}
+  .jo-note-bubble:before{content:'';position:absolute;left:-10px;bottom:33px;width:18px;height:18px;background:#FFFBEB;border-left:1px solid #E7D8AC;border-bottom:1px solid #E7D8AC;transform:rotate(45deg)}
+  .jo-note-bubble h2{margin:0 0 8px;font-size:16px;color:#382F20}
+  .jo-note-bubble p{margin:0;color:#3F382C;font-size:14px;line-height:1.8;overflow-wrap:anywhere}
+  @media(max-width:520px){.jo-note{display:block}.jo-note-character{width:82px;min-height:0;margin:0 0 12px 18px}.jo-note-character img{width:82px;max-height:120px}.jo-note-bubble:before{left:40px;top:-10px;bottom:auto;transform:rotate(135deg)}}
   @keyframes riseUp{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
   @media (prefers-reduced-motion:reduce){.riseBadge{animation:none}}
 `;
@@ -1058,7 +1066,7 @@ function normKeyword(k: string): string {
   return k.replace(/\s+/g, '');
 }
 
-// 공개 자격: 관측 2회 이상. 1회짜리는 집계·변동성이 성립하지 않아 껍데기 페이지가 된다(§6.1.2).
+// 공개 자격: 정상 목록 관측 1회 이상. 첫 관측은 변화/추세를 숨겨 안전하게 렌더한다.
 // 띄어쓰기만 다른 표기는 관측이 많은 쪽 하나만 대표로 공개한다 — 안 그러면 내용이 같은
 // 페이지가 여러 장 색인되어 §6.1.3의 대량생성 리스크를 스스로 키운다.
 async function eligibleRankKeywordSummaries(db: D1Database): Promise<any[]> {
@@ -1070,7 +1078,7 @@ async function eligibleRankKeywordSummaries(db: D1Database): Promise<any[]> {
       AND (source IS NULL OR source != 'analytics')
       AND (sort_mode = 'popular' OR sort_mode IS NULL)
       AND (is_ad = 0 OR is_ad IS NULL)
-    GROUP BY keyword HAVING obs >= 2
+    GROUP BY keyword HAVING obs >= 1
     ORDER BY last_at DESC
   `).all();
   const rep = new Map<string, any>();
@@ -1129,7 +1137,7 @@ app.get('/rank', async (c) => {
 <link rel="canonical" href="https://dongbiz.com/rank">
 <style>${RANK_PAGE_STYLE}</style></head><body>${siteNav('place')}<div class="wrap">
 <h1>키워드별 네이버 플레이스 순위 현황</h1>
-<p class="meta">관측이 2회 이상 누적된 키워드만 공개합니다. 총 ${keywords.length}개.</p>
+<p class="meta">첫 정상 관측부터 공개합니다. 변화·추이는 2회 관측부터 표시됩니다. 총 ${keywords.length}개.</p>
 <div class="kwlist">${items || '<span class="meta">아직 공개 가능한 키워드가 없습니다.</span>'}</div>
 <a class="cta" href="/">내 매장 순위 무료로 진단하기</a>
 </div>${siteFooter()}</body></html>`);
@@ -1187,7 +1195,7 @@ function keywordTier(boundary: number | null): { label: string; color: string; d
   return { label: '고경쟁형', color: '#B91C1C;background:#FEF2F2', desc: '리뷰만으로 따라잡기 어려운 구간입니다. 더 좁은 키워드를 먼저 잡는 편이 현실적입니다.' };
 }
 
-function renderRankPageHtml(keyword: string, rows: any[], repKeyword: string, siblings: string[] = []): string {
+function renderRankPageHtml(keyword: string, rows: any[], repKeyword: string, siblings: string[] = [], comment?: { comment_text: string }): string {
   const batches = [...new Set(rows.map(r => r.collected_at))].sort();
   const latest = batches[batches.length - 1];
   const top = dedupeByPlace(
@@ -1219,7 +1227,7 @@ function renderRankPageHtml(keyword: string, rows: any[], repKeyword: string, si
     const before = prevRank.get(r.place_id);
     const up = before ? before - r.rank : 0;
     let riseBlock = '';
-    if (!before) {
+    if (prevBatch && !before) {
       riseBlock = `<div class="rise"><span class="riseBadge">▲ 신규</span> 최근 순위권에 새로 진입했습니다. <a class="riseBtn" href="/">내 매장 진단하기</a></div>`;
     } else if (up > 0) {
       riseBlock = `<div class="rise"><span class="riseBadge">▲ ${up}</span> 최근 순위 상승 이슈가 있었습니다. <a class="riseBtn" href="/">내 매장 진단하기</a></div>`;
@@ -1310,7 +1318,7 @@ function renderRankPageHtml(keyword: string, rows: any[], repKeyword: string, si
       ? `${keyword}는 꾸준히 관리하면 닿는 구간입니다. 다만 몇 달 단위의 시간이 필요하고, 그동안 경쟁 업체도 움직이므로 진입선을 고정된 목표가 아니라 계속 올라가는 기준으로 봐야 합니다. 소상공인에게 가장 현실적인 목표가 대개 이 구간입니다.`
       : `${keyword}는 리뷰만으로 따라잡기 어려운 구간입니다. 진입선이 ${boundary.toLocaleString()}건이므로 하루 10건씩 모아도 계산상 ${Math.max(1, Math.round(boundary / 10 / 30))}개월이 걸립니다. 정면으로 붙기보다 같은 손님이 칠 법한 더 좁은 키워드를 먼저 잡아 실제 방문을 만드는 순서가 현실적입니다.`;
 
-  const changeBlock = changes > 0
+  const changeBlock = batches.length > 1 && changes > 0
     ? `<p>최근 관측 ${recent.length}회 동안 이 키워드의 상위 ${top.length}위권에서 자리가 바뀐 것은 ${changes}회입니다. 순위가 고정되어 있지 않다는 뜻이며, 관리하지 않으면 밀리고 관리하면 올라갈 여지가 함께 있다는 신호입니다.</p>`
     : '';
 
@@ -1350,6 +1358,10 @@ function renderRankPageHtml(keyword: string, rows: any[], repKeyword: string, si
   const title = `${keyword} 플레이스 순위 분석 · 상위 ${top.length}곳 지표 비교`;
   const desc = `'${keyword}' 플레이스 상위 ${top.length}곳의 순위와 방문자 리뷰·블로그 리뷰·사진 수 실측 데이터. 1페이지 진입선 ${boundary.toLocaleString()}건(${tier.label}). 기준일 ${fmtKST(latest).slice(0, 10)}.`;
   const canonical = `https://dongbiz.com/rank/${encodeURIComponent(repKeyword)}`;
+  const commentBlock = comment?.comment_text?.trim() ? `<section class="jo-note" aria-labelledby="jo-note-title">
+  <div class="jo-note-character"><img src="/images/jo_point.png" alt="오른쪽을 가리키는 조강사 캐릭터" width="120" height="172" loading="lazy"></div>
+  <div class="jo-note-bubble"><h2 id="jo-note-title">조강사의 한마디</h2><p>${escapeHtml(comment.comment_text).replace(/\r\n?|\n/g, '<br>')}</p></div>
+</section>` : '';
 
   return `<!DOCTYPE html><html lang="ko"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -1363,7 +1375,7 @@ function renderRankPageHtml(keyword: string, rows: any[], repKeyword: string, si
 <meta name="twitter:card" content="summary_large_image">
 <script type="application/ld+json">${jsonLd}</script>
 <script type="application/ld+json">${faqLd(faqs)}</script>
-<style>${RANK_PAGE_STYLE}${SITE_FOOTER_CSS}</style></head><body><div class="wrap">
+<style>${RANK_PAGE_STYLE}${SITE_FOOTER_CSS}</style></head><body>${siteNav('place')}<div class="wrap">
 <header><a href="/">동네장사</a> · <a href="/rank">키워드 전체 목록</a> · <a href="/guide">상위노출 가이드</a></header>
 <h1>${escapeHtml(title)}</h1>
 <p class="meta">기준일 ${escapeHtml(fmtKST(latest))} · 관측 ${batches.length}회 누적 · 네이버 통합검색 플레이스 영역 기준</p>
@@ -1381,8 +1393,9 @@ function renderRankPageHtml(keyword: string, rows: any[], repKeyword: string, si
 <div class="cards">
   <div class="card"><span class="k">방문자 리뷰 중앙값</span><span class="v">${median(reviews).toLocaleString()}</span></div>
   <div class="card"><span class="k">1페이지 진입선 (${top.length}위)</span><span class="v">${boundary.toLocaleString()}</span></div>
-  <div class="card"><span class="k">최근 관측 ${recent.length}회 중 순위 변동</span><span class="v">${changes}회</span></div>
+  ${batches.length > 1 ? `<div class="card"><span class="k">최근 관측 ${recent.length}회 중 순위 변동</span><span class="v">${changes}회</span></div>` : `<div class="card"><span class="k">관측 상태</span><span class="v">첫 관측 데이터</span></div>`}
 </div>
+${commentBlock}
 <p style="margin-top:14px">이 키워드는 <b>${tier.label}</b>입니다. ${escapeHtml(tier.desc)}</p>
 ${mid > 0 && boundary > 0 ? `<p>상위권 방문자 리뷰 중앙값은 ${mid.toLocaleString()}건인데 1페이지 진입선은 ${boundary.toLocaleString()}건입니다. ${
   boundary > mid * 1.5
@@ -1436,19 +1449,28 @@ app.get('/rank/:keyword', async (c) => {
 
   const batches = new Set(rows.map(r => r.collected_at));
   const hasRanked = rows.some(r => r.rank);
-  if (batches.size < 2 || !hasRanked) {
+  if (batches.size < 1 || !hasRanked) {
     return c.html(`<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8">
 <meta name="robots" content="noindex"><title>동네장사 | 준비 중</title><style>${RANK_PAGE_STYLE}${SITE_FOOTER_CSS}</style></head>
 <body>${siteNav('place')}<div class="wrap">
-<h1>아직 공개 기준을 채우지 못한 키워드입니다</h1>
-<p class="meta">관측이 2회 이상 누적되면 공개됩니다.</p>
+<h1>아직 정상 관측 데이터가 없는 키워드입니다</h1>
+<p class="meta">첫 정상 목록 관측 뒤 공개됩니다.</p>
 <a class="cta" href="/">내 매장 순위 무료로 진단하기</a></div>${siteFooter()}</body></html>`, 404);
   }
 
   // 띄어쓰기 변형으로 들어와도 대표 표기 한 곳으로 canonical을 모아 중복 색인을 막는다.
   const reps = await eligibleRankKeywords(db);
   const repKeyword = reps.find(k => normKeyword(k) === normKeyword(keyword)) || keyword;
-  return c.html(renderRankPageHtml(keyword, rows, repKeyword, relatedKeywords(keyword, reps)));
+  let comment: { comment_text: string } | null = null;
+  try {
+    comment = await db.prepare(`SELECT comment_text FROM rank_page_comments WHERE keyword = ? AND approved = 1`)
+      .bind(repKeyword).first<{ comment_text: string }>();
+  } catch (error) {
+    // Public rank data must remain available if code is deployed before migration 0004.
+    if (!/no such table: rank_page_comments/i.test(String(error))) throw error;
+    console.error('rank_page_comments migration 0004 is pending');
+  }
+  return c.html(renderRankPageHtml(keyword, rows, repKeyword, relatedKeywords(keyword, reps), comment || undefined));
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1705,6 +1727,27 @@ ${urls}
 const INDEXNOW_KEY = 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6';
 app.get(`/${INDEXNOW_KEY}.txt`, (c) => c.text(INDEXNOW_KEY));
 
+async function pingNewRankUrl(keyword: string): Promise<void> {
+  const payload = {
+    host: 'dongbiz.com',
+    key: INDEXNOW_KEY,
+    keyLocation: `https://dongbiz.com/${INDEXNOW_KEY}.txt`,
+    urlList: [`https://dongbiz.com/rank/${encodeURIComponent(keyword)}`],
+  };
+  await Promise.all(['https://searchadvisor.naver.com/indexnow', 'https://api.indexnow.org/indexnow'].map(async endpoint => {
+    try {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json; charset=utf-8' },
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) console.error(`IndexNow NEW ping failed (${response.status}): ${endpoint}`);
+    } catch (error) {
+      console.error(`IndexNow NEW ping failed: ${endpoint}`, error);
+    }
+  }));
+}
+
 // IndexNow Ping Route
 app.get('/admin/cron/run/indexnow', async (c) => {
   const db = c.env.DB;
@@ -1778,9 +1821,71 @@ const ADMIN_NAV = `<nav class="nav">
   <span class="sep">공개</span>
   ${navItem('/rank', '순위 페이지', '고객에게 공개되는 키워드별 순위 문서. 검색 유입용.', true)}
   ${navItem('/admin/periodic-keywords', '주기 수집', '공개 순위 또는 지표 분석용 키워드만 등록합니다. 매장·사용자 진단 키워드는 자동 수집하지 않습니다.')}
+  ${navItem('/admin/rank-comments', '조강사의 한마디', '공개 순위 페이지의 키워드별 코멘트를 직접 작성하고 승인합니다.')}
   <span class="sep">연동</span>
   ${navItem('/admin/cron/run/indexnow', 'IndexNow 통보', '누르면 즉시 실행 · 사이트맵의 모든 URL을 IndexNow(네이버, 빙 등)에 실시간으로 색인(Indexing) 통보합니다.')}
 </nav>`;
+
+app.get('/admin/rank-comments', async (c) => {
+  const search = (c.req.query('keyword') || '').trim().slice(0, 60);
+  const editKeyword = (c.req.query('edit') || '').trim();
+  const keywords = await eligibleRankKeywordSummaries(c.env.DB);
+  const { results } = await c.env.DB.prepare(`SELECT keyword, comment_text, source, approved, updated_at
+    FROM rank_page_comments`).all();
+  const comments = new Map((results as any[]).map(row => [row.keyword, row]));
+  const selected = editKeyword ? keywords.find(row => row.keyword === editKeyword) : null;
+  if (editKeyword && !selected) return c.html(`<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><title>공개 키워드 확인</title><style>${ADMIN_STYLE}</style></head><body>${ADMIN_NAV}
+    <h1>공개된 순위 페이지가 없는 키워드입니다</h1><p>첫 정상 관측 후 코멘트를 작성할 수 있습니다.</p><a href="/admin/rank-comments">공개 키워드 목록으로</a></body></html>`, 404);
+  const editing = selected ? comments.get(selected.keyword) : null;
+  const rows = keywords.filter(row => row.keyword.includes(search)).map(row => {
+    const comment = comments.get(row.keyword);
+    const rankUrl = `/rank/${encodeURIComponent(row.keyword)}`;
+    return `<tr>
+    <td>${escapeHtml(row.keyword)}</td>
+    <td>${escapeHtml(fmtKST(row.last_at))}</td>
+    <td>${Number(row.obs)}회</td>
+    <td>${comment ? (comment.approved ? '게시 중' : '비공개') : '코멘트 없음'}</td>
+    <td>${comment ? escapeHtml(fmtKST(comment.updated_at)) : '-'}</td>
+    <td><a href="/admin/rank-comments?edit=${encodeURIComponent(row.keyword)}">${comment ? '수정' : '한마디 작성'}</a>
+      <a href="${rankUrl}" target="_blank" rel="noopener noreferrer" style="margin-left:8px">페이지 보기</a>
+      ${comment ? `<form method="post" action="/admin/rank-comments/${encodeURIComponent(row.keyword)}/toggle" style="display:inline;margin-left:8px"><button type="submit">${comment.approved ? '비공개' : '다시 게시'}</button></form>` : ''}</td>
+  </tr>`;
+  }).join('');
+  return c.html(`<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>조강사의 한마디 관리</title><style>${ADMIN_STYLE}</style></head><body>${ADMIN_NAV}
+<h1>조강사의 한마디</h1>
+<form method="get" action="/admin/rank-comments" style="margin-bottom:16px"><label>키워드 검색 <input name="keyword" value="${escapeHtml(search)}"></label> <button>검색</button></form>
+${selected ? `<div class="card" style="margin-bottom:20px"><a href="/rank/${encodeURIComponent(selected.keyword)}" target="_blank" rel="noopener noreferrer">실제 페이지 보기 ↗</a>
+  ${c.req.query('saved') === '1' ? `<p role="status">저장했습니다. <a href="/rank/${encodeURIComponent(selected.keyword)}" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:8px 12px;background:#0F172A;color:#fff;border-radius:8px;text-decoration:none">저장 후 페이지 보기 ↗</a></p>` : ''}
+  <form method="post" action="/admin/rank-comments">
+    <label>키워드<br><input name="keyword" readonly value="${escapeHtml(selected.keyword)}" style="width:100%;max-width:420px"></label><br>
+    <label>코멘트<br><textarea name="comment_text" required maxlength="1000" rows="6" style="width:100%;max-width:640px;box-sizing:border-box">${escapeHtml(editing?.comment_text || '')}</textarea></label><br>
+    <button type="submit">${editing ? '수정 저장' : '저장'}</button>
+  </form></div>` : ''}
+<div style="overflow-x:auto"><table><thead><tr><th>키워드</th><th>최근 관측일</th><th>관측 횟수</th><th>코멘트 상태</th><th>수정일</th><th>작업</th></tr></thead><tbody>${rows || '<tr><td colspan="6">공개 가능한 순위 키워드가 없습니다.</td></tr>'}</tbody></table></div>
+</body></html>`);
+});
+
+app.post('/admin/rank-comments', async (c) => {
+  const body = await c.req.parseBody();
+  const keyword = String(body.keyword || '').trim().replace(/\s+/g, ' ');
+  const commentText = String(body.comment_text || '').trim();
+  if (!keyword || keyword.length > 60 || !commentText || commentText.length > 1000) return c.text('입력값이 올바르지 않습니다.', 400);
+  const eligible = await eligibleRankKeywords(c.env.DB);
+  if (!eligible.includes(keyword)) return c.text('공개된 순위 페이지가 없는 키워드입니다.', 400);
+  await c.env.DB.prepare(`INSERT INTO rank_page_comments (keyword, comment_text, author, source, approved)
+    VALUES (?, ?, '조강사', 'manual', 1)
+    ON CONFLICT(keyword) DO UPDATE SET comment_text = excluded.comment_text, author = '조강사',
+      source = 'manual', approved = 1, updated_at = CURRENT_TIMESTAMP`).bind(keyword, commentText).run();
+  return c.redirect(`/admin/rank-comments?edit=${encodeURIComponent(keyword)}&saved=1`, 303);
+});
+
+app.post('/admin/rank-comments/:keyword/toggle', async (c) => {
+  const keyword = c.req.param('keyword');
+  await c.env.DB.prepare(`UPDATE rank_page_comments SET approved = CASE approved WHEN 1 THEN 0 ELSE 1 END,
+    updated_at = CURRENT_TIMESTAMP WHERE keyword = ?`).bind(keyword).run();
+  return c.redirect('/admin/rank-comments', 303);
+});
 
 // 관리자: 진단 리스트 (최신 100건). §6 Phase C 신규 요청 — 관리자 자신이 raw데이터를 검증할 수 있어야 함.
 app.get("/api/test-graphql2", async (c) => {
@@ -1953,19 +2058,22 @@ app.get('/admin/periodic-keywords', async (c) => {
     ) AS observations
     FROM periodic_keywords pk ORDER BY active DESC, keyword
   `).all();
+  const { results: commentRows } = await c.env.DB.prepare('SELECT keyword FROM rank_page_comments').all();
+  const commentedKeywords = new Set((commentRows as any[]).map(row => row.keyword));
   const rows = (results as any[]).map(r => `<tr>
     <td><b>${escapeHtml(r.keyword)}</b><br><span style="font-size:11px;color:#64748B">공개 순위 · 상세 지표</span></td>
     <td>${r.active ? '활성' : '중지'}</td>
-    <td>${r.interval_hours}시간<br><span style="font-size:11px;color:#64748B">관측 ${r.observations}/2회 ${r.observations >= 2 ? '· 공개 가능' : '· 1회 더 필요'}</span></td>
+    <td>${r.interval_hours}시간<br><span style="font-size:11px;color:#64748B">관측 ${r.observations}회 ${r.observations >= 1 ? '· 공개 중' : '· 첫 관측 대기'}</span></td>
     <td>${escapeHtml(fmtKST(r.last_success_at) || '-')}</td>
-    <td>${escapeHtml(fmtKST(r.next_run_at) || '-')}<br><span style="font-size:11px;color:#64748B">예상 실행 ${escapeHtml(fmtKST(nextPeriodicSlot(r.next_run_at)))}</span></td>
+    <td>${escapeHtml(fmtKST(r.next_run_at) || '-')}<br><span style="font-size:11px;color:#64748B">예상 실행 ${escapeHtml(fmtKST(nextPeriodicSlot(r.next_run_at, r.last_success_at ? 'REFRESH' : 'NEW')))}</span></td>
     <td>${escapeHtml(r.last_error_code || '-')}</td>
-    <td><form method="post" action="/admin/periodic-keywords/${encodeURIComponent(r.keyword)}/toggle"><button>${r.active ? '중지' : '활성화'}</button></form></td>
+    <td><form method="post" action="/admin/periodic-keywords/${encodeURIComponent(r.keyword)}/toggle"><button>${r.active ? '중지' : '활성화'}</button></form>
+      <a href="/admin/rank-comments?edit=${encodeURIComponent(r.keyword)}">${commentedKeywords.has(r.keyword) ? '수정' : '한마디 작성'}</a></td>
   </tr>`).join('');
   return c.html(`<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><title>동네장사 관리자 - 주기 키워드</title><style>${ADMIN_STYLE}</style></head><body>
   ${ADMIN_NAV}<h1>주기 수집 키워드</h1>
-  <p style="font-size:13px;color:#64748B">매장·사용자 진단은 요청 시에만 수집합니다. KST 01:00–05:00에 15분 간격으로 실행 가능한 키워드 1개만 처리합니다.</p>
-  ${c.req.query('result') ? `<p role="status" style="background:#ECFDF5;border:1px solid #A7F3D0;color:#065F46;border-radius:8px;padding:10px 12px;font-size:13px">${escapeHtml(c.req.query('result')!)}. 공개 순위는 같은 키워드가 2회 관측된 뒤 표시됩니다.</p>` : ''}
+  <p style="font-size:13px;color:#64748B">NEW는 10분마다 목록 1회, DETAIL과 REFRESH는 별도 슬롯에서 키워드 1개만 처리합니다.</p>
+  ${c.req.query('result') ? `<p role="status" style="background:#ECFDF5;border:1px solid #A7F3D0;color:#065F46;border-radius:8px;padding:10px 12px;font-size:13px">${escapeHtml(c.req.query('result')!)}. 정상 목록 관측 1회부터 공개됩니다.</p>` : ''}
   <form method="post" action="/admin/periodic-keywords" class="card" style="display:flex;gap:8px;align-items:end;flex-wrap:wrap">
     <label>키워드<br><input name="keyword" required maxlength="60" placeholder="예: 안산 닭한마리 맛집"></label>
     <label>주기(시간)<br><input name="intervalHours" type="number" min="24" value="48"></label>
@@ -1979,15 +2087,15 @@ app.get('/admin/periodic-keywords', async (c) => {
 app.post('/admin/periodic-keywords', async (c) => {
   const body = await c.req.parseBody();
   const keyword = String(body.keyword || '').trim().replace(/\s+/g, ' ');
-  const category = inferPeriodicCategory(keyword);
-  const intervalHours = Math.max(24, Math.min(24 * 30, Number(body.intervalHours) || 48));
+  const target = inferPeriodicTarget(keyword);
+  const intervalHours = Math.max(24, Math.min(72, Number(body.intervalHours) || 48));
   if (!keyword || keyword.length > 60) return c.text('입력값이 올바르지 않습니다.', 400);
   await c.env.DB.prepare(`
-    INSERT INTO periodic_keywords (keyword, category, interval_hours, active)
-    VALUES (?, ?, ?, 1)
-    ON CONFLICT(keyword) DO UPDATE SET category = excluded.category, interval_hours = excluded.interval_hours,
+    INSERT INTO periodic_keywords (keyword, category, market, interval_hours, active)
+    VALUES (?, ?, ?, ?, 1)
+    ON CONFLICT(keyword) DO UPDATE SET category = excluded.category, market = excluded.market, interval_hours = excluded.interval_hours,
       active = 1, updated_at = CURRENT_TIMESTAMP
-  `).bind(keyword, category, intervalHours).run();
+  `).bind(keyword, target.category, target.market, intervalHours).run();
   return c.redirect('/admin/periodic-keywords', 303);
 });
 
@@ -2001,7 +2109,7 @@ app.post('/admin/periodic-keywords/:keyword/toggle', async (c) => {
 });
 
 app.post('/admin/periodic-keywords/run', async (c) => {
-  const result = await runOnePeriodicKeyword(c.env);
+  const result = await runOnePeriodicKeyword(c.env, 'NEW', c.executionCtx);
   return c.redirect(`/admin/periodic-keywords?result=${encodeURIComponent(result)}`, 303);
 });
 
@@ -2525,38 +2633,48 @@ const CRON_KEYWORD_BATCH_LIMIT = 3;
 
 type PeriodicKeyword = {
   keyword: string;
-  category: 'restaurant' | 'hairshop';
+  category: 'restaurant' | 'hairshop' | 'place';
+  market: 'legal' | 'medical' | 'food' | 'local_service';
   interval_hours: number;
 };
 
-const PERIODIC_KEYWORD_CRONS = new Set(['*/15 16-19 * * *', '0 20 * * *']);
+const NEW_CRON = '*/10 * * * *';
+const DETAIL_CRONS = new Set(['7,37 * * * *']);
+const REFRESH_CRONS = new Set(['3,33 * * * *']);
 const PERIODIC_FAILURE_COOLDOWN_HOURS = 24;
 
 function sqlDateAfter(hours: number) {
   return new Date(Date.now() + hours * 60 * 60 * 1000).toISOString().slice(0, 19).replace('T', ' ');
 }
 
-function nextPeriodicSlot(eligibleAt: string | null | undefined): string {
-  const eligible = eligibleAt ? new Date(eligibleAt.replace(' ', 'T') + 'Z') : new Date();
-  const base = new Date(Math.max(eligible.getTime(), Date.now()));
-  const kst = new Date(base.getTime() + 9 * 60 * 60 * 1000);
-  let year = kst.getUTCFullYear(), month = kst.getUTCMonth(), day = kst.getUTCDate();
-  let hour = kst.getUTCHours(), minute = kst.getUTCMinutes();
-  if (hour < 1) { hour = 1; minute = 0; }
-  else if (hour > 5 || (hour === 5 && (minute > 0 || kst.getUTCSeconds() > 0))) { day += 1; hour = 1; minute = 0; }
-  else {
-    minute = Math.ceil(minute / 15) * 15;
-    if (minute === 60) { hour += 1; minute = 0; }
-    if (hour > 5 || (hour === 5 && minute > 0)) { day += 1; hour = 1; minute = 0; }
+function sqlDateAfterMinutes(minutes: number) {
+  return new Date(Date.now() + minutes * 60 * 1000).toISOString().slice(0, 19).replace('T', ' ');
+}
+
+function nextPeriodicSlot(eligibleAt: string | null | undefined, kind: 'NEW' | 'REFRESH', now = new Date()): string {
+  const eligible = eligibleAt ? new Date(eligibleAt.replace(' ', 'T') + 'Z') : now;
+  const base = Math.max(eligible.getTime(), now.getTime());
+  const hour = new Date(base);
+  hour.setUTCMinutes(0, 0, 0);
+  const minutes = kind === 'NEW' ? [0, 10, 20, 30, 40, 50] : [3, 33];
+  for (let offset = 0; offset < 2; offset++) {
+    for (const minute of minutes) {
+      const slot = hour.getTime() + offset * 60 * 60 * 1000 + minute * 60 * 1000;
+      if (slot >= base) return new Date(slot).toISOString().slice(0, 19).replace('T', ' ');
+    }
   }
-  return new Date(Date.UTC(year, month, day, hour - 9, minute)).toISOString().slice(0, 19).replace('T', ' ');
+  throw new Error('No periodic slot found');
 }
 
-function inferPeriodicCategory(keyword: string): 'restaurant' | 'hairshop' {
-  return /미용실|헤어|살롱/.test(keyword) ? 'hairshop' : 'restaurant';
+function inferPeriodicTarget(keyword: string): Pick<PeriodicKeyword, 'category' | 'market'> {
+  if (/미용실|헤어|살롱/.test(keyword)) return { category: 'hairshop', market: 'local_service' };
+  if (/맛집|음식|식당|한식|고기|고깃집|고기집|삼겹살|칼국수|보리밥|카페|베이커리|빵집|술집|횟집|회식/.test(keyword)) return { category: 'restaurant', market: 'food' };
+  if (/변호사|법무|법률/.test(keyword)) return { category: 'place', market: 'legal' };
+  if (/병원|치과|의원|한의|피부과|성형/.test(keyword)) return { category: 'place', market: 'medical' };
+  return { category: 'place', market: 'local_service' };
 }
 
-async function collectPeriodicKeyword(env: Env, target: PeriodicKeyword): Promise<string> {
+async function collectPeriodicList(env: Env, target: PeriodicKeyword, kind: 'NEW' | 'REFRESH', ctx?: ExecutionContext): Promise<string> {
   const db = env.DB;
   if (!db) return 'DB 미설정';
   await db.prepare(`
@@ -2564,6 +2682,7 @@ async function collectPeriodicKeyword(env: Env, target: PeriodicKeyword): Promis
     WHERE keyword = ?
   `).bind(target.keyword).run();
   try {
+    // Exactly one pcmap list request. Detail requests are a separate queue.
     const items = await getPlaceList(target.keyword, { category: target.category, sort: 'popular' });
     if (!items.length) throw new Error('EMPTY_RESULT');
     const writes = items.map(item => db.prepare(`
@@ -2578,37 +2697,70 @@ async function collectPeriodicKeyword(env: Env, target: PeriodicKeyword): Promis
       item.saveCountRaw, item.saveCountMin, item.isAd ? 1 : 0, item.hasBooking ? 1 : 0,
     ));
     await db.batch(writes);
-    const detailed = await collectKeywordSnapshot(env, target.keyword, 'analytics');
-    if (!detailed) throw new Error('EMPTY_DETAIL_RESULT');
     await db.prepare(`
       UPDATE periodic_keywords
-      SET last_success_at = CURRENT_TIMESTAMP, last_error_code = NULL, next_run_at = ?, updated_at = CURRENT_TIMESTAMP
+      SET last_success_at = CURRENT_TIMESTAMP, last_error_code = NULL, empty_result_count = 0,
+          detail_completed_at = NULL, detail_due_at = ?, next_run_at = ?, updated_at = CURRENT_TIMESTAMP
       WHERE keyword = ?
-    `).bind(sqlDateAfter(target.interval_hours), target.keyword).run();
-    return `${target.keyword}: 관련도 목록 ${items.length}곳 · 상세 지표 ${detailed}곳 기록`;
+    `).bind(sqlDateAfterMinutes(30), sqlDateAfter(target.interval_hours), target.keyword).run();
+    if (kind === 'NEW') ctx?.waitUntil(pingNewRankUrl(target.keyword));
+    return `${kind} ${target.keyword}: pcmap 목록 1회 · ${items.length}곳 기록`;
   } catch (err) {
     const code = err instanceof CollectionError ? err.code : (err instanceof Error ? err.message : 'UNKNOWN');
     await db.prepare(`
       UPDATE periodic_keywords
-      SET last_error_code = ?, next_run_at = ?, updated_at = CURRENT_TIMESTAMP
+      SET last_error_code = ?, empty_result_count = CASE WHEN ? = 'EMPTY_RESULT' THEN empty_result_count + 1 ELSE empty_result_count END,
+          next_run_at = ?, updated_at = CURRENT_TIMESTAMP
       WHERE keyword = ?
-    `).bind(code, sqlDateAfter(PERIODIC_FAILURE_COOLDOWN_HOURS), target.keyword).run();
+    `).bind(code, code, sqlDateAfter(PERIODIC_FAILURE_COOLDOWN_HOURS), target.keyword).run();
     console.error(`주기 키워드 관측 실패("${target.keyword}"):`, err);
     return `${target.keyword}: 실패 (${code})`;
   }
 }
 
-async function runOnePeriodicKeyword(env: Env): Promise<string> {
+async function runOnePeriodicKeyword(env: Env, kind: 'NEW' | 'REFRESH' = 'NEW', ctx?: ExecutionContext): Promise<string> {
   const db = env.DB;
   if (!db) return 'DB 미설정';
   const target = await db.prepare(`
-    SELECT keyword, category, interval_hours
+    SELECT keyword, category, market, interval_hours
     FROM periodic_keywords
     WHERE active = 1 AND (next_run_at IS NULL OR next_run_at <= CURRENT_TIMESTAMP)
+      AND ${kind === 'NEW' ? 'last_success_at IS NULL' : 'last_success_at IS NOT NULL'}
     ORDER BY COALESCE(next_run_at, '1970-01-01 00:00:00'), keyword
     LIMIT 1
   `).first<PeriodicKeyword>();
-  return target ? collectPeriodicKeyword(env, target) : '실행할 주기 키워드 없음';
+  return target ? collectPeriodicList(env, target, kind, ctx) : `실행할 ${kind} 키워드 없음`;
+}
+
+async function runOnePeriodicDetail(env: Env): Promise<string> {
+  const db = env.DB;
+  if (!db) return 'DB 미설정';
+  const target = await db.prepare(`SELECT keyword FROM periodic_keywords
+    WHERE active = 1 AND last_success_at IS NOT NULL AND detail_completed_at IS NULL
+      AND detail_due_at IS NOT NULL AND detail_due_at <= CURRENT_TIMESTAMP
+    ORDER BY detail_due_at, keyword LIMIT 1`).first<{ keyword: string }>();
+  if (!target) return '실행할 DETAIL 키워드 없음';
+  try {
+    const { results } = await db.prepare(`SELECT place_id FROM rank_snapshots WHERE keyword = ?
+      AND collected_at = (SELECT MAX(collected_at) FROM rank_snapshots WHERE keyword = ?)
+      AND rank IS NOT NULL ORDER BY rank LIMIT 6`).bind(target.keyword, target.keyword).all();
+    if (!results.length) throw new Error('EMPTY_RESULT');
+    for (const row of results as any[]) {
+      const detail = await scrapeFullPlaceMetrics(String(row.place_id));
+      const m = detail.seoMetrics || {};
+      await db.prepare(`UPDATE rank_snapshots SET visitor_reviews = ?, blog_reviews = ?, vote_count = ?, photo_count = ?
+        WHERE keyword = ? AND place_id = ? AND collected_at = (SELECT MAX(collected_at) FROM rank_snapshots WHERE keyword = ?)`)
+        .bind(m.visitorReviewsTotal || null, m.cafeBlogReviewsTotal || null, m.totalVoteCount || null, m.photoCount || null, target.keyword, row.place_id, target.keyword).run();
+    }
+    await db.prepare(`UPDATE periodic_keywords SET detail_completed_at = CURRENT_TIMESTAMP, detail_due_at = NULL, last_error_code = NULL, updated_at = CURRENT_TIMESTAMP WHERE keyword = ?`).bind(target.keyword).run();
+    return `DETAIL ${target.keyword}: 상위 ${results.length}곳 상세 기록`;
+  } catch (err) {
+    const code = err instanceof CollectionError ? err.code : (err instanceof Error ? err.message : 'UNKNOWN');
+    // A DETAIL failure must not delay REFRESH. Its own due time is the cooldown gate.
+    await db.prepare(`UPDATE periodic_keywords SET last_error_code = ?, detail_due_at = ?, updated_at = CURRENT_TIMESTAMP WHERE keyword = ?`)
+      .bind(code, sqlDateAfter(PERIODIC_FAILURE_COOLDOWN_HOURS), target.keyword).run();
+    return `DETAIL ${target.keyword}: 실패 (${code})`;
+  }
 }
 
 // 리서치용 고정 키워드(사용자 지정) — 경쟁이 치열해 순위 변동이 잦은 유명 키워드를 매일
@@ -2937,6 +3089,8 @@ const CRON_TIMES = {
 export default {
   fetch: app.fetch,
   scheduled: async (event: ScheduledEvent, env: Env, ctx: ExecutionContext) => {
-    if (PERIODIC_KEYWORD_CRONS.has(event.cron)) ctx.waitUntil(runOnePeriodicKeyword(env));
+    if (event.cron === NEW_CRON) ctx.waitUntil(runOnePeriodicKeyword(env, 'NEW', ctx));
+    else if (DETAIL_CRONS.has(event.cron)) ctx.waitUntil(runOnePeriodicDetail(env));
+    else if (REFRESH_CRONS.has(event.cron)) ctx.waitUntil(runOnePeriodicKeyword(env, 'REFRESH'));
   },
 };
