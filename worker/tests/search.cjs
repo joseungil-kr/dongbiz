@@ -282,7 +282,7 @@ test('rank comments render safely, admin saves and disables them, and public nav
       const row = comments.get(args[0]);
       return row && (!sql.includes('approved = 1') || row.approved) ? row : null;
     }, async run() {
-      if (sql.includes('INSERT INTO rank_page_comments')) comments.set(args[0], { keyword: args[0], comment_text: args[1], source: 'manual', approved: 1, updated_at: snapshot.collected_at });
+      if (sql.includes('INSERT INTO rank_page_comments')) comments.set(args[0], { keyword: args[0], comment_text: args[1], source: 'manual', approved: args[2], updated_at: snapshot.collected_at });
       if (sql.includes('UPDATE rank_page_comments SET approved')) comments.get(args[0]).approved ^= 1;
       return { success: true };
     } };
@@ -296,6 +296,7 @@ test('rank comments render safely, admin saves and disables them, and public nav
   assert.equal((html.match(/<nav class="site-nav">/g) || []).length, 1);
   assert.match(html, /\.site-nav\{display:flex/);
   assert.doesNotMatch(html, /class="jo-note"/);
+  const publicRankTable = html.match(/<table>[\s\S]*?<\/table>/)?.[0];
   response = await app.fetch(new Request('https://local/rank'), env, ctx);
   assert.equal(response.status, 200);
   assert.equal(((await response.text()).match(/<nav class="site-nav">/g) || []).length, 1);
@@ -311,31 +312,38 @@ test('rank comments render safely, admin saves and disables them, and public nav
   response = await adminPage('/admin/rank-comments'); html = await response.text();
   assert.equal(response.status, 200);
   assert.match(html, /최근 관측일/); assert.match(html, /관측 횟수/);
-  assert.match(html, new RegExp(`href="/admin/rank-comments\\?edit=${encodeURIComponent(keyword)}">한마디 작성`));
-  assert.match(html, new RegExp(`href="/admin/rank-comments\\?edit=${encodeURIComponent(otherKeyword)}">한마디 작성`));
+  assert.match(html, new RegExp(`href="/admin/rank/${encodeURIComponent(keyword)}">한마디 작성`));
+  assert.match(html, new RegExp(`href="/admin/rank/${encodeURIComponent(otherKeyword)}">한마디 작성`));
   assert.match(html, /코멘트 없음/);
-  assert.doesNotMatch(html, /<form method="post" action="\/admin\/rank-comments"/);
-  response = await adminPage('/admin/rank-comments?edit=' + encodeURIComponent(keyword)); html = await response.text();
-  assert.equal(response.status, 200); assert.match(html, /name="keyword" readonly/);
-  assert.match(html, /실제 페이지 보기 ↗/);
-  response = await adminPage('/admin/rank-comments?edit=' + encodeURIComponent('없는 키워드'));
+  assert.doesNotMatch(html, /<textarea/);
+  response = await adminPage('/admin/rank/' + encodeURIComponent(keyword)); html = await response.text();
+  assert.equal(response.status, 200); assert.match(html, /업체/);
+  assert.equal(html.match(/<table>[\s\S]*?<\/table>/)?.[0], publicRankTable);
+  assert.match(html, /name="comment_text"/);
+  assert.match(html, /이 페이지의 데이터를 보고 조강사의 한마디를 남겨보세요/);
+  assert.match(html, /\/images\/jo_point\.png/);
+  assert.equal((html.match(/<nav class="site-nav">/g) || []).length, 1);
+  assert.match(html, /공개 페이지 보기 ↗/);
+  response = await adminPage('/admin/rank/' + encodeURIComponent('없는 키워드'));
   assert.equal(response.status, 404);
   const comment = '첫 관측 <script>alert(1)</script>\n다음 줄';
-  const save = (text, targetKeyword = keyword) => app.fetch(new Request('https://local/admin/rank-comments', {
+  const save = (text, targetKeyword = keyword, approved = true) => app.fetch(new Request('https://local/admin/rank/' + encodeURIComponent(targetKeyword), {
     method: 'POST', headers: { ...auth, 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({ keyword: targetKeyword, comment_text: text }),
+    body: new URLSearchParams({ comment_text: text, ...(approved ? { approved: '1' } : {}) }),
   }), env, ctx);
   response = await save('잘못된 저장', '없는 키워드'); assert.equal(response.status, 400);
   response = await save('아직 대기', '첫 관측 대기'); assert.equal(response.status, 400);
   assert.equal(comments.size, 0);
   response = await save(comment); assert.equal(response.status, 303);
-  assert.match(response.headers.get('location'), /saved=1/);
+  assert.equal(response.headers.get('location'), '/admin/rank/' + encodeURIComponent(keyword) + '?saved=1');
   response = await adminPage(response.headers.get('location')); html = await response.text();
-  assert.match(html, /저장 후 페이지 보기 ↗/);
-  assert.match(html, new RegExp(`href="/admin/rank-comments\\?edit=${encodeURIComponent(keyword)}">수정`));
+  assert.match(html, /저장했습니다/);
+  assert.match(html, /첫 관측 &lt;script&gt;alert\(1\)&lt;\/script&gt;\n다음 줄<\/textarea>/);
+  response = await adminPage('/admin/rank-comments'); html = await response.text();
+  assert.match(html, new RegExp(`href="/admin/rank/${encodeURIComponent(keyword)}">수정`));
   response = await adminPage('/admin/periodic-keywords'); html = await response.text();
-  assert.match(html, new RegExp(`href="/admin/rank-comments\\?edit=${encodeURIComponent(keyword)}">수정`));
-  assert.match(html, new RegExp(`href="/admin/rank-comments\\?edit=${encodeURIComponent('첫 관측 대기')}">한마디 작성`));
+  assert.match(html, new RegExp(`href="/admin/rank/${encodeURIComponent(keyword)}">수정`));
+  assert.match(html, new RegExp(`href="/admin/rank/${encodeURIComponent('첫 관측 대기')}">한마디 작성`));
   response = await publicPage(); html = await response.text();
   assert.match(html, /조강사의 한마디/);
   assert.match(html, /\/images\/jo_point\.png/);
@@ -351,6 +359,15 @@ test('rank comments render safely, admin saves and disables them, and public nav
   assert.equal(response.status, 200); assert.match(await response.text(), /비공개/);
   response = await app.fetch(new Request('https://local/admin/rank-comments'), env, ctx);
   assert.equal(response.status, 401);
+  response = await app.fetch(new Request('https://local/admin/rank/' + encodeURIComponent(keyword)), env, ctx);
+  assert.equal(response.status, 401);
+  response = await app.fetch(new Request('https://local/admin/rank/' + encodeURIComponent(keyword), { method: 'POST', body: new URLSearchParams({ comment_text: '무단 저장' }) }), env, ctx);
+  assert.equal(response.status, 401);
+  response = await save('비공개 저장', keyword, false); assert.equal(response.status, 303);
+  response = await adminPage(response.headers.get('location')); html = await response.text();
+  assert.match(html, /비공개 저장/);
+  assert.doesNotMatch(html, /name="approved" value="1" checked/);
+  response = await publicPage(); assert.doesNotMatch(await response.text(), /class="jo-note"/);
 });
 
 test('rank comment migration and mobile layout exist without changing the queue migration', () => {
@@ -364,7 +381,7 @@ test('rank comment migration and mobile layout exist without changing the queue 
     assert.match(sql, /approved INTEGER NOT NULL DEFAULT 1/);
   }
   assert.match(source, /@media\(max-width:520px\)\{\.jo-note\{display:block\}/);
-  assert.match(source, /WHERE keyword = \? AND approved = 1/);
+  assert.match(source, /mode === 'public' \? 'AND approved = 1' : ''/);
 });
 test('queue split keeps NEW list-only, DETAIL top-six, refresh and seed invariants', () => {
   const fs = require('node:fs'), path = require('node:path');
