@@ -1003,6 +1003,11 @@ const RANK_PAGE_STYLE = `
 ${SITE_NAV_CSS}
   *{box-sizing:border-box} body{margin:0;padding:0;font-family:-apple-system,'Pretendard',sans-serif;color:#0F172A;background:#F8FAFC;line-height:1.6}
   .wrap{max-width:760px;margin:0 auto;padding:24px 16px 56px}
+  .crumb{font-size:13px;color:#64748B;margin:10px 0 16px;display:flex;align-items:center;flex-wrap:wrap;gap:6px;line-height:1.5}
+  .crumb a{color:#64748B;text-decoration:none;transition:color .15s}
+  .crumb a:hover{color:#2563EB;text-decoration:underline}
+  .crumb .sep{color:#94A3B8;font-size:11px}
+  .crumb .cur{color:#0F172A;font-weight:700}
   h1{font-size:22px;margin:20px 0 6px;line-height:1.35}
   .meta{font-size:12px;color:#64748B;margin-bottom:20px}
   table{width:100%;border-collapse:collapse;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.08)}
@@ -1141,6 +1146,7 @@ app.get('/rank', async (c) => {
 <meta name="description" content="네이버 플레이스 키워드별 상위 노출 업체 순위와 리뷰·사진 등 지표 현황을 실측 데이터로 정리했습니다.">
 <link rel="canonical" href="https://dongbiz.com/rank">
 <style>${RANK_PAGE_STYLE}</style></head><body>${siteNav('place')}<div class="wrap">
+<nav class="crumb" aria-label="네비게이션"><a href="/">홈</a> <span class="sep">&gt;</span> <span class="cur">키워드별 순위현황</span></nav>
 <h1>키워드별 네이버 플레이스 순위 현황</h1>
 <p class="meta">첫 정상 관측부터 공개합니다. 변화·추이는 2회 관측부터 표시됩니다. 총 ${keywords.length}개.</p>
 <div class="kwlist">${items || '<span class="meta">아직 공개 가능한 키워드가 없습니다.</span>'}</div>
@@ -1301,6 +1307,15 @@ function renderRankPageHtml(keyword: string, rows: any[], repKeyword: string, si
     '@type': 'FAQPage',
     mainEntity: list.map(f => ({ '@type': 'Question', name: f.q, acceptedAnswer: { '@type': 'Answer', text: f.a } })),
   }).replace(/</g, '\\u003c');
+  const breadcrumbLd = JSON.stringify({
+    '@context': 'https://schema.org',
+    '@type': 'BreadcrumbList',
+    itemListElement: [
+      { '@type': 'ListItem', position: 1, name: '홈', item: 'https://dongbiz.com/' },
+      { '@type': 'ListItem', position: 2, name: '키워드별 순위현황', item: 'https://dongbiz.com/rank' },
+      { '@type': 'ListItem', position: 3, name: keyword, item: `https://dongbiz.com/rank/${encodeURIComponent(repKeyword)}` },
+    ],
+  }).replace(/</g, '\\u003c');
 
   // 제목에 '플레이스·지표·상위노출' 같은 업계 용어를 반드시 넣는다(§6.4.2). "제주도 맛집 순위"로
   // 두면 맛집 찾는 소비자가 유입돼 이탈률만 오르고 전환은 0이다. 걸러낼 신호가 필요하다.
@@ -1390,8 +1405,9 @@ ${mode === 'admin' ? '<meta name="robots" content="noindex,nofollow">' : ''}
 <meta name="twitter:card" content="summary_large_image">
 <script type="application/ld+json">${jsonLd}</script>
 <script type="application/ld+json">${faqLd(faqs)}</script>
+<script type="application/ld+json">${breadcrumbLd}</script>
 <style>${RANK_PAGE_STYLE}${SITE_FOOTER_CSS}</style></head><body>${siteNav('place')}<div class="wrap">
-<header><a href="/">동네장사</a> · <a href="/rank">키워드 전체 목록</a> · <a href="/guide">상위노출 가이드</a></header>
+<nav class="crumb" aria-label="네비게이션"><a href="/">홈</a> <span class="sep">&gt;</span> <a href="/rank">키워드별 순위현황</a> <span class="sep">&gt;</span> <span class="cur">${escapeHtml(keyword)}</span></nav>
 <h1>${escapeHtml(title)}</h1>
 <p class="meta">기준일 ${escapeHtml(fmtKST(latest))} · 관측 ${batches.length}회 누적 · 네이버 통합검색 플레이스 영역 기준</p>
 <div class="observation" aria-label="관측 정보">
@@ -1425,7 +1441,7 @@ ${changeBlock}
 <p>${escapeHtml(tierAdvice)}</p>
 <p class="meta">유형별 접근법은 <a href="/guide/${encodeURIComponent(tier.label === '고경쟁형' ? '플레이스진입선리뷰' : '플레이스상위노출')}">${tier.label === '고경쟁형' ? '1페이지 진입에 리뷰가 몇 개 필요할까' : '플레이스 상위노출 방법 총정리'}</a>에서 더 자세히 다룹니다.</p>
 ${weeklyBlock}
-<a class="cta" href="/">내 매장은 이 기준 대비 어디인지 무료로 진단하기</a>
+<a class="cta" href="/">내 매장의 플레이스 상태 무료진단</a>
 <p class="meta" style="text-align:center;margin-top:14px">기존 관측 데이터를 포함한 분석과 내 매장의 순위 상승에 필요한 상위노출 컨설팅은 <a href="/#contact">상담 신청</a>에서 받아보실 수 있습니다.</p>
 <h2>자주 묻는 질문</h2>
 ${faqs.map(f => `<details><summary>${escapeHtml(f.q)}</summary><p>${escapeHtml(f.a)}</p></details>`).join('')}
