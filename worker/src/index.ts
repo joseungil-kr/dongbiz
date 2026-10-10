@@ -49,6 +49,7 @@ const CACHE_VERSION = 'v9'; // v9: 비교 기준을 상위 10개→6개로 변�
 
 // 네이버 지도 "1페이지" 진입선 = 실제로 더보기 누르기 전 노출되는 6곳 (10 아님, 2026-09-08 사용자 확인).
 const TOP_N = 6;
+const PUBLIC_RANK_N = 10;
 
 // KV 캐시 래퍼. CACHE 바인딩이 없으면 매번 새로 조회한다 (기능은 동작, 속도/원가만 손해).
 async function cached<T>(env: Env, key: string, ttlSeconds: number, fetcher: () => Promise<T>): Promise<T> {
@@ -1016,6 +1017,8 @@ ${SITE_NAV_CSS}
   td.num,th.num{text-align:right}
   tr:last-child td{border-bottom:none}
   .rank{font-weight:800;color:#2563EB}
+  .subscriber-row td{filter:blur(5px);user-select:none}
+  .subscriber-notice td{background:#EFF6FF;color:#1E3A8A;text-align:center;font-weight:700;line-height:1.7}
   h2{font-size:15px;margin:28px 0 10px}
   .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
   .card{background:#fff;border:1px solid #E2E8F0;border-radius:12px;padding:14px}
@@ -1140,17 +1143,68 @@ app.get('/rank', async (c) => {
   const items = keywords.map(k =>
     `<a href="/rank/${encodeURIComponent(k.keyword)}">${escapeHtml(k.keyword)}<span class="obs">관측 ${Number(k.obs)}회 · 업체 ${Number(k.places)}곳 · ${escapeHtml(fmtKST(k.last_at).slice(0, 10))}</span></a>`
   ).join('');
+
+  const org = {
+    '@type': 'Organization',
+    name: '동네장사',
+    url: 'https://dongbiz.com/',
+    logo: 'https://dongbiz.com/og-image.png',
+  };
+  const jsonLd = JSON.stringify([
+    {
+      '@context': 'https://schema.org',
+      '@type': 'CollectionPage',
+      name: '동네장사 | 네이버 플레이스 키워드별 순위 현황',
+      description: '네이버 플레이스 키워드별 상위 노출 업체 순위와 리뷰·사진 등 지표 현황을 실측 데이터로 정리했습니다.',
+      url: 'https://dongbiz.com/rank',
+      publisher: org,
+      mainEntity: {
+        '@type': 'ItemList',
+        itemListElement: keywords.map((k, i) => ({
+          '@type': 'ListItem',
+          position: i + 1,
+          name: k.keyword,
+          url: `https://dongbiz.com/rank/${encodeURIComponent(k.keyword)}`,
+        })),
+      },
+    },
+    {
+      '@context': 'https://schema.org',
+      '@type': 'BreadcrumbList',
+      itemListElement: [
+        { '@type': 'ListItem', position: 1, name: '홈', item: 'https://dongbiz.com/' },
+        { '@type': 'ListItem', position: 2, name: '키워드별 순위현황', item: 'https://dongbiz.com/rank' },
+      ],
+    },
+    { '@context': 'https://schema.org', ...org },
+  ]).replace(/</g, '\\u003c');
+
   return c.html(`<!DOCTYPE html><html lang="ko"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>동네장사 | 네이버 플레이스 키워드별 순위 현황</title>
 <meta name="description" content="네이버 플레이스 키워드별 상위 노출 업체 순위와 리뷰·사진 등 지표 현황을 실측 데이터로 정리했습니다.">
 <link rel="canonical" href="https://dongbiz.com/rank">
-<style>${RANK_PAGE_STYLE}</style></head><body>${siteNav('place')}<div class="wrap">
+<meta property="og:type" content="website">
+<meta property="og:title" content="동네장사 | 네이버 플레이스 키워드별 순위 현황">
+<meta property="og:description" content="네이버 플레이스 키워드별 상위 노출 업체 순위와 리뷰·사진 등 지표 현황을 실측 데이터로 정리했습니다.">
+<meta property="og:url" content="https://dongbiz.com/rank">
+<meta property="og:image" content="https://dongbiz.com/og-image.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="동네장사 | 네이버 플레이스 키워드별 순위 현황">
+<meta name="twitter:description" content="네이버 플레이스 키워드별 상위 노출 업체 순위와 리뷰·사진 등 지표 현황을 실측 데이터로 정리했습니다.">
+<meta name="twitter:image" content="https://dongbiz.com/og-image.png">
+<script type="application/ld+json">${jsonLd}</script>
+<style>${RANK_PAGE_STYLE}${SITE_FOOTER_CSS}</style></head><body>${siteNav('place')}<div class="wrap">
 <nav class="crumb" aria-label="네비게이션"><a href="/">홈</a> <span class="sep">&gt;</span> <span class="cur">키워드별 순위현황</span></nav>
 <h1>키워드별 네이버 플레이스 순위 현황</h1>
-<p class="meta">첫 정상 관측부터 공개합니다. 변화·추이는 2회 관측부터 표시됩니다. 총 ${keywords.length}개.</p>
+<p class="meta">동네장사가 자체 수집한 실측 순위 및 지표 데이터를 바탕으로 공개합니다. 총 ${keywords.length}개 키워드 관측 중 · 첫 정상 관측부터 공개합니다.</p>
+<p class="answer">각 지역 및 업종별 1페이지 상위권 업체들의 방문자 리뷰, 블로그 리뷰, 키워드 투표 수, 사진 등록 수를 실측하여 1페이지 진입선과 변동 추세를 분석합니다. 키워드를 클릭하시면 세부 분석 리포트를 확인하실 수 있습니다.</p>
 <div class="kwlist">${items || '<span class="meta">아직 공개 가능한 키워드가 없습니다.</span>'}</div>
-<a class="cta" href="/">내 매장 순위 무료로 진단하기</a>
+<a class="cta" href="/">내 매장의 플레이스 상태 무료진단</a>
+<div class="navcards" style="margin-top:28px">
+  <a href="/guide"><span class="t">플레이스 상위노출 가이드<span class="arw">→</span></span><span class="d">순위를 올리는 실전 기준과 노하우</span></a>
+  <a href="/keyword-volume"><span class="t">네이버 키워드 검색량 조회<span class="arw">→</span></span><span class="d">내 업종의 월간 PC·모바일 검색량 확인</span></a>
+</div>
 </div>${siteFooter()}</body></html>`);
 });
 
@@ -1209,10 +1263,12 @@ function keywordTier(boundary: number | null): { label: string; color: string; d
 function renderRankPageHtml(keyword: string, rows: any[], repKeyword: string, siblings: string[] = [], comment?: { comment_text: string; approved?: number }, mode: 'public' | 'admin' = 'public', saved = false): string {
   const batches = [...new Set(rows.map(r => r.collected_at))].sort();
   const latest = batches[batches.length - 1];
-  const top = dedupeByPlace(
+  const latestRows = dedupeByPlace(
     rows.filter(r => r.collected_at === latest && r.rank).sort((a, b) => a.rank - b.rank)
-  ).slice(0, TOP_N);
-  const latestRows = dedupeByPlace(rows.filter(r => r.collected_at === latest && r.rank).sort((a, b) => a.rank - b.rank));
+  );
+  const top = latestRows.slice(0, TOP_N);
+  const publicRows = latestRows.slice(0, PUBLIC_RANK_N);
+  const subscriberNotice = (columns: number) => `<tr class="subscriber-notice"><td colspan="${columns}">구독회원 전용 데이터 입니다.<br>최근 4주간 300위 까지 데이터가 공개될 예정입니다.</td></tr>`;
   const sourceLabel = [...new Set(latestRows.map(r => r.source))]
     .map(source => source === 'cron' ? '자동 관측 기록' : '사용자 진단 기록').join(' · ') || '관측 기록';
 
@@ -1234,7 +1290,7 @@ function renderRankPageHtml(keyword: string, rows: any[], repKeyword: string, si
 
   const reviews = top.map(r => Number(r.visitor_reviews) || 0);
   const boundary = reviews[reviews.length - 1];
-  const tableRows = top.map(r => {
+  const tableRows = publicRows.map((r, i) => {
     const before = prevRank.get(r.place_id);
     const up = before ? before - r.rank : 0;
     let riseBlock = '';
@@ -1243,13 +1299,13 @@ function renderRankPageHtml(keyword: string, rows: any[], repKeyword: string, si
     } else if (up > 0) {
       riseBlock = `<div class="rise"><span class="riseBadge">▲ ${up}</span> 최근 순위 상승 이슈가 있었습니다. <a class="riseBtn" href="/">내 매장 진단하기</a></div>`;
     }
-    return `<tr>
+    return `${i === TOP_N ? subscriberNotice(6) : ''}<tr${i >= TOP_N ? ' class="subscriber-row"' : ''}>
     <td class="rank">${r.rank}</td>
     <td>${escapeHtml(r.place_name || '-')}${riseBlock}</td>
-    <td class="num">${Number(r.visitor_reviews || 0).toLocaleString()}</td>
-    <td class="num">${Number(r.blog_reviews || 0).toLocaleString()}</td>
-    <td class="num">${Number(r.vote_count || 0).toLocaleString()}</td>
-    <td class="num">${Number(r.photo_count || 0).toLocaleString()}</td>
+    <td class="num">${r.visitor_reviews == null ? '–' : Number(r.visitor_reviews).toLocaleString()}</td>
+    <td class="num">${r.blog_reviews == null ? '–' : Number(r.blog_reviews).toLocaleString()}</td>
+    <td class="num">${r.vote_count == null ? '–' : Number(r.vote_count).toLocaleString()}</td>
+    <td class="num">${r.photo_count == null ? '–' : Number(r.photo_count).toLocaleString()}</td>
   </tr>`;
   }).join('');
 
@@ -1274,7 +1330,7 @@ function renderRankPageHtml(keyword: string, rows: any[], repKeyword: string, si
     };
     const maps = weeks.map(([, v]) => rankAt(v.batch));
     const head = weeks.map(([, v]) => `<th class="num">${escapeHtml(v.label)}</th>`).join('');
-    const body = top.map((r, i) => `<tr>
+    const body = publicRows.map((r, i) => `${i === TOP_N ? subscriberNotice(weeks.length + 1) : ''}<tr${i >= TOP_N ? ' class="subscriber-row"' : ''}>
       <td>${escapeHtml(r.place_name || '-')}</td>
       ${maps.map(m => `<td class="num">${m.has(r.place_id) ? m.get(r.place_id) + '위' : '<span style="color:#CBD5E1">–</span>'}</td>`).join('')}
     </tr>`).join('');
@@ -1295,8 +1351,8 @@ function renderRankPageHtml(keyword: string, rows: any[], repKeyword: string, si
     '@context': 'https://schema.org',
     '@type': 'ItemList',
     name: `${keyword} 네이버 플레이스 순위`,
-    numberOfItems: top.length,
-    itemListElement: top.map(r => ({
+    numberOfItems: publicRows.length,
+    itemListElement: publicRows.map(r => ({
       '@type': 'ListItem',
       position: r.rank,
       name: r.place_name || '',
@@ -1375,8 +1431,8 @@ function renderRankPageHtml(keyword: string, rows: any[], repKeyword: string, si
     a: `동네장사에서 상호나 전화번호와 이 키워드를 넣으면 상위 ${top.length}곳을 실시간으로 수집해 내 매장의 위치와 지표 격차를 함께 보여줍니다. 무료이며 로그인이 필요 없습니다.`,
   });
 
-  const title = `${keyword} 플레이스 순위 분석 · 상위 ${top.length}곳 지표 비교`;
-  const desc = `'${keyword}' 플레이스 상위 ${top.length}곳의 순위와 방문자 리뷰·블로그 리뷰·사진 수 실측 데이터. 1페이지 진입선 ${boundary.toLocaleString()}건(${tier.label}). 기준일 ${fmtKST(latest).slice(0, 10)}.`;
+  const title = `${keyword} 플레이스 순위 분석 · 상위 ${publicRows.length}곳 순위`;
+  const desc = `'${keyword}' 플레이스 상위 ${publicRows.length}곳의 순위와 기본 수치. 1페이지 상위 ${top.length}곳의 지표 비교와 진입선 ${boundary.toLocaleString()}건(${tier.label}). 기준일 ${fmtKST(latest).slice(0, 10)}.`;
   const canonical = `https://dongbiz.com/rank/${encodeURIComponent(repKeyword)}`;
   const commentBlock = mode === 'admin' ? `<section class="jo-note" aria-labelledby="jo-note-title">
   <div class="jo-note-character"><img src="/images/jo_point.png" alt="오른쪽을 가리키는 조강사 캐릭터" width="120" height="172" loading="lazy"></div>
@@ -1416,10 +1472,12 @@ ${mode === 'admin' ? '<meta name="robots" content="noindex,nofollow">' : ''}
   <span>기록 출처<b>${escapeHtml(sourceLabel)}</b></span>
 </div>
 <p class="answer" id="aeo-direct-answer">'${escapeHtml(keyword)}' 검색 시 1페이지에 노출되는 업체는 ${top.length}곳이며, 마지막 자리 업체의 방문자 리뷰는 ${boundary.toLocaleString()}건입니다. 상위권 리뷰 중앙값은 ${mid.toLocaleString()}건, 사진 중앙값은 ${midPhoto.toLocaleString()}장입니다. 진입에 필요한 수준으로 보면 <b>${tier.label}</b>에 해당합니다.</p>
+<h2>상위 ${publicRows.length}곳 순위</h2>
 <table>
   <thead><tr><th>순위</th><th>업체명</th><th class="num">방문자 리뷰</th><th class="num">블로그 리뷰</th><th class="num">키워드 투표</th><th class="num">사진</th></tr></thead>
   <tbody>${tableRows}</tbody>
 </table>
+<p class="meta" style="margin-top:8px">–는 해당 관측에서 수집되지 않은 수치입니다. 1페이지 지표 요약은 상위 ${top.length}곳 기준입니다.</p>
 <h2>상위권 지표 요약</h2>
 <div class="cards">
   <div class="card"><span class="k">방문자 리뷰 중앙값</span><span class="v">${median(reviews).toLocaleString()}</span></div>

@@ -256,6 +256,39 @@ test('public rank pages expose observation metadata and exclude non-relevance ro
   assert.match(source, /is_ad = 0 OR is_ad IS NULL/);
 });
 
+test('public rank and weekly trend show ten places while first-page metrics stay at six', async () => {
+  const keyword = '안산 맛집';
+  const rows = ['2026-09-21 01:00:00', '2026-09-28 01:00:00', '2026-10-05 01:00:00']
+    .flatMap(collected_at => Array.from({ length: 12 }, (_, i) => ({
+      place_id: String(1000000 + i), place_name: `업체${i + 1}`, rank: i + 1,
+      visitor_reviews: i + 1, blog_reviews: i + 2,
+      vote_count: i < 6 ? i + 3 : null, photo_count: i < 6 ? i + 4 : null,
+      source: 'cron', collected_at,
+    })));
+  const db = { prepare(sql) { let args = []; return {
+    bind(...values) { args = values; return this; },
+    async all() { return { results: sql.includes('WHERE keyword = ?') ? (args[0] === keyword ? rows : [])
+      : [{ keyword, obs: 3, places: 12, last_at: rows.at(-1).collected_at }] }; },
+    async first() { return null; },
+  }; } };
+  const app = load('src/index.ts', async () => { throw new Error('unexpected fetch'); }).default;
+  const response = await app.fetch(new Request('https://local/rank/' + encodeURIComponent(keyword)), { DB: db }, { waitUntil() {} });
+  assert.equal(response.status, 200);
+  const html = await response.text();
+  const tables = [...html.matchAll(/<table>[\s\S]*?<\/table>/g)].map(match => match[0]);
+  assert.equal((tables[0].match(/<td class="rank">/g) || []).length, 10);
+  assert.match(tables[0], /업체10/);
+  assert.doesNotMatch(tables[0], /업체11/);
+  assert.match(tables[0], /<td class="num">–<\/td>/);
+  assert.equal((tables[0].match(/<tr class="subscriber-row">/g) || []).length, 4);
+  assert.equal((tables[0].match(/구독회원 전용 데이터 입니다\.<br>최근 4주간 300위 까지 데이터가 공개될 예정입니다\./g) || []).length, 1);
+  assert.equal((tables[1].match(/<td>업체\d+<\/td>/g) || []).length, 10);
+  assert.equal((tables[1].match(/<tr class="subscriber-row">/g) || []).length, 4);
+  assert.match(tables[1], /구독회원 전용 데이터 입니다\.<br>최근 4주간 300위 까지 데이터가 공개될 예정입니다\./);
+  assert.match(html, /1페이지에 노출되는 업체는 6곳/);
+  assert.match(html, /1페이지 진입선 \(6위\)/);
+});
+
 test('rank comments render safely, admin saves and disables them, and public nav appears once', async () => {
   const keyword = '강남역 상속 변호사';
   const otherKeyword = '안산 맛집';
