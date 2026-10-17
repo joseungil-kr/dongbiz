@@ -1559,6 +1559,7 @@
       rankMeta.textContent = data.isDirectCompare ? '지정한 경쟁사와의 비교이며 검색 순위는 계산하지 않습니다.'
         : `${observation?.source === 'naver-map' ? '네이버 지도 기본 목록' : '네이버 통합검색 위젯'} · 확인 ${data.rankSearched}곳 · 비교 ${foundCount}곳 · ${observation?.collectedAt ? new Date(observation.collectedAt).toLocaleString('ko-KR') : '수집 시각 미기록'}`
           + (observation?.stopReason === 'collection_failed' ? ' — 목록 수집이 일부 완료되지 않았습니다. 이번 검색은 횟수를 차감하지 않습니다.' : '')
+          + (observation?.stopReason === 'target_found' ? ' — 내 매장 위치를 확인한 시점에서 추가 목록 요청을 중단했습니다.' : '')
           + ' · 위치와 검색 조건에 따라 네이버 앱 결과와 다를 수 있습니다. 미발견은 실제 순위 밖이라는 뜻이 아닙니다.';
       if (!data.isDirectCompare && stats.distanceFromMeKm?.count) {
         rankMeta.textContent += ` · 상위 경쟁사와의 평균 직선거리 ${stats.distanceFromMeKm.avg.toLocaleString()}km`;
