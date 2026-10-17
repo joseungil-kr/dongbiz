@@ -416,6 +416,21 @@ test('rank comment migration and mobile layout exist without changing the queue 
   assert.match(source, /@media\(max-width:520px\)\{\.jo-note\{display:block\}/);
   assert.match(source, /mode === 'public' \? 'AND approved = 1' : ''/);
 });
+test('gap collection bounds list pagination and serializes competitor details', () => {
+  const fs = require('node:fs'), path = require('node:path');
+  const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'index.ts'), 'utf8');
+  const placeSearch = fs.readFileSync(path.join(__dirname, '..', 'src', 'place-search.ts'), 'utf8');
+  const publicHtml = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8');
+  assert.match(source, /collectSearchListing\(keyword!, category, 350, placeId\)/);
+  assert.match(source, /for \(const id of top10Ids\) \{[\s\S]*competitors\.push\(await cachedPlace\(c\.env, id\)\)/);
+  assert.doesNotMatch(source, /competitors = await Promise\.all\([\s\S]*top10Ids\.map\(id => cachedPlace/);
+  assert.match(placeSearch, /targetPlaceId\?: string/);
+  assert.match(placeSearch, /stopReason = 'target_found'/);
+  assert.match(publicHtml, /Gap API failure/);
+  assert.match(publicHtml, /data\.code/);
+  assert.match(publicHtml, /data\.stage/);
+});
+
 test('queue split keeps NEW list-only, DETAIL top-six, refresh and seed invariants', () => {
   const fs = require('node:fs'), path = require('node:path');
   const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'index.ts'), 'utf8');
