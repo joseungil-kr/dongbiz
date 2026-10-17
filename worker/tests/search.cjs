@@ -54,6 +54,23 @@ test('350 entries come from seven ordered API pages, target rank survives past 3
   assert.equal(listing.items.length, 350); assert.equal(listing.items.findIndex(x => x.placeId === id) + 1, 327);
   assert.equal(listing.stopReason, 'limit');
 });
+test('target-bounded listing stops after the page containing the requested place', async () => {
+  const starts = [];
+  const target = id;
+  const s = load('src/place-search.ts', async (url, init) => {
+    const start = JSON.parse(init.body)[0].variables.input.start; starts.push(start);
+    return graphql(Array.from({ length: 50 }, (_, i) => ({
+      id: start + i === 73 ? target : String(8100000 + start + i),
+      name: '업체' + (start + i)
+    })), 500);
+  });
+  const listing = await s.collectSearchListing('안산 스카이차', 'place', 350, target);
+  assert.deepEqual(starts, [1, 51]);
+  assert.equal(listing.items.findIndex(x => x.placeId === target) + 1, 73);
+  assert.equal(listing.stopReason, 'target_found');
+  assert.equal(listing.complete, false);
+});
+
 test('failed later page preserves only confirmed prefix, overlapping page cannot invent ranks', async () => {
   for (const mode of ['blocked', 'overlap']) {
     let calls = 0;
