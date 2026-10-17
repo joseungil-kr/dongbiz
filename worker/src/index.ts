@@ -390,7 +390,7 @@ app.get('/api/gap', async (c) => {
         }
         if (!listing) {
           listing = await collectSearchListing(keyword!, category, 350, placeId);
-          if (listing.stopReason !== 'collection_failed') {
+          if (listing.stopReason !== 'collection_failed' && listing.stopReason !== 'target_found') {
             await Promise.all([
               c.env.CACHE?.put(listKey, JSON.stringify(listing), { expirationTtl: KEYWORD_TTL }),
               c.env.CACHE?.put(`${observationPrefix}:success`, JSON.stringify({ listing, savedAt: new Date().toISOString() }), { expirationTtl: OBSERVATION_SUCCESS_TTL }),
