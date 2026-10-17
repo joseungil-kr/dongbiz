@@ -936,7 +936,16 @@
         try {
           const res = await fetch(`/api/gap?placeId=${encodeURIComponent(currentPlace.placeId)}&keyword=${encodeURIComponent(keyword)}${bypassQS}`);
           const data = await res.json();
-          if (!res.ok || data.error) throw new Error(data.error || 'Gap 분석에 실패했습니다.');
+          if (!res.ok || data.error) {
+            console.error('Gap API failure', {
+              status: res.status,
+              code: data.code || null,
+              stage: data.stage || null,
+              error: data.error || null
+            });
+            const detail = [data.code, data.stage].filter(Boolean).join('/');
+            throw new Error((data.error || 'Gap 분석에 실패했습니다.') + (detail ? ` (오류: ${detail})` : ''));
+          }
 
           renderGap(data);
           document.getElementById('step2Result').classList.remove('hidden');
