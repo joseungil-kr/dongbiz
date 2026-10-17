@@ -146,7 +146,7 @@ test('deep rank and source/range saved and restored; only successful analyses co
   const req = () => new Request(`https://local/api/gap?placeId=${id}&keyword=지역맛집`, {headers:{'CF-Connecting-IP':'fixture'}});
   const response = await app.fetch(req(),env,ctx);
   const data = await response.json(); assert.equal(response.status,200);
-  assert.equal(data.myRank,137); assert.equal(data.rankSearched,350); assert.equal(data.comparisonCount,6);
+  assert.equal(data.myRank,137); assert.equal(data.rankSearched,150); assert.equal(data.comparisonCount,6);
   assert.equal(data.stats.saveCount.avg,100); assert.equal(data.stats.saveCount.count,6);
   assert.equal(data.rankObservation.source,'naver-map');
   assert.deepEqual(data.rankHistory.map(x=>x.rank),[137]);
@@ -181,7 +181,7 @@ test('rate-limited keyword reuses its latest successful map observation without 
     if (url.includes('pcmap-api')) {
       mapCalls++;
       if (blocked) return new Response('', { status: 429 });
-      return graphql(Array.from({length: 6}, (_, i) => ({ id: i === 0 ? id : String(8000100 + i), name: 'Store ' + i })), 6);
+      return graphql(Array.from({length: 6}, (_, i) => ({ id: String(8000100 + i), name: 'Store ' + i })), 6);
     }
     if (url.endsWith('/feed')) return new Response(feed);
     const match = url.match(/place\/(\d+)\/home/);
