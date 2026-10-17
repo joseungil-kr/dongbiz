@@ -389,7 +389,7 @@ app.get('/api/gap', async (c) => {
           throw new CollectionError('RATE_LIMITED', 'list');
         }
         if (!listing) {
-          listing = await collectSearchListing(keyword!, category);
+          listing = await collectSearchListing(keyword!, category, 350, placeId);
           if (listing.stopReason !== 'collection_failed') {
             await Promise.all([
               c.env.CACHE?.put(listKey, JSON.stringify(listing), { expirationTtl: KEYWORD_TTL }),
@@ -440,9 +440,13 @@ app.get('/api/gap', async (c) => {
       if (top10Ids.length === 0) {
         return c.json({ error: '비교할 경쟁사가 없습니다.' }, 404);
       }
-      competitors = await Promise.all(
-        top10Ids.map(id => cachedPlace(c.env, id))
-      );
+      // 한꺼번에 상세 요청을 예약하면 cron 수집과 겹칠 때 네이버 측 제한을 더 쉽게
+      // 건드릴 수 있다. 순차 처리하면 실패 시 뒤 요청을 더 만들지 않고, 공통 수집기의
+      // 요청 간격·cooldown도 그대로 적용된다.
+      competitors = [];
+      for (const id of top10Ids) {
+        competitors.push(await cachedPlace(c.env, id));
+      }
 
       // 저장수는 개별 상세보다 기본 지도 목록 행에서 더 안정적으로 공개된다. 다른 정렬축을
       // 조회하지 않고 현재 순위 목록의 동일 업체 값만 붙여 순위 체계를 섞지 않는다.
