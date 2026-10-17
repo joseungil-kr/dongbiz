@@ -16,7 +16,7 @@ export interface SearchListing {
   pages: number;
   limit: number;
   complete: boolean;
-  stopReason: 'end' | 'limit' | 'collection_failed';
+  stopReason: 'end' | 'limit' | 'target_found' | 'collection_failed';
   errorCode?: string;
   sort: string | null;
 }
@@ -140,7 +140,7 @@ function toSaveCount(value: unknown): number | null {
 }
 
 /** Bounded sequential pages, no guessed rank from object insertion order. */
-export async function collectSearchListing(keyword: string, category = 'place', limit = 350): Promise<SearchListing> {
+export async function collectSearchListing(keyword: string, category = 'place', limit = 350, targetPlaceId?: string): Promise<SearchListing> {
   if (!['place', 'restaurant', 'hairshop'].includes(category)) throw new Error('Unsupported listing category');
   limit = Math.min(350, Math.max(50, limit));
   const out: SearchListing = { items: [], source: 'naver-map', collectedAt: new Date().toISOString(),
@@ -163,6 +163,14 @@ export async function collectSearchListing(keyword: string, category = 'place', 
       if (page.items.some(item => ids.has(item.placeId))) throw collectionFailure('PARSE_CHANGED', 'list-page-overlap');
       out.pages++; out.total = page.total; out.sort = page.sort;
       for (const item of page.items) { ids.add(item.placeId); out.items.push(item); }
+      // Gap 진단은 상위 6곳과 내 매장의 현재 위치만 필요하다. 내 매장을 찾은 뒤에도
+      // 최대 350곳까지 계속 요청하면 네이버 호출량만 늘어난다. 현재 페이지까지의 순서는
+      // 이미 확보했으므로 여기서 중단해도 내 순위와 상위 6곳 비교에는 영향이 없다.
+      if (targetPlaceId && ids.has(targetPlaceId)) {
+        out.complete = false;
+        out.stopReason = 'target_found';
+        break;
+      }
       if (page.items.length < 50 || (page.total != null && out.items.length >= page.total)) {
         out.complete = page.total != null && out.items.length >= page.total;
         out.stopReason = 'end'; break;
