@@ -255,28 +255,214 @@ test('public rank pages expose observation metadata and exclude non-relevance ro
   assert.match(source, /sort_mode = 'popular' OR sort_mode IS NULL/);
   assert.match(source, /is_ad = 0 OR is_ad IS NULL/);
 });
-test('only registered periodic keywords are scheduled for rank collection', () => {
+
+test('public rank and weekly trend show ten places while first-page metrics stay at six', async () => {
+  const keyword = '안산 맛집';
+  const rows = ['2026-09-21 01:00:00', '2026-09-28 01:00:00', '2026-10-05 01:00:00']
+    .flatMap(collected_at => Array.from({ length: 12 }, (_, i) => ({
+      place_id: String(1000000 + i), place_name: `업체${i + 1}`, rank: i + 1,
+      visitor_reviews: i + 1, blog_reviews: i + 2,
+      vote_count: i < 6 ? i + 3 : null, photo_count: i < 6 ? i + 4 : null,
+      source: 'cron', collected_at,
+    })));
+  const db = { prepare(sql) { let args = []; return {
+    bind(...values) { args = values; return this; },
+    async all() { return { results: sql.includes('WHERE keyword = ?') ? (args[0] === keyword ? rows : [])
+      : [{ keyword, obs: 3, places: 12, last_at: rows.at(-1).collected_at }] }; },
+    async first() { return null; },
+  }; } };
+  const app = load('src/index.ts', async () => { throw new Error('unexpected fetch'); }).default;
+  const response = await app.fetch(new Request('https://local/rank/' + encodeURIComponent(keyword)), { DB: db }, { waitUntil() {} });
+  assert.equal(response.status, 200);
+  const html = await response.text();
+  const tables = [...html.matchAll(/<table>[\s\S]*?<\/table>/g)].map(match => match[0]);
+  assert.equal((tables[0].match(/<td class="rank">/g) || []).length, 10);
+  assert.match(tables[0], /업체10/);
+  assert.doesNotMatch(tables[0], /업체11/);
+  assert.match(tables[0], /<td class="num">–<\/td>/);
+  assert.equal((tables[0].match(/<tr class="subscriber-row">/g) || []).length, 4);
+  assert.equal((tables[0].match(/구독회원 전용 데이터 입니다\.<br>최근 4주간 300위 까지 데이터가 공개될 예정입니다\./g) || []).length, 1);
+  assert.equal((tables[1].match(/<td>업체\d+<\/td>/g) || []).length, 10);
+  assert.equal((tables[1].match(/<tr class="subscriber-row">/g) || []).length, 4);
+  assert.match(tables[1], /구독회원 전용 데이터 입니다\.<br>최근 4주간 300위 까지 데이터가 공개될 예정입니다\./);
+  assert.match(html, /1페이지에 노출되는 업체는 6곳/);
+  assert.match(html, /1페이지 진입선 \(6위\)/);
+});
+
+test('rank comments render safely, admin saves and disables them, and public nav appears once', async () => {
+  const keyword = '강남역 상속 변호사';
+  const otherKeyword = '안산 맛집';
+  const comments = new Map();
+  let commentTableMissing = false;
+  const snapshot = { place_id: '1234567', place_name: '업체', rank: 1, visitor_reviews: 12,
+    blog_reviews: 3, vote_count: 1, photo_count: 2, source: 'cron', collected_at: '2026-10-06 01:00:00' };
+  const db = { prepare(sql) {
+    let args = [];
+    return { bind(...values) { args = values; return this; }, async all() {
+      if (sql.includes('FROM periodic_keywords pk')) return { results: [
+        { keyword, active: 1, interval_hours: 48, observations: 1, last_success_at: snapshot.collected_at },
+        { keyword: '첫 관측 대기', active: 1, interval_hours: 48, observations: 0 },
+      ] };
+      if (sql.includes('FROM rank_snapshots') && sql.includes('WHERE keyword = ?')) return { results: args[0] === keyword ? [snapshot] : [] };
+      if (sql.includes('FROM rank_snapshots')) return { results: [
+        { keyword, obs: 1, places: 1, last_at: snapshot.collected_at },
+        { keyword: otherKeyword, obs: 2, places: 3, last_at: '2026-10-05 02:00:00' },
+      ] };
+      if (sql.includes('FROM rank_page_comments')) return { results: [...comments.values()] };
+      return { results: [] };
+    }, async first() {
+      if (commentTableMissing && sql.includes('FROM rank_page_comments')) throw new Error('D1_ERROR: no such table: rank_page_comments');
+      const row = comments.get(args[0]);
+      return row && (!sql.includes('approved = 1') || row.approved) ? row : null;
+    }, async run() {
+      if (sql.includes('INSERT INTO rank_page_comments')) comments.set(args[0], { keyword: args[0], comment_text: args[1], source: 'manual', approved: args[2], updated_at: snapshot.collected_at });
+      if (sql.includes('UPDATE rank_page_comments SET approved')) comments.get(args[0]).approved ^= 1;
+      return { success: true };
+    } };
+  } };
+  const app = load('src/index.ts', async () => { throw new Error('unexpected external fetch'); }).default;
+  const env = { DB: db, ADMIN_USER: 'admin', ADMIN_PASS: 'pass' }, ctx = { waitUntil() {} };
+  const rankUrl = 'https://local/rank/' + encodeURIComponent(keyword);
+  const publicPage = async () => app.fetch(new Request(rankUrl), env, ctx);
+  let response = await publicPage(), html = await response.text();
+  assert.equal(response.status, 200);
+  assert.equal((html.match(/<nav class="site-nav">/g) || []).length, 1);
+  assert.match(html, /\.site-nav\{display:flex/);
+  assert.doesNotMatch(html, /class="jo-note"/);
+  const publicRankTable = html.match(/<table>[\s\S]*?<\/table>/)?.[0];
+  response = await app.fetch(new Request('https://local/rank'), env, ctx);
+  assert.equal(response.status, 200);
+  assert.equal(((await response.text()).match(/<nav class="site-nav">/g) || []).length, 1);
+  commentTableMissing = true;
+  response = await publicPage(); assert.equal(response.status, 200);
+  commentTableMissing = false;
+  response = await app.fetch(new Request('https://local/rank/missing'), env, ctx);
+  assert.equal(response.status, 404);
+  assert.equal(((await response.text()).match(/<nav class="site-nav">/g) || []).length, 1);
+
+  const auth = { Authorization: 'Basic ' + Buffer.from('admin:pass').toString('base64') };
+  const adminPage = path => app.fetch(new Request('https://local' + path, { headers: auth }), env, ctx);
+  response = await adminPage('/admin/rank-comments'); html = await response.text();
+  assert.equal(response.status, 200);
+  assert.match(html, /최근 관측일/); assert.match(html, /관측 횟수/);
+  assert.match(html, new RegExp(`href="/admin/rank/${encodeURIComponent(keyword)}">한마디 작성`));
+  assert.match(html, new RegExp(`href="/admin/rank/${encodeURIComponent(otherKeyword)}">한마디 작성`));
+  assert.match(html, /코멘트 없음/);
+  assert.doesNotMatch(html, /<textarea/);
+  response = await adminPage('/admin/rank/' + encodeURIComponent(keyword)); html = await response.text();
+  assert.equal(response.status, 200); assert.match(html, /업체/);
+  assert.equal(html.match(/<table>[\s\S]*?<\/table>/)?.[0], publicRankTable);
+  assert.match(html, /name="comment_text"/);
+  assert.match(html, /이 페이지의 데이터를 보고 조강사의 한마디를 남겨보세요/);
+  assert.match(html, /\/images\/jo_point\.png/);
+  assert.equal((html.match(/<nav class="site-nav">/g) || []).length, 1);
+  assert.match(html, /공개 페이지 보기 ↗/);
+  response = await adminPage('/admin/rank/' + encodeURIComponent('없는 키워드'));
+  assert.equal(response.status, 404);
+  const comment = '첫 관측 <script>alert(1)</script>\n다음 줄';
+  const save = (text, targetKeyword = keyword, approved = true) => app.fetch(new Request('https://local/admin/rank/' + encodeURIComponent(targetKeyword), {
+    method: 'POST', headers: { ...auth, 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ comment_text: text, ...(approved ? { approved: '1' } : {}) }),
+  }), env, ctx);
+  response = await save('잘못된 저장', '없는 키워드'); assert.equal(response.status, 400);
+  response = await save('아직 대기', '첫 관측 대기'); assert.equal(response.status, 400);
+  assert.equal(comments.size, 0);
+  response = await save(comment); assert.equal(response.status, 303);
+  assert.equal(response.headers.get('location'), '/admin/rank/' + encodeURIComponent(keyword) + '?saved=1');
+  response = await adminPage(response.headers.get('location')); html = await response.text();
+  assert.match(html, /저장했습니다/);
+  assert.match(html, /첫 관측 &lt;script&gt;alert\(1\)&lt;\/script&gt;\n다음 줄<\/textarea>/);
+  response = await adminPage('/admin/rank-comments'); html = await response.text();
+  assert.match(html, new RegExp(`href="/admin/rank/${encodeURIComponent(keyword)}">수정`));
+  response = await adminPage('/admin/periodic-keywords'); html = await response.text();
+  assert.match(html, new RegExp(`href="/admin/rank/${encodeURIComponent(keyword)}">수정`));
+  assert.match(html, new RegExp(`href="/admin/rank/${encodeURIComponent('첫 관측 대기')}">한마디 작성`));
+  response = await publicPage(); html = await response.text();
+  assert.match(html, /조강사의 한마디/);
+  assert.match(html, /\/images\/jo_point\.png/);
+  assert.match(html, /&lt;script&gt;alert\(1\)&lt;\/script&gt;<br>다음 줄/);
+  assert.doesNotMatch(html, /<script>alert\(1\)<\/script>/);
+  assert.equal((html.match(/<nav class="site-nav">/g) || []).length, 1);
+  await save('수정한 코멘트');
+  response = await publicPage(); assert.match(await response.text(), /수정한 코멘트/);
+  response = await app.fetch(new Request('https://local/admin/rank-comments/' + encodeURIComponent(keyword) + '/toggle', { method: 'POST', headers: auth }), env, ctx);
+  assert.equal(response.status, 303);
+  response = await publicPage(); assert.doesNotMatch(await response.text(), /class="jo-note"/);
+  response = await app.fetch(new Request('https://local/admin/rank-comments', { headers: auth }), env, ctx);
+  assert.equal(response.status, 200); assert.match(await response.text(), /비공개/);
+  response = await app.fetch(new Request('https://local/admin/rank-comments'), env, ctx);
+  assert.equal(response.status, 401);
+  response = await app.fetch(new Request('https://local/admin/rank/' + encodeURIComponent(keyword)), env, ctx);
+  assert.equal(response.status, 401);
+  response = await app.fetch(new Request('https://local/admin/rank/' + encodeURIComponent(keyword), { method: 'POST', body: new URLSearchParams({ comment_text: '무단 저장' }) }), env, ctx);
+  assert.equal(response.status, 401);
+  response = await save('비공개 저장', keyword, false); assert.equal(response.status, 303);
+  response = await adminPage(response.headers.get('location')); html = await response.text();
+  assert.match(html, /비공개 저장/);
+  assert.doesNotMatch(html, /name="approved" value="1" checked/);
+  response = await publicPage(); assert.doesNotMatch(await response.text(), /class="jo-note"/);
+});
+
+test('rank comment migration and mobile layout exist without changing the queue migration', () => {
+  const fs = require('node:fs'), path = require('node:path');
+  const migration = fs.readFileSync(path.join(__dirname, '..', 'migrations', '0004_rank_page_comments.sql'), 'utf8');
+  const schema = fs.readFileSync(path.join(__dirname, '..', 'schema.sql'), 'utf8');
+  const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'index.ts'), 'utf8');
+  for (const sql of [migration, schema]) {
+    assert.match(sql, /CREATE TABLE IF NOT EXISTS rank_page_comments/);
+    assert.match(sql, /source TEXT NOT NULL DEFAULT 'manual'/);
+    assert.match(sql, /approved INTEGER NOT NULL DEFAULT 1/);
+  }
+  assert.match(source, /@media\(max-width:520px\)\{\.jo-note\{display:block\}/);
+  assert.match(source, /mode === 'public' \? 'AND approved = 1' : ''/);
+});
+test('queue split keeps NEW list-only, DETAIL top-six, refresh and seed invariants', () => {
   const fs = require('node:fs'), path = require('node:path');
   const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'index.ts'), 'utf8');
   const migration = fs.readFileSync(path.join(__dirname, '..', 'migrations', '0001_periodic_keywords.sql'), 'utf8');
+  const modeMigration = fs.readFileSync(path.join(__dirname, '..', 'migrations', '0002_periodic_keyword_modes.sql'), 'utf8');
   const wrangler = fs.readFileSync(path.join(__dirname, '..', 'wrangler.toml'), 'utf8');
   assert.match(migration, /CREATE TABLE IF NOT EXISTS periodic_keywords/);
-  assert.match(migration, /안산 닭한마리 맛집/); assert.match(migration, /강남 미용실/);
+  assert.match(modeMigration, /SELECT 1/); assert.doesNotMatch(modeMigration, /ADD COLUMN/);
+  const queueMigration = fs.readFileSync(path.join(__dirname, '..', 'migrations', '0003_rank_queue_rework.sql'), 'utf8');
+  assert.match(queueMigration, /INSERT OR IGNORE INTO periodic_keywords/);
+  const seeds = [...queueMigration.matchAll(/\('([^']+)',\s*'(restaurant|hairshop|place)',\s*'(legal|medical|food|local_service)',48\)/g)]
+    .map(([, keyword, category, market]) => ({ keyword, category, market }));
+  assert.equal(seeds.length, 60); assert.equal(new Set(seeds.map(s => s.keyword)).size, 60);
+  assert.equal(seeds.filter(s => s.market === 'legal' && s.category === 'place').length, 20);
+  assert.equal(seeds.filter(s => s.market === 'medical' && s.category === 'place').length, 20);
+  assert.equal(seeds.filter(s => s.market === 'food' && s.category === 'restaurant').length, 8);
+  assert.equal(seeds.filter(s => s.market === 'local_service').length, 12);
+  for (const keyword of ['강남역 이혼전문 변호사', '서초동 부동산 변호사', '종로 다이어트 한의원', '수원 산부인과', '봉명동 삼겹살', '안산 가족모임 식당', '봉명동 미용실', '안산 에어컨청소']) assert.ok(seeds.some(s => s.keyword === keyword), keyword);
+  const schema = fs.readFileSync(path.join(__dirname, '..', 'schema.sql'), 'utf8');
+  for (const column of ['market TEXT NOT NULL', 'detail_due_at DATETIME', 'detail_completed_at DATETIME', 'empty_result_count INTEGER NOT NULL DEFAULT 0']) assert.match(schema, new RegExp(column));
+  assert.match(schema, /interval_hours INTEGER NOT NULL DEFAULT 48 CHECK \(interval_hours BETWEEN 24 AND 72\)/);
+  assert.match(queueMigration, /'place'/);
   assert.match(source, /async function runOnePeriodicKeyword/);
+  assert.match(source, /async function runOnePeriodicDetail/);
+  assert.match(source, /ORDER BY rank LIMIT 6/);
+  assert.match(source, /Exactly one pcmap list request/);
+  assert.match(source, /detail_due_at = \?/);
+  assert.match(source, /sqlDateAfterMinutes\(30\)/);
+  assert.match(source, /ORDER BY detail_due_at, keyword LIMIT 1/);
+  assert.match(source, /A DETAIL failure must not delay REFRESH/);
+  assert.match(source, /NEW_CRON = '\*\/10 \* \* \* \*'/);
+  assert.match(source, /REFRESH_CRONS/);
+  assert.match(source, /EMPTY_RESULT/);
   assert.match(source, /LIMIT 1/);
-  assert.match(source, /PERIODIC_KEYWORD_CRONS = new Set/);
-  assert.match(source, /PERIODIC_KEYWORD_CRONS\.has\(event\.cron\)/);
-  assert.match(wrangler, /\*\/15 16-19 \* \* \*/);
-  assert.match(wrangler, /0 20 \* \* \*/);
+  assert.match(source, /event\.cron === NEW_CRON/);
+  assert.match(wrangler, /\*\/10 \* \* \* \*/);
+  assert.match(wrangler, /7,37 \* \* \* \*/);
 });
-test('periodic keyword admin reports collection progress before a public rank page exists', () => {
+test('periodic admin and public pages use first-observation publication safely', () => {
   const source = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'src', 'index.ts'), 'utf8');
-  assert.match(source, /관측 \$\{r\.observations\}\/2회/);
-  assert.match(source, /공개 순위는 같은 키워드가 2회 관측된 뒤 표시됩니다/);
+  assert.match(source, /HAVING obs >= 1/);
+  assert.match(source, /첫 정상 관측부터 공개합니다/);
+  assert.match(source, /첫 관측 데이터/);
   assert.match(source, /app\.post\('\/admin\/periodic-keywords\/run'/);
   assert.match(source, /role="status"/);
-  assert.match(source, /function inferPeriodicCategory/);
-  assert.match(source, /관련도 목록 \$\{items\.length\}곳 · 상세 지표 \$\{detailed\}곳 기록/);
+  assert.match(source, /function inferPeriodicTarget/);
+  assert.match(source, /pcmap 목록 1회/);
   assert.match(source, /value="48"/);
   assert.doesNotMatch(source, /name="mode"/);
   assert.doesNotMatch(source, /name="category"/);
@@ -295,12 +481,39 @@ test('admin links separate customer, email, admin and raw report views', () => {
   assert.match(source, /원본데이터/);
   assert.doesNotMatch(source, /navItem\('\/admin\?view=report'/);
 });
-test('periodic admin distinguishes eligible time from the next night slot', () => {
+test('periodic admin shows the next slot for the NEW and REFRESH crons', () => {
   const source = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'src', 'index.ts'), 'utf8');
   assert.match(source, /다음 수집 가능/);
   assert.match(source, /예상 실행/);
-  assert.match(source, /function nextPeriodicSlot/);
-  assert.match(source, /Math\.ceil\(minute \/ 15\) \* 15/);
+  assert.match(source, /nextPeriodicSlot\(r\.next_run_at, r\.last_success_at \? 'REFRESH' : 'NEW'\)/);
+  assert.match(source, /Math\.max\(24, Math\.min\(72, Number\(body\.intervalHours\) \|\| 48\)\)/);
+  const snippet = source.slice(source.indexOf('function nextPeriodicSlot('), source.indexOf('function inferPeriodicTarget('));
+  const js = require('typescript').transpileModule(snippet, { compilerOptions: { target: 99 } }).outputText;
+  const nextPeriodicSlot = require('node:vm').runInNewContext(`${js}\nnextPeriodicSlot`, { Date, Error });
+  assert.equal(nextPeriodicSlot(null, 'NEW', new Date('2026-10-06T00:10:00Z')), '2026-10-06 00:10:00');
+  assert.equal(nextPeriodicSlot(null, 'NEW', new Date('2026-10-06T00:10:01Z')), '2026-10-06 00:20:00');
+  assert.equal(nextPeriodicSlot(null, 'REFRESH', new Date('2026-10-06T00:04:00Z')), '2026-10-06 00:33:00');
+  assert.equal(nextPeriodicSlot(null, 'REFRESH', new Date('2026-10-06T23:40:00Z')), '2026-10-07 00:03:00');
+  assert.equal(nextPeriodicSlot('2026-10-06 02:05:00', 'NEW', new Date('2026-10-06T00:00:00Z')), '2026-10-06 02:10:00');
+});
+
+test('NEW success pings only its published rank URL without failing collection on IndexNow errors', async () => {
+  const source = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'src', 'index.ts'), 'utf8');
+  assert.match(source, /if \(kind === 'NEW'\) ctx\?\.waitUntil\(pingNewRankUrl\(target\.keyword\)\)/);
+  assert.match(source, /runOnePeriodicKeyword\(env, 'NEW', ctx\)/);
+  const snippet = source.slice(source.indexOf('async function pingNewRankUrl('), source.indexOf('// IndexNow Ping Route'));
+  const js = require('typescript').transpileModule(snippet, { compilerOptions: { target: 99 } }).outputText;
+  const calls = [], errors = [];
+  const ping = require('node:vm').runInNewContext(`${js}\npingNewRankUrl`, {
+    INDEXNOW_KEY: 'public-test-key',
+    fetch: async (url, options) => { calls.push({ url, payload: JSON.parse(options.body) }); return { ok: url.includes('api.indexnow.org'), status: 429 }; },
+    console: { error: (...args) => errors.push(args) },
+  });
+  await ping('강남역 상속 변호사');
+  assert.equal(calls.length, 2);
+  assert.deepEqual(calls.map(c => c.url), ['https://searchadvisor.naver.com/indexnow', 'https://api.indexnow.org/indexnow']);
+  for (const call of calls) assert.deepEqual(call.payload.urlList, ['https://dongbiz.com/rank/' + encodeURIComponent('강남역 상속 변호사')]);
+  assert.equal(errors.length, 1);
 });
 test('report guide is anchored below the email form and does not imply a 350-result scan', () => {
   const html = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'public', 'index.html'), 'utf8');

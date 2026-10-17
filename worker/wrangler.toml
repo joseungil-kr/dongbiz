@@ -20,12 +20,11 @@ database_id = "fb4d0641-f7c9-4060-938a-d3acf3de95e0"
 binding = "CACHE"
 id = "4063e07d64ba4db4a7e8ff6195e6735b"
 
-# 자동 수집 일시 중지(2026-09-12): 네이버 요청 제한 완화 전까지 고정 키워드,
-# 사용자 검색 재수집, pcmap 목록, 워치리스트, 텍스트 수집 및 백세보리밥 헬스체크를 실행하지 않는다.
-# 고객이 직접 실행하는 Step 1/2 요청은 이 설정과 별개로 유지한다.
+# 목록 관측과 상세 스크랩은 반드시 별도 슬롯에서 하나씩 실행한다.
 [triggers]
-# UTC 16:00–20:00 = KST 01:00–05:00. One due keyword runs per 15-minute slot.
-crons = ["*/15 16-19 * * *", "0 20 * * *"]
+# NEW is one cheap pcmap-list observation every ten minutes, around the clock.
+# DETAIL and REFRESH use separate slots so one invocation never fans out into a scrape burst.
+crons = ["*/10 * * * *", "7,37 * * * *", "3,33 * * * *"]
 
 # 텔레그램/구글시트 알림 시크릿 (§8.2-A). 값은 git에 올리지 않는다.
 # 배포: npx wrangler secret put TELEGRAM_BOT_TOKEN  (TELEGRAM_CHAT_ID, SHEETS_WEBHOOK_URL도 동일)

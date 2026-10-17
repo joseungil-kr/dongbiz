@@ -397,7 +397,7 @@ export function siteFooter(): string {
   </div></footer>`;
 }
 
-function shell(o: { title: string; description: string; canonical: string; active: 'place' | 'volume' | 'ads' | 'blog'; style: string; body: string; darkNav?: boolean }): string {
+function shell(o: { title: string; description: string; canonical: string; active: 'place' | 'volume' | 'ads' | 'blog'; style: string; body: string; darkNav?: boolean; jsonLd?: any }): string {
   const title = o.title.endsWith(' | 동네장사') ? `동네장사 | ${o.title.slice(0, -' | 동네장사'.length)}` : o.title;
   return `<!DOCTYPE html><html lang="ko"><head>
 <meta charset="UTF-8">
@@ -409,7 +409,12 @@ function shell(o: { title: string; description: string; canonical: string; activ
 <meta property="og:url" content="${escapeHtml(o.canonical)}">
 <meta property="og:title" content="${escapeHtml(title)}">
 <meta property="og:description" content="${escapeHtml(o.description)}">
-<meta name="twitter:card" content="summary">
+<meta property="og:image" content="https://dongbiz.com/og-image.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="${escapeHtml(title)}">
+<meta name="twitter:description" content="${escapeHtml(o.description)}">
+<meta name="twitter:image" content="https://dongbiz.com/og-image.png">
+${o.jsonLd ? `<script type="application/ld+json">${JSON.stringify(o.jsonLd).replace(/</g, '\\u003c')}</script>` : ''}
 <style>${BASE_STYLE}${o.style}</style>
 </head><body>
 ${siteNav(o.active, o.darkNav)}
@@ -426,20 +431,199 @@ body{margin:0;background:#F8FAFC;color:#0F172A;font-family:Pretendard,system-ui,
 
 const KEYWORD_VOLUME_STYLE_OVERRIDES = `
 .volume-hero{padding:48px 0;background:#F8FAFC;text-align:center}.volume-wrap{width:min(100% - 48px,1024px)}.volume-kicker{display:none}.volume-hero h1{margin:0 0 20px;font-family:'Pretendard',sans-serif;font-size:clamp(30px,5vw,48px);font-weight:900;letter-spacing:-.025em;line-height:1.2;color:#020617}.volume-hero h1 span{background:linear-gradient(90deg,#2563EB,#4F46E5,#14B8A6);background-clip:text;-webkit-background-clip:text;color:transparent}.volume-hero> .volume-wrap>p:not(.volume-kicker){max-width:672px;margin:0 auto 40px;font-size:clamp(16px,2vw,18px);line-height:1.625;color:#475569}.volume-search{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;max-width:672px;margin:0 auto;padding:28px 32px;border:2px solid #2563EB;border-radius:24px;background:linear-gradient(180deg,#EFF6FF 0%,#fff 58%);box-shadow:0 14px 32px rgba(37,99,235,.13)}.volume-search label.sr-only{position:static;width:auto;height:auto;margin:0;overflow:visible;clip:auto;white-space:normal;grid-column:1/-1;text-align:left;color:#64748B;font-size:12px;font-weight:800}.volume-search input{min-height:56px;padding:0 16px;border:1px solid #E2E8F0;border-radius:16px;background:#fff}.volume-search input:focus-visible{outline:3px solid #93C5FD;outline-offset:1px}.volume-search button{min-height:56px;padding:0 32px;border-radius:16px;background:#03C75A;box-shadow:0 8px 18px rgba(3,199,90,.22)}.volume-search button:hover{background:#02B350}.volume-search button:focus-visible{outline:3px solid #86EFAC;outline-offset:2px}.volume-content{padding-top:26px}.volume-content .volume-wrap{max-width:896px}.volume-status{text-align:center}.volume-result{text-align:left}@media (max-width:600px){.volume-hero{padding:48px 0}.volume-wrap{width:min(100% - 48px,1024px)}.volume-hero h1{font-size:30px}.volume-search{padding:22px 18px;border-radius:20px;gap:10px}.volume-search input{min-height:52px}.volume-search button{min-height:52px;padding:0 20px}.volume-content{padding-top:22px}}
+.volume-guide{padding:54px 0 68px;background:#fff;border-top:1px solid #E2E8F0}.volume-guide h2{font-size:24px;font-weight:900;letter-spacing:-.03em;margin:0 0 16px;color:#0F172A}.volume-guide h3{font-size:18px;font-weight:800;margin:24px 0 8px;color:#1E293B}.volume-guide p{font-size:15px;line-height:1.75;color:#475569;margin:0 0 14px}.volume-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px;margin:24px 0 36px}.volume-box{background:#F8FAFC;border:1px solid #E2E8F0;border-radius:16px;padding:22px}.volume-box h4{font-size:16px;font-weight:800;margin:0 0 8px;color:#0F172A}.volume-box p{font-size:13.5px;color:#64748B;line-height:1.6;margin:0}.volume-faq{margin-top:40px;border-top:1px solid #E2E8F0;padding-top:32px}.volume-faq details{background:#F8FAFC;border:1px solid #E2E8F0;border-radius:14px;padding:16px 18px;margin-bottom:10px}.volume-faq summary{font-weight:800;cursor:pointer;font-size:15px;color:#0F172A}.volume-faq p{margin:10px 0 0;font-size:14px;color:#475569;line-height:1.7}
 `;
 
 /** /keyword-volume — 검색광고 API의 월간 검색량과 관련 키워드를 공개하는 독립 도구. */
 export function renderKeywordVolumePage(): string {
-  const body = `<main class="volume-main"><section class="volume-hero"><div class="volume-wrap"><p class="volume-kicker">키워드 검색량</p><h1>고객이 찾는 말을<br>숫자로 확인하세요.</h1><p>네이버 검색광고 API 기준 월간 PC·모바일 검색량입니다. 플레이스 순위 진단 횟수와는 별도로 조회됩니다.</p><form id="volumeForm" class="volume-search" novalidate><label class="sr-only" for="volumeQuery">검색어</label><input id="volumeQuery" name="q" maxlength="50" autocomplete="off" placeholder="예: 안산 맛집" required><button id="volumeSubmit" type="submit">검색</button></form></div></section><section class="volume-content"><div class="volume-wrap"><p id="volumeStatus" class="volume-status" role="status" aria-live="polite">검색어를 입력해 월간 검색량을 확인하세요.</p><div id="volumeResult" class="volume-result" hidden><div class="volume-result-head"><div><p class="volume-label">월간 검색량</p><h2 id="volumeKeyword" class="volume-keyword"></h2></div><button id="volumeBack" class="volume-back" type="button" hidden>이전 검색</button></div><div class="volume-cards"><div class="volume-card"><span>PC</span><strong id="volumePc"></strong></div><div class="volume-card"><span>모바일</span><strong id="volumeMobile"></strong></div><div class="volume-card"><span>합계</span><strong id="volumeTotal"></strong></div></div><p id="volumeMeta" class="volume-note"></p><h3 class="volume-related-title">관련 키워드</h3><p class="volume-related-help">태그를 누르면 해당 키워드의 월간 검색량과 관련 키워드를 이어서 확인합니다.</p><div id="volumeTags" class="volume-tags" aria-live="polite"></div><button id="volumeMore" class="volume-more" type="button" hidden>관련 키워드 더 보기</button></div></div></section></main><script>(() => { const form=document.getElementById('volumeForm'),input=document.getElementById('volumeQuery'),submit=document.getElementById('volumeSubmit'),status=document.getElementById('volumeStatus'),result=document.getElementById('volumeResult'),keywordEl=document.getElementById('volumeKeyword'),pcEl=document.getElementById('volumePc'),mobileEl=document.getElementById('volumeMobile'),totalEl=document.getElementById('volumeTotal'),meta=document.getElementById('volumeMeta'),tags=document.getElementById('volumeTags'),more=document.getElementById('volumeMore'),back=document.getElementById('volumeBack'); let requestId=0,related=[],visible=30,trail=[]; const count=(value,underTen)=>underTen?'10 미만':Number(value).toLocaleString('ko-KR')+'회',total=volume=>volume.isUnderTen?'합계 확정 불가':Number(volume.total).toLocaleString('ko-KR')+'회',setStatus=(text,kind='')=>{status.textContent=text;status.className='volume-status'+(kind?' '+kind:'')},tagSize=volume=>{const n=Number(volume.total)||0;return n>=10000?4:n>=1000?3:n>=100?2:1}; function renderTags(){tags.replaceChildren();related.slice(0,visible).forEach(volume=>{const button=document.createElement('button');button.type='button';button.className='volume-tag size-'+tagSize(volume);button.textContent=volume.keyword;button.title=volume.isUnderTen?'월간 검색량에 10 미만 값이 포함됩니다.':'월간 검색량 '+Number(volume.total).toLocaleString('ko-KR')+'회';button.addEventListener('click',()=>search(volume.keyword,true));tags.append(button)});more.hidden=visible>=related.length} function render(data){keywordEl.textContent=data.keyword;pcEl.textContent=count(data.volume.pc,data.volume.pcUnderTen);mobileEl.textContent=count(data.volume.mobile,data.volume.mobileUnderTen);totalEl.textContent=total(data.volume);meta.textContent=(data.volume.isUnderTen?'PC 또는 모바일 값에 “10 미만”이 포함되어 합계를 확정값으로 표시하지 않습니다. ':'')+'조회 기준: 네이버 검색광고 API 월간 지표 · 캐시 기준 시각 '+new Date(data.cachedAt).toLocaleString('ko-KR')+' · 최대 24시간 재사용';related=data.related||[];visible=30;renderTags();result.hidden=false;back.hidden=trail.length===0;setStatus(related.length?'관련 키워드 '+related.length+'개를 찾았습니다.':'관련 키워드는 제공되지 않았습니다.')} async function search(raw,push){const query=String(raw||'').trim();if(!query){result.hidden=true;setStatus('검색어를 입력해 주세요.','error');input.focus();return}const seq=++requestId;input.value=query;submit.disabled=true;submit.textContent='조회 중';result.hidden=true;setStatus('월간 검색량과 관련 키워드를 조회하고 있습니다.');if(push){trail.push(query);history.pushState({q:query},'', '?q='+encodeURIComponent(query))}try{const response=await fetch('/api/keyword-volume?q='+encodeURIComponent(query),{headers:{Accept:'application/json'}}),data=await response.json().catch(()=>({}));if(seq!==requestId)return;if(!response.ok){setStatus(data.error||'검색량을 불러오지 못했습니다. 잠시 뒤 다시 시도해 주세요.',response.status===404?'empty':'error');return}render(data)}catch{if(seq===requestId)setStatus('네트워크 연결을 확인한 뒤 다시 시도해 주세요.','error')}finally{if(seq===requestId){submit.disabled=false;submit.textContent='검색'}}} form.addEventListener('submit',event=>{event.preventDefault();search(input.value,true)});more.addEventListener('click',()=>{visible+=30;renderTags()});back.addEventListener('click',()=>{if(trail.length<2)return;trail.pop();const previous=trail.pop();search(previous,true)});addEventListener('popstate',event=>{const q=event.state?.q||new URL(location.href).searchParams.get('q');if(q){trail=[];search(q,false)}});const initial=new URL(location.href).searchParams.get('q');if(initial)search(initial,false) })();</script>`;
-  return shell({ title: '네이버 키워드 검색량 조회 | 동네장사', description: '네이버 키워드 검색량 조회 도구입니다. 검색어별 월간 PC·모바일 검색량, 합계와 관련 키워드를 네이버 검색광고 API 기준으로 확인하세요.', canonical: 'https://dongbiz.com/keyword-volume', active: 'volume', style: KEYWORD_VOLUME_STYLE + KEYWORD_VOLUME_STYLE_OVERRIDES, body: body.replace('고객이 찾는 말을<br>숫자로 확인하세요.', '키워드의 <span>월간 검색량</span>을<br>정확한 데이터로 확인하세요.').replace('네이버 검색광고 API 기준 월간 PC·모바일 검색량입니다. 플레이스 순위 진단 횟수와는 별도로 조회됩니다.', '네이버 검색광고 API 기준 월간 PC·모바일 검색량입니다.<br>플레이스 순위 진단 횟수와는 별도로 조회됩니다.').replace('>키워드 검색량</p>', '>네이버 키워드 검색량</p>').replace('검색어를 입력해 월간 검색량을 확인하세요.', '검색어를 입력해 월간 검색량과 연관검색어 키워드를 확인하세요.').replace('>검색어</label>', '>검색할 키워드를 입력하세요</label>') });
+  const guideSection = `<section class="volume-guide"><div class="volume-wrap">
+<nav class="crumb" style="font-size:13px;color:#64748B;margin:0 0 20px;display:flex;align-items:center;gap:6px">
+  <a href="/" style="color:#64748B;text-decoration:none">홈</a>
+  <span style="color:#94A3B8;font-size:11px">&gt;</span>
+  <span style="color:#0F172A;font-weight:700">네이버 키워드 검색량</span>
+</nav>
+<h2>네이버 키워드 검색량 분석 가이드</h2>
+<p>네이버에서 잠재 고객들이 특정 단어를 얼마나 자주 검색하는지 파악하는 것은 오프라인 매장 마케팅과 스마트플레이스 상위노출의 핵심 출발점입니다. 실제 검색 수요가 없는 키워드에서 1위를 차지하는 것은 매장 방문이나 매출로 이어지지 않기 때문입니다.</p>
+<div class="volume-grid">
+  <div class="volume-box">
+    <h4>1. 메인 키워드 vs 롱테일 키워드</h4>
+    <p>'강남역 맛집' 같은 메인 키워드는 월간 수만 건의 검색량을 자랑하지만 대형 프랜차이즈와의 경쟁이 치열합니다. 반면 '강남역 점심 혼밥', '강남역 룸식당 회식' 같은 롱테일 세부 키워드는 검색량은 500~2,000건 수준이라도 실제 방문 전환율이 압도적으로 높습니다.</p>
+  </div>
+  <div class="volume-box">
+    <h4>2. 모바일 검색량 중심의 지표 분석</h4>
+    <p>음식점, 카페, 미용실, 헬스장 등 지역 기반 매장은 전체 검색량의 70~85% 이상이 모바일에서 발생합니다. PC 검색량보다는 모바일 검색량의 규모와 추이를 우선적으로 살펴보고 목표 키워드를 선정해야 합니다.</p>
+  </div>
+  <div class="volume-box">
+    <h4>3. 스마트플레이스 대표키워드 5개 세팅</h4>
+    <p>네이버 스마트플레이스에 등록할 수 있는 5개의 대표키워드는 단순 상호명뿐만 아니라, 검색량이 실제로 검증된 '지역명+업종/메뉴' 조합으로 구성할 때 플레이스 노출 지수가 극대화됩니다.</p>
+  </div>
+</div>
+<div class="volume-faq">
+  <h3 style="margin-top:0">자주 묻는 질문 (FAQ)</h3>
+  <details open>
+    <summary>네이버 키워드 검색량 데이터의 출처는 어디인가요?</summary>
+    <p>동네장사는 네이버 공식 검색광고 API(Search Ad API)를 실시간 연동하여 가장 최근 30일 동안 네이버 통합검색에서 집계된 실제 검색 쿼리 수를 제공합니다.</p>
+  </details>
+  <details>
+    <summary>검색 결과에 나오는 “10 미만”은 무슨 의미인가요?</summary>
+    <p>네이버 검색광고 API 규정상 월간 검색 수가 10건 미만인 초세부 키워드는 정확한 숫자를 공개하지 않고 “10 미만(&lt; 10)”으로 표기합니다. 틈새시장 공략에는 여전히 유용한 지표입니다.</p>
+  </details>
+  <details>
+    <summary>검색량이 높은 키워드일수록 플레이스 상위노출이 어렵나요?</summary>
+    <p>검색량이 큰 키워드일수록 경쟁 매장의 누적 방문자 리뷰와 사진 수, 블로그 후기 진입선이 높게 형성됩니다. 동네장사의 <a href="/rank" style="color:#2563EB;font-weight:700">키워드별 순위 현황</a>에서 1페이지 진입선 리뷰 수를 함께 확인하시는 것을 권장합니다.</p>
+  </details>
+</div>
+<div style="margin-top:40px;background:#F1F5F9;border-radius:20px;padding:28px;text-align:center">
+  <h3 style="margin:0 0 10px;font-size:20px;color:#0F172A">내 매장은 목표 키워드에서 몇 위에 있을까요?</h3>
+  <p style="margin:0 0 20px;color:#475569;font-size:14.5px">동네장사 무료 진단 도구로 내 매장의 실시간 순위와 상위 6개 경쟁사 대비 부족한 지표를 3초 만에 분석해보세요.</p>
+  <a href="/" style="display:inline-block;background:#0F172A;color:#fff;font-weight:800;font-size:15px;padding:14px 28px;border-radius:12px;text-decoration:none">내 매장의 플레이스 상태 무료진단 &rarr;</a>
+</div>
+</div></section>`;
+
+  const body = `<main class="volume-main"><section class="volume-hero"><div class="volume-wrap"><p class="volume-kicker">네이버 키워드 검색량</p><h1>키워드의 <span>월간 검색량</span>을<br>정확한 데이터로 확인하세요.</h1><p>네이버 검색광고 API 기준 월간 PC·모바일 검색량입니다.<br>플레이스 순위 진단 횟수와는 별도로 조회됩니다.</p><form id="volumeForm" class="volume-search" novalidate><label class="sr-only" for="volumeQuery">검색할 키워드를 입력하세요</label><input id="volumeQuery" name="q" maxlength="50" autocomplete="off" placeholder="예: 안산 맛집" required><button id="volumeSubmit" type="submit">검색</button></form></div></section><section class="volume-content"><div class="volume-wrap"><p id="volumeStatus" class="volume-status" role="status" aria-live="polite">검색어를 입력해 월간 검색량과 연관검색어 키워드를 확인하세요.</p><div id="volumeResult" class="volume-result" hidden><div class="volume-result-head"><div><p class="volume-label">월간 검색량</p><h2 id="volumeKeyword" class="volume-keyword"></h2></div><button id="volumeBack" class="volume-back" type="button" hidden>이전 검색</button></div><div class="volume-cards"><div class="volume-card"><span>PC</span><strong id="volumePc"></strong></div><div class="volume-card"><span>모바일</span><strong id="volumeMobile"></strong></div><div class="volume-card"><span>합계</span><strong id="volumeTotal"></strong></div></div><p id="volumeMeta" class="volume-note"></p><h3 class="volume-related-title">관련 키워드</h3><p class="volume-related-help">태그를 누르면 해당 키워드의 월간 검색량과 관련 키워드를 이어서 확인합니다.</p><div id="volumeTags" class="volume-tags" aria-live="polite"></div><button id="volumeMore" class="volume-more" type="button" hidden>관련 키워드 더 보기</button></div></div></section>${guideSection}</main><script>(() => { const form=document.getElementById('volumeForm'),input=document.getElementById('volumeQuery'),submit=document.getElementById('volumeSubmit'),status=document.getElementById('volumeStatus'),result=document.getElementById('volumeResult'),keywordEl=document.getElementById('volumeKeyword'),pcEl=document.getElementById('volumePc'),mobileEl=document.getElementById('volumeMobile'),totalEl=document.getElementById('volumeTotal'),meta=document.getElementById('volumeMeta'),tags=document.getElementById('volumeTags'),more=document.getElementById('volumeMore'),back=document.getElementById('volumeBack'); let requestId=0,related=[],visible=30,trail=[]; const count=(value,underTen)=>underTen?'10 미만':Number(value).toLocaleString('ko-KR')+'회',total=volume=>volume.isUnderTen?'합계 확정 불가':Number(volume.total).toLocaleString('ko-KR')+'회',setStatus=(text,kind='')=>{status.textContent=text;status.className='volume-status'+(kind?' '+kind:'')},tagSize=volume=>{const n=Number(volume.total)||0;return n>=10000?4:n>=1000?3:n>=100?2:1}; function renderTags(){tags.replaceChildren();related.slice(0,visible).forEach(volume=>{const button=document.createElement('button');button.type='button';button.className='volume-tag size-'+tagSize(volume);button.textContent=volume.keyword;button.title=volume.isUnderTen?'월간 검색량에 10 미만 값이 포함됩니다.':'월간 검색량 '+Number(volume.total).toLocaleString('ko-KR')+'회';button.addEventListener('click',()=>search(volume.keyword,true));tags.append(button)});more.hidden=visible>=related.length} function render(data){keywordEl.textContent=data.keyword;pcEl.textContent=count(data.volume.pc,data.volume.pcUnderTen);mobileEl.textContent=count(data.volume.mobile,data.volume.mobileUnderTen);totalEl.textContent=total(data.volume);meta.textContent=(data.volume.isUnderTen?'PC 또는 모바일 값에 “10 미만”이 포함되어 합계를 확정값으로 표시하지 않습니다. ':'')+'조회 기준: 네이버 검색광고 API 월간 지표 · 캐시 기준 시각 '+new Date(data.cachedAt).toLocaleString('ko-KR')+' · 최대 24시간 재사용';related=data.related||[];visible=30;renderTags();result.hidden=false;back.hidden=trail.length===0;setStatus(related.length?'관련 키워드 '+related.length+'개를 찾았습니다.':'관련 키워드는 제공되지 않았습니다.')} async function search(raw,push){const query=String(raw||'').trim();if(!query){result.hidden=true;setStatus('검색어를 입력해 주세요.','error');input.focus();return}const seq=++requestId;input.value=query;submit.disabled=true;submit.textContent='조회 중';result.hidden=true;setStatus('월간 검색량과 관련 키워드를 조회하고 있습니다.');if(push){trail.push(query);history.pushState({q:query},'', '?q='+encodeURIComponent(query))}try{const response=await fetch('/api/keyword-volume?q='+encodeURIComponent(query),{headers:{Accept:'application/json'}}),data=await response.json().catch(()=>({}));if(seq!==requestId)return;if(!response.ok){setStatus(data.error||'검색량을 불러오지 못했습니다. 잠시 뒤 다시 시도해 주세요.',response.status===404?'empty':'error');return}render(data)}catch{if(seq===requestId)setStatus('네트워크 연결을 확인한 뒤 다시 시도해 주세요.','error')}finally{if(seq===requestId){submit.disabled=false;submit.textContent='검색'}}} form.addEventListener('submit',event=>{event.preventDefault();search(input.value,true)});more.addEventListener('click',()=>{visible+=30;renderTags()});back.addEventListener('click',()=>{if(trail.length<2)return;trail.pop();const previous=trail.pop();search(previous,true)});addEventListener('popstate',event=>{const q=event.state?.q||new URL(location.href).searchParams.get('q');if(q){trail=[];search(q,false)}});const initial=new URL(location.href).searchParams.get('q');if(initial)search(initial,false) })();</script>`;
+
+  const jsonLd = [
+    {
+      '@context': 'https://schema.org',
+      '@type': 'WebApplication',
+      name: '동네장사 네이버 키워드 검색량 조회',
+      url: 'https://dongbiz.com/keyword-volume',
+      description: '네이버 검색광고 API 기준 월간 PC·모바일 검색량과 연관 키워드를 무료로 실시간 조회하는 도구입니다.',
+      applicationCategory: 'BusinessApplication',
+      operatingSystem: 'All',
+      publisher: {
+        '@type': 'Organization',
+        name: '동네장사',
+        url: 'https://dongbiz.com/',
+        logo: 'https://dongbiz.com/og-image.png',
+      },
+    },
+    {
+      '@context': 'https://schema.org',
+      '@type': 'BreadcrumbList',
+      itemListElement: [
+        { '@type': 'ListItem', position: 1, name: '홈', item: 'https://dongbiz.com/' },
+        { '@type': 'ListItem', position: 2, name: '네이버 키워드 검색량', item: 'https://dongbiz.com/keyword-volume' },
+      ],
+    },
+    {
+      '@context': 'https://schema.org',
+      '@type': 'FAQPage',
+      mainEntity: [
+        {
+          '@type': 'Question',
+          name: '네이버 키워드 검색량 데이터의 출처는 어디인가요?',
+          acceptedAnswer: {
+            '@type': 'Answer',
+            text: '동네장사는 네이버 공식 검색광고 API(Search Ad API)를 실시간 연동하여 가장 최근 30일 동안 네이버 통합검색에서 집계된 실제 검색 쿼리 수를 제공합니다.',
+          },
+        },
+        {
+          '@type': 'Question',
+          name: '검색 결과에 나오는 “10 미만”은 무슨 의미인가요?',
+          acceptedAnswer: {
+            '@type': 'Answer',
+            text: '네이버 검색광고 API 규정상 월간 검색 수가 10건 미만인 초세부 키워드는 정확한 숫자를 공개하지 않고 “10 미만(< 10)”으로 표기합니다. 틈새시장 공략에는 여전히 유용한 지표입니다.',
+          },
+        },
+        {
+          '@type': 'Question',
+          name: '스마트플레이스 대표키워드 설정에 어떻게 활용하나요?',
+          acceptedAnswer: {
+            '@type': 'Answer',
+            text: '검색량이 너무 큰 메인 키워드보다는 월간 검색량 500~2,000 수준의 세부 지역 키워드를 선별해 플레이스 대표키워드로 등록하는 것이 상위노출에 유리합니다.',
+          },
+        },
+      ],
+    },
+  ];
+
+  return shell({
+    title: '네이버 키워드 검색량 조회 | 동네장사',
+    description: '네이버 키워드 검색량 조회 도구입니다. 검색어별 월간 PC·모바일 검색량, 합계와 관련 키워드를 네이버 검색광고 API 기준으로 확인하세요.',
+    canonical: 'https://dongbiz.com/keyword-volume',
+    active: 'volume',
+    style: KEYWORD_VOLUME_STYLE + KEYWORD_VOLUME_STYLE_OVERRIDES,
+    body,
+    jsonLd,
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // /blog — 블로그배포
 // ─────────────────────────────────────────────────────────────────────────────
 export function renderBlogPage(): string {
+  const jsonLd = [
+    {
+      '@context': 'https://schema.org',
+      '@type': 'Service',
+      name: '동네장사 네이버 블로그 배포 서비스',
+      url: 'https://dongbiz.com/blog',
+      description: `상호 검색용 방문 후기형 글과 매장검색용 롱테일키워드 글을 나눠 발행합니다. 건당 ${won(PRICING.placeReview)}부터, 게시 URL 전달.`,
+      provider: {
+        '@type': 'Organization',
+        name: '동네장사',
+        url: 'https://dongbiz.com/',
+        logo: 'https://dongbiz.com/og-image.png',
+      },
+    },
+    {
+      '@context': 'https://schema.org',
+      '@type': 'BreadcrumbList',
+      itemListElement: [
+        { '@type': 'ListItem', position: 1, name: '홈', item: 'https://dongbiz.com/' },
+        { '@type': 'ListItem', position: 2, name: '블로그배포', item: 'https://dongbiz.com/blog' },
+      ],
+    },
+    {
+      '@context': 'https://schema.org',
+      '@type': 'FAQPage',
+      mainEntity: [
+        {
+          '@type': 'Question',
+          name: '몇 건을 해야 하나요?',
+          acceptedAnswer: {
+            '@type': 'Answer',
+            text: '진단으로 정합니다. 1페이지 진입선 업체의 실측값과 현재 값의 차이가 곧 필요한 수량입니다. 감으로 권하지 않습니다.',
+          },
+        },
+        {
+          '@type': 'Question',
+          name: '두 상품 중 무엇을 골라야 하나요?',
+          acceptedAnswer: {
+            '@type': 'Answer',
+            text: '상호를 검색해도 우리 가게 얘기가 없다면 플레이스용 배포입니다. 아직 우리 가게를 모르는 손님을 데려오고 싶다면 매장검색용 롱테일키워드입니다. 둘 다 필요한 경우가 많아 진단에서 비중을 알려드립니다.',
+          },
+        },
+        {
+          '@type': 'Question',
+          name: '블로그 배포만 따로 맡겨도 되나요?',
+          acceptedAnswer: {
+            '@type': 'Answer',
+            text: '됩니다. 플레이스 작업과 별개로 진행할 수 있습니다.',
+          },
+        },
+        {
+          '@type': 'Question',
+          name: '이걸 하면 플레이스 순위가 오르나요?',
+          acceptedAnswer: {
+            '@type': 'Answer',
+            text: '그렇게 약속하지 않습니다. 블로그 배포는 검색결과에서 노출되는 면적과 유입을 늘리는 상품이고, 플레이스 순위는 리뷰·저장·검색 유입 등 별개 지표로 정해집니다. 두 작업은 목적이 다릅니다.',
+          },
+        },
+      ],
+    },
+  ];
+
   const body = `
-<section style="padding:80px 0 70px"><div class="wrap"><div class="split" style="align-items:center">
+<div class="wrap" style="padding-top:20px">
+  <nav class="crumb" style="font-size:13px;color:#64748B;display:flex;align-items:center;gap:6px">
+    <a href="/" style="color:#64748B;text-decoration:none">홈</a>
+    <span style="color:#94A3B8;font-size:11px">&gt;</span>
+    <span style="color:#0F172A;font-weight:700">블로그배포</span>
+  </nav>
+</div>
+<section style="padding:60px 0 70px"><div class="wrap"><div class="split" style="align-items:center">
   <div>
     <p class="eyebrow reveal">네이버 블로그 배포</p>
     <h1 class="reveal">대량 블로그 배포,<br><em>${won(PRICING.placeReview)}부터.</em></h1>
@@ -612,6 +796,7 @@ export function renderBlogPage(): string {
     active: 'blog',
     style: BLOG_STYLE,
     body,
+    jsonLd,
   });
 }
 
@@ -619,10 +804,85 @@ export function renderBlogPage(): string {
 // /ads — 광고컨설팅
 // ─────────────────────────────────────────────────────────────────────────────
 export function renderAdsPage(): string {
+  const jsonLd = [
+    {
+      '@context': 'https://schema.org',
+      '@type': 'ProfessionalService',
+      name: '동네장사 광고컨설팅',
+      url: 'https://dongbiz.com/ads',
+      description: '순위·리뷰·저장·검색량을 먼저 실측하고 가장 싸게 오르는 항목부터 정리합니다. 1위를 보장하지 않고, 진행 전후 변화를 그대로 공유합니다.',
+      provider: {
+        '@type': 'Organization',
+        name: '동네장사',
+        url: 'https://dongbiz.com/',
+        logo: 'https://dongbiz.com/og-image.png',
+      },
+    },
+    {
+      '@context': 'https://schema.org',
+      '@type': 'BreadcrumbList',
+      itemListElement: [
+        { '@type': 'ListItem', position: 1, name: '홈', item: 'https://dongbiz.com/' },
+        { '@type': 'ListItem', position: 2, name: '광고컨설팅', item: 'https://dongbiz.com/ads' },
+      ],
+    },
+    {
+      '@context': 'https://schema.org',
+      '@type': 'FAQPage',
+      mainEntity: [
+        {
+          '@type': 'Question',
+          name: '비용은 어떻게 되나요?',
+          acceptedAnswer: {
+            '@type': 'Answer',
+            text: '매장 상태와 목표 키워드 수에 따라 달라집니다. 진단 결과를 먼저 보내드리고, 필요한 항목만 골라 견적을 냅니다. 진단과 첫 안내는 무료입니다.',
+          },
+        },
+        {
+          '@type': 'Question',
+          name: '하나만 맡겨도 되나요?',
+          acceptedAnswer: {
+            '@type': 'Answer',
+            text: '됩니다. 플레이스만, 블로그만 따로 진행할 수 있습니다. 순서상 무엇을 먼저 해야 하는지는 진단에서 알려드립니다.',
+          },
+        },
+        {
+          '@type': 'Question',
+          name: '직접 고칠 수 있는 것도 있나요?',
+          acceptedAnswer: {
+            '@type': 'Answer',
+            text: '있습니다. 톡톡 연동, 영업시간·찾아오는길 등록, 대표키워드 5개 채우기는 5분이면 직접 하실 수 있고 비용이 들지 않습니다. 리포트에 방법까지 적어 보내드립니다.',
+          },
+        },
+        {
+          '@type': 'Question',
+          name: '얼마나 걸리나요?',
+          acceptedAnswer: {
+            '@type': 'Answer',
+            text: '고정된 기간을 약속하지 않습니다. 다만 매일 순위를 기록하므로 변화가 시작되는 시점을 숫자로 확인하실 수 있습니다.',
+          },
+        },
+        {
+          '@type': 'Question',
+          name: '지금 당장 뭘 해야 할지 모르겠습니다.',
+          acceptedAnswer: {
+            '@type': 'Answer',
+            text: '진단부터 하시면 됩니다. 무료이고 상호만 있으면 됩니다.',
+          },
+        },
+      ],
+    },
+  ];
+
   const body = `
 <section class="hero-dark">
   <div class="bg">${photoSlot('이른 아침 빈 매장 내부를 창가 역광으로 촬영한 와이드 컷. 사람 없음. 테이블과 의자의 실루엣, 창밖은 흐릿한 거리. 따뜻한 어둠, 시네마틱, 얕은 심도.', { ratio: '21 / 9', dark: true, src: '/images/ads-hero-store-morning.jpg', eager: true, alt: '이른 아침 문을 열기 전의 매장 내부' })}</div>
   <div class="wrap">
+    <nav class="crumb" style="font-size:13px;color:#A8B48A;display:flex;align-items:center;gap:6px;margin-bottom:18px">
+      <a href="/" style="color:#A8B48A;text-decoration:none">홈</a>
+      <span style="color:#5C6352;font-size:11px">&gt;</span>
+      <span style="color:#EDEFE6;font-weight:700">광고컨설팅</span>
+    </nav>
     <p class="eyebrow reveal" style="color:#A8B48A">광고컨설팅</p>
     <h1 class="reveal">광고비를 줄이는 게 아니라,<br><span class="hi">어디에 쓸지를 정합니다.</span></h1>
     <p class="lead reveal" style="color:#B9C0AC;margin-bottom:32px">순위·리뷰·저장·검색량을 먼저 실측하고,
@@ -777,6 +1037,7 @@ export function renderAdsPage(): string {
     style: ADS_STYLE,
     body,
     darkNav: true,
+    jsonLd,
   });
 }
 
