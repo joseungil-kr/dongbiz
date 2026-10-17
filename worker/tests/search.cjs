@@ -426,6 +426,8 @@ test('gap collection bounds list pagination and serializes competitor details', 
   assert.doesNotMatch(source, /competitors = await Promise\.all\([\s\S]*top10Ids\.map\(id => cachedPlace/);
   assert.match(placeSearch, /targetPlaceId\?: string/);
   assert.match(placeSearch, /stopReason = 'target_found'/);
+  assert.match(source, /listing\.stopReason !== 'collection_failed' && listing\.stopReason !== 'target_found'/);
+  assert.match(publicHtml, /내 매장 위치를 확인한 시점에서 추가 목록 요청을 중단했습니다/);
   assert.match(publicHtml, /Gap API failure/);
   assert.match(publicHtml, /data\.code/);
   assert.match(publicHtml, /data\.stage/);
