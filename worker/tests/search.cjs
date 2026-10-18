@@ -183,7 +183,7 @@ test('GraphQL 429 opens the breaker without immediate HTML retry; next request u
   const request = () => new Request(`https://local/api/gap?placeId=${id}&keyword=지역맛집`);
   const first = await app.fetch(request(), {CACHE:cache}, {waitUntil(){}});
   assert.equal(first.status,503);
-  assert.equal((await first.json()).error,'네이버 응답 불가로 현재 순위 수집이 되지 않고 있습니다. 내일 다시 시도해 주세요.');
+  assert.equal((await first.json()).error,'추가 순위 확인이 제한되었습니다. 다시 검색하면 기본 50곳을 확인합니다.');
   assert.equal(calls.filter(url => url.includes('pcmap.place.naver.com')).length,0);
   assert.equal(JSON.parse(cache.values.get('map-graphql-health:v1')).successes,0);
   const second = await app.fetch(request(), {CACHE:cache}, {waitUntil(){}});

@@ -512,7 +512,9 @@ app.get('/api/gap', async (c) => {
             listing = { ...recentSuccess.listing, stale: true, errorCode: err.code, errorStage: err.stage,
               errorFailureSource: err.failureSource, errorUpstreamStatus: err.upstreamStatus,
               errorKeywordCooldownUntilUtc: err.keywordCooldownUntilUtc, errorKeywordCooldownIndefinite: err.keywordCooldownIndefinite };
-          } else throw unavailableRank(err);
+          } else throw new CollectionError(err.code, 'rank-graphql-limited', err.upstreamStatus, err.failureSource,
+            err.retryAfterUtc, err.cooldownUntilUtc, err.keywordCooldownUntilUtc,
+            err.retryAfterSeconds, err.keywordCooldownIndefinite);
         } else if (recentSuccess) {
           listing = { ...recentSuccess.listing, stale: true, errorCode: err instanceof CollectionError ? err.code : 'UNKNOWN',
             errorStage: err instanceof CollectionError ? err.stage : undefined,
@@ -776,7 +778,9 @@ app.get('/api/gap', async (c) => {
       } catch (historyErr) { console.error('직전 정상 진단 조회 실패:', historyErr); }
     }
     if (err instanceof CollectionError) return c.json({ error: err.stage === 'rank-unavailable'
-      ? '네이버 응답 불가로 현재 순위 수집이 되지 않고 있습니다. 내일 다시 시도해 주세요.' : err.message, code: err.code, stage: err.stage,
+      ? '네이버 응답 불가로 현재 순위 수집이 되지 않고 있습니다. 내일 다시 시도해 주세요.'
+      : err.stage === 'rank-graphql-limited' ? '추가 순위 확인이 제한되었습니다. 다시 검색하면 기본 50곳을 확인합니다.' : err.message,
+      code: err.code, stage: err.stage,
       failureSource: err.failureSource, upstreamStatus: err.upstreamStatus ?? null,
       retryAfterUtc: err.retryAfterUtc ?? null, cooldownUntilUtc: err.cooldownUntilUtc ?? null,
       keywordCooldownUntilUtc: err.keywordCooldownUntilUtc ?? null, keywordCooldownIndefinite: err.keywordCooldownIndefinite ?? false,
