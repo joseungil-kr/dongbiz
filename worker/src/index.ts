@@ -123,7 +123,7 @@ function observationCooldownExpiry(retryAfterUtc?: string, retryAfterSeconds?: s
 }
 
 function observationKey(category: string, keyword: string) {
-  return `${CACHE_VERSION}:map-observation:v1:${category}:${encodeURIComponent(keyword.toLowerCase())}`;
+  return `${CACHE_VERSION}:map-observation:v2:${category}:${encodeURIComponent(keyword.toLowerCase())}`;
 }
 
 // places 테이블 upsert. search_histories.place_id가 FK로 이 테이블을 참조하므로,
@@ -343,7 +343,7 @@ app.get('/api/place', async (c) => {
   }
 });
 
-// [2·3단계] 키워드 기반 Gap 분석 — 지도 목록 최대 350곳에서 위치 확인, 상위 경쟁사 지표 비교.
+// [2·3단계] 키워드 기반 Gap 분석 — 지도 첫 목록 최대 50곳에서 위치 확인, 상위 경쟁사 지표 비교.
 // competitorId가 있으면(키워드 대신/추가로) 순위 자동수집을 건너뛰고 그 업체 1곳과 바로 비교한다
 // (경쟁사 직접 지목, §2 3단계 확정). 만능 리졸버(scrapeFullPlaceMetrics)를 그대로 재사용하므로
 // 상호명/전화번호/naver.me 링크 뭘 넣어도 동작한다.
@@ -390,7 +390,7 @@ app.get('/api/gap', async (c) => {
       // Map list observation is separate from the legacy search widget.
       const category = /미용실|헤어|살롱/.test(keyword! + myStore.category) ? 'hairshop'
         : /맛집|밥집|식당|고기|횟집|카페|음식|한식|중식|일식|양식|백숙|삼계탕/.test(keyword! + myStore.category) ? 'restaurant' : 'place';
-      const listKey = `${CACHE_VERSION}:map-list:v2:${category}:${keyword}`;
+      const listKey = `${CACHE_VERSION}:map-list:v3:${category}:${keyword}`;
       const observationPrefix = observationKey(category, keyword!);
       const [recentSuccess, cooldown] = await Promise.all([
         c.env.CACHE?.get<StoredObservation>(`${observationPrefix}:success`, 'json'),
@@ -408,7 +408,7 @@ app.get('/api/gap', async (c) => {
           });
         }
         if (!listing) {
-          listing = await collectSearchListing(keyword!, category, 350, placeId);
+          listing = await collectSearchListing(keyword!, category, 50, placeId);
           if (listing.stopReason !== 'collection_failed' && listing.stopReason !== 'target_found') {
             await Promise.all([
               c.env.CACHE?.put(listKey, JSON.stringify(listing), { expirationTtl: KEYWORD_TTL }),
@@ -464,7 +464,7 @@ app.get('/api/gap', async (c) => {
         }));
         ranking = widget.ids;
         rankObservation = { source: 'naver-search-widget', collectedAt: widget.collectedAt,
-          complete: false, stopReason: 'collection_failed', limit: 350, pages: 0,
+          complete: false, stopReason: 'collection_failed', limit: 50, pages: 0,
           errorCode: err instanceof CollectionError ? err.code : 'UNKNOWN', items: [] };
         }
       }
@@ -674,7 +674,7 @@ app.get('/api/gap', async (c) => {
         const nameVolumes = await getKeywordVolumes(c.env, names, { cache: false, context: 'gap-store-name', relatedTo: displayLabel });
         // Map observation (including the full ordered list) is saved in search_histories.raw_data.
         // Do not blend this different source into legacy widget-only rank snapshots.
-        if (rankObservation?.source !== 'naver-map') await logRankSnapshots(c.env.DB, displayLabel, ranking, myStore, myRank, competitors, 'user', nameVolumes);
+        if (rankObservation?.source !== 'naver-map' && rankObservation?.source !== 'naver-map-html') await logRankSnapshots(c.env.DB, displayLabel, ranking, myStore, myRank, competitors, 'user', nameVolumes);
       })());
 
       // IndexNow 실시간 자동 통보 (백그라운드)

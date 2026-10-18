@@ -218,9 +218,11 @@ test('normal Step 1 to Step 2 succeeds without fetching own detail twice', async
   ] });
   const app = load('src/index.ts', async url => {
     calls.push(url);
-    if (url.includes('pcmap-api')) return new Response(JSON.stringify([{ data: { restaurants: { businesses: {
-      total: 2, siteSort: 'rel.dsc', items: [{ id, name: 'Test Store' }, { id: otherId, name: 'Other Store' }]
-    } } } }]));
+    if (url.includes('pcmap.place.naver.com')) return new Response('window.__APOLLO_STATE__ = ' + JSON.stringify({ ROOT_QUERY: {
+      'placeList({"input":{"query":"keyword","start":1,"display":50}})': { businesses: {
+        total: 2, siteSort: 'rel.dsc', items: [{ id, name: 'Test Store' }, { id: otherId, name: 'Other Store' }]
+      } }
+    } }) + ';');
     if (url.includes('query=keyword')) return new Response(ranking);
     if (url.includes('search.naver')) return new Response(`https://map.naver.com/p/entry/place/${id}`);
     if (url.endsWith('/feed')) return new Response(feed);

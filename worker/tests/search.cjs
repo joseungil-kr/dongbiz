@@ -5,6 +5,11 @@ const test = (name, fn) => tests.push([name, fn]);
 const graphql = (items, total = items.length) => new Response(JSON.stringify([{ data: { restaurants: {
   businesses: { items, total, siteSort: 'rel.dsc' }
 } } }]));
+const htmlList = (items, total, keyword) => new Response('window.__APOLLO_STATE__ = ' + JSON.stringify({
+  ROOT_QUERY: { [`placeList(${JSON.stringify({ input: { query: keyword, start: 1, display: 50 } })})`]: {
+    businesses: { items, total, siteSort: 'rel.dsc' }
+  } }
+}) + ';');
 const candidateHtml = () => 'window.__APOLLO_STATE__ = ' + JSON.stringify({
   'PlaceListBusinessesItem:7654321': { id: '7654321', name: '같은상호', fullAddress: '다른 지점' },
   ['PlaceListBusinessesItem:' + id]: { id, name: '<mark>같은상호</mark>', fullAddress: '내 지점' },
@@ -68,6 +73,35 @@ test('target-bounded listing stops after the page containing the requested place
   assert.deepEqual(starts, [1, 51]);
   assert.equal(listing.items.findIndex(x => x.placeId === target) + 1, 73);
   assert.equal(listing.stopReason, 'target_found');
+  assert.equal(listing.complete, false);
+});
+
+test('customer rank uses one ordered HTML first page and never calls GraphQL', async () => {
+  const calls = [];
+  const s = load('src/place-search.ts', async url => {
+    calls.push(url);
+    assert.match(url, /pcmap\.place\.naver\.com\/place\/list\?query=/);
+    return htmlList(Array.from({ length: 50 }, (_, i) => ({
+      id: i === 36 ? id : String(8200000 + i), name: '업체' + i
+    })), 500, '안산스카이차');
+  });
+  const listing = await s.collectSearchListing('안산스카이차', 'place', 50, id);
+  assert.equal(calls.length, 1);
+  assert.equal(listing.source, 'naver-map-html');
+  assert.equal(listing.items.findIndex(item => item.placeId === id) + 1, 37);
+  assert.equal(listing.items.length, 50);
+  assert.equal(listing.stopReason, 'target_found');
+});
+
+test('a place beyond the first 50 is not assigned a guessed rank', async () => {
+  const s = load('src/place-search.ts', async url => {
+    assert.match(url, /pcmap\.place\.naver\.com\/place\/list/);
+    return htmlList(Array.from({ length: 50 }, (_, i) => ({ id: String(8300000 + i), name: '업체' + i })), 500, '안산스카이차');
+  });
+  const listing = await s.collectSearchListing('안산스카이차', 'place', 50, id);
+  assert.equal(listing.items.length, 50);
+  assert.equal(listing.items.findIndex(item => item.placeId === id), -1);
+  assert.equal(listing.stopReason, 'limit');
   assert.equal(listing.complete, false);
 });
 
@@ -136,13 +170,12 @@ function fakeDB(failWrite = false) {
     } };
   }, async batch() { return []; } };
 }
-test('deep rank and source/range saved and restored; only successful analyses consume quota', async () => {
+test('first-page rank and source/range saved and restored; only successful analyses consume quota', async () => {
   const db = fakeDB(), cache = kv(), tasks = [];
   await cache.put(`place:v10:${id}:feed`, JSON.stringify({placeId:id,name:'Test',seoMetrics:{visitorReviewsTotal:12,hasTalktalk:false}}));
   const app = load('src/index.ts', async (url, init) => {
-    if (url.includes('pcmap-api')) {
-      const start = JSON.parse(init.body)[0].variables.input.start;
-      return graphql(Array.from({length:50},(_,i)=>({id:start+i===137?id:String(8000000+start+i),name:'업체'+(start+i),saveCount:start <= 1 && i < 6 ? '100+' : null})),500);
+    if (url.includes('pcmap.place.naver.com')) {
+      return htmlList(Array.from({length:50},(_,i)=>({id:i===36?id:String(8000000+i),name:'업체'+i,saveCount:i < 6 ? '100+' : null})),500,'지역맛집');
     }
     const match = url.match(/place\/(\d+)\/home/);
     assert.ok(match, 'only known detail URLs requested');
@@ -152,16 +185,16 @@ test('deep rank and source/range saved and restored; only successful analyses co
   const req = () => new Request(`https://local/api/gap?placeId=${id}&keyword=지역맛집`, {headers:{'CF-Connecting-IP':'fixture'}});
   const response = await app.fetch(req(),env,ctx);
   const data = await response.json(); assert.equal(response.status,200);
-  assert.equal(data.myRank,137); assert.equal(data.rankSearched,150); assert.equal(data.comparisonCount,6);
+  assert.equal(data.myRank,37); assert.equal(data.rankSearched,50); assert.equal(data.comparisonCount,6);
   assert.equal(data.stats.saveCount.avg,100); assert.equal(data.stats.saveCount.count,6);
-  assert.equal(data.rankObservation.source,'naver-map');
-  assert.deepEqual(data.rankHistory.map(x=>x.rank),[137]);
-  assert.equal(db.histories.get(data.shareId).myRank,137);
+  assert.equal(data.rankObservation.source,'naver-map-html');
+  assert.deepEqual(data.rankHistory.map(x=>x.rank),[37]);
+  assert.equal(db.histories.get(data.shareId).myRank,37);
   const restored = await app.fetch(new Request(`https://local/api/history?shareId=${data.shareId}`),env,ctx);
   assert.deepEqual(await restored.json(),data);
   const repeated = await app.fetch(req(),env,ctx);
   const repeatedData = await repeated.json();
-  assert.deepEqual(repeatedData.rankHistory.map(x=>x.rank),[137,137]);
+  assert.deepEqual(repeatedData.rankHistory.map(x=>x.rank),[37,37]);
   assert.ok([...cache.values.entries()].some(([k,v])=>k.startsWith('gaplimit:')&&v==='2'));
   await Promise.all(tasks);
 });
@@ -171,7 +204,7 @@ test('failed collection and failed persistence do not spend daily allowance', as
     await cache.put(`place:v10:${id}:feed`, JSON.stringify({placeId:id,name:'Test',seoMetrics:{visitorReviewsTotal:12,hasTalktalk:false}}));
     const app = load('src/index.ts',async url=> {
       if(failure==='collection')return new Response('',{status:429});
-      if(url.includes('pcmap-api'))return graphql([{id:'7654321',name:'다른업체'}]);
+      if(url.includes('pcmap.place.naver.com'))return htmlList([{id:'7654321',name:'다른업체'}],1,'지역맛집');
       return new Response(detail.replaceAll(id,'7654321'));
     }).default;
     const res=await app.fetch(new Request(`https://local/api/gap?placeId=${id}&keyword=지역맛집`),{CACHE:cache,DB:fakeDB(true)},{waitUntil(){}});
@@ -184,10 +217,10 @@ test('rate-limited keyword reuses its latest successful map observation without 
   const cache = kv(), keyword = 'Stale keyword';
   let blocked = false, mapCalls = 0;
   const app = load('src/index.ts', async (url, init) => {
-    if (url.includes('pcmap-api')) {
+    if (url.includes('pcmap.place.naver.com')) {
       mapCalls++;
       if (blocked) return new Response('', { status: 429 });
-      return graphql(Array.from({length: 6}, (_, i) => ({ id: String(8000100 + i), name: 'Store ' + i })), 6);
+      return htmlList(Array.from({length: 6}, (_, i) => ({ id: String(8000100 + i), name: 'Store ' + i })), 6, keyword);
     }
     if (url.endsWith('/feed')) return new Response(feed);
     const match = url.match(/place\/(\d+)\/home/);
@@ -198,7 +231,7 @@ test('rate-limited keyword reuses its latest successful map observation without 
   const request = () => new Request(`https://local/api/gap?placeId=${id}&keyword=${encodeURIComponent(keyword)}`);
   const first = await app.fetch(request(), { CACHE: cache }, ctx);
   assert.equal(first.status, 200, await first.text());
-  cache.values.delete(`v9:map-list:v2:place:${keyword}`);
+  cache.values.delete(`v9:map-list:v3:place:${keyword}`);
   blocked = true;
   const second = await app.fetch(request(), { CACHE: cache }, ctx);
   const data = await second.json();
@@ -206,7 +239,7 @@ test('rate-limited keyword reuses its latest successful map observation without 
   assert.equal(data.rankObservation.status, 'stale_success');
   assert.equal(data.rankObservation.stale, true);
   assert.equal(mapCalls, 2);
-  assert.ok([...cache.values.keys()].some(key => key.includes(':map-observation:v1:place:') && key.endsWith(':cooldown')));
+  assert.ok([...cache.values.keys()].some(key => key.includes(':map-observation:v2:place:') && key.endsWith(':cooldown')));
 });
 
 test('keyword volume keeps related ad keywords, caches them, and never consumes the gap limit', async () => {
@@ -444,7 +477,7 @@ test('gap collection bounds list pagination and serializes competitor details', 
   const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'index.ts'), 'utf8');
   const placeSearch = fs.readFileSync(path.join(__dirname, '..', 'src', 'place-search.ts'), 'utf8');
   const publicHtml = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8');
-  assert.match(source, /collectSearchListing\(keyword!, category, 350, placeId\)/);
+  assert.match(source, /collectSearchListing\(keyword!, category, 50, placeId\)/);
   assert.match(source, /for \(const id of top10Ids\) \{[\s\S]*competitors\.push\(await cachedPlace\(c\.env, id\)\)/);
   assert.doesNotMatch(source, /competitors = await Promise\.all\([\s\S]*top10Ids\.map\(id => cachedPlace/);
   assert.match(placeSearch, /targetPlaceId\?: string/);

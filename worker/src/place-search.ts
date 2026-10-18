@@ -10,7 +10,7 @@ export interface PlaceCandidate {
 }
 export interface SearchListing {
   items: PlaceCandidate[];
-  source: 'naver-map';
+  source: 'naver-map' | 'naver-map-html';
   collectedAt: string;
   total: number | null;
   pages: number;
@@ -57,7 +57,7 @@ export function readPlaceState(html: string): Record<string, any> {
 const clean = (v: unknown) => typeof v === 'string' ? v.replace(/<[^>]*>/g, '').trim() : '';
 
 /** ROOT_QUERY.placeList.businesses.items is ordered. Ad/new-opening arrays are separate. */
-export function parseOrderedList(html: string, expectedStart?: number) {
+export function parseOrderedList(html: string, expectedStart?: number, expectedQuery?: string) {
   const state = readPlaceState(html);
   const entries = Object.entries(state.ROOT_QUERY || {}).filter(([key]) => key.startsWith('placeList('));
   let selected: any;
@@ -65,7 +65,8 @@ export function parseOrderedList(html: string, expectedStart?: number) {
   for (const [key, value] of entries) {
     let input: any;
     try { input = JSON.parse(key.slice(key.indexOf('(') + 1, -1)).input; } catch { continue; }
-    if (!input || input.filterOpening || (expectedStart != null && Number(input.start) !== expectedStart)) continue;
+    if (!input || input.filterOpening || (expectedStart != null && Number(input.start) !== expectedStart)
+      || (expectedQuery && input.query && input.query !== expectedQuery)) continue;
     const result: any = (value as any)?.__ref ? state[(value as any).__ref] : value;
     const list = result?.businesses?.__ref ? state[result.businesses.__ref] : result?.businesses;
     if (!Array.isArray(list?.items)) continue;
@@ -141,6 +142,13 @@ export async function fetchOrderedPage(keyword: string, start: number) {
   return { items, display: 50, sort: list.siteSort || null, total: typeof list.total === 'number' ? list.total : null };
 }
 
+async function fetchHtmlFirstPage(keyword: string, category: string) {
+  const url = `https://pcmap.place.naver.com/${category}/list?${new URLSearchParams({ query: keyword })}`;
+  const page = parseOrderedList(await naverHtml(url, 'rank-list-html', HEADERS), 1, keyword);
+  if (page.display !== 50 || page.items.length > 50) throw collectionFailure('PARSE_CHANGED', 'rank-list-html-size');
+  return page;
+}
+
 function toSaveCount(value: unknown): number | null {
   if (value == null) return null;
   const digits = String(value).replace(/[^\d]/g, '');
@@ -151,12 +159,12 @@ function toSaveCount(value: unknown): number | null {
 export async function collectSearchListing(keyword: string, category = 'place', limit = 350, targetPlaceId?: string): Promise<SearchListing> {
   if (!['place', 'restaurant', 'hairshop'].includes(category)) throw new Error('Unsupported listing category');
   limit = Math.min(350, Math.max(50, limit));
-  const out: SearchListing = { items: [], source: 'naver-map', collectedAt: new Date().toISOString(),
+  const out: SearchListing = { items: [], source: limit === 50 ? 'naver-map-html' : 'naver-map', collectedAt: new Date().toISOString(),
     total: null, pages: 0, limit, complete: false, stopReason: 'limit', sort: null };
   const ids = new Set<string>();
   for (let start = 1; start <= limit && (out.total == null || start <= out.total); start += 50) {
     try {
-      const page = await fetchOrderedPage(keyword.trim(), start);
+      const page = limit === 50 ? await fetchHtmlFirstPage(keyword.trim(), category) : await fetchOrderedPage(keyword.trim(), start);
       // The provider may return an empty terminal page with total=0 and no sort.
       // Keep the advertised total and do not label a provider cap as a failure.
       if (!page.items.length) {
