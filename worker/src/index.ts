@@ -1,8 +1,8 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { cachedPlace } from './place-cache';
-import { CollectionError } from './collection';
-import { isStoreName, searchPlaceCandidates, collectSearchListing, SearchListing } from './place-search';
+import { CollectionError, collectionFailure } from './collection';
+import { isStoreName, searchPlaceCandidates, collectSearchListing, fetchOrderedPage, SearchListing } from './place-search';
 import { basicAuth } from 'hono/basic-auth';
 import { scrapeFullPlaceMetrics, getOrganicRanking, getPlaceList, SortMode, PlaceListItem } from './scraper';
 import { notify, logDiagnosisToSheet, sendCustomerEmail, NotifyEnv } from './notify';
@@ -111,10 +111,114 @@ const KEYWORD_TTL = 60 * 60 * 6; // 6h
 const OBSERVATION_SUCCESS_TTL = 60 * 60 * 24 * 7;
 const OBSERVATION_COOLDOWN_TTL = 60 * 60 * 24;
 type StoredObservation = { listing: SearchListing; savedAt: string };
-type ObservationCooldown = { retryAfter: string; code: string };
+type ObservationCooldown = { retryAfter: string; code: string; upstreamRetryAfter?: string; upstreamRetryAfterSeconds?: string; upstreamStatus?: number; failureSource?: string; indefinite?: boolean };
+
+function observationCooldownExpiry(retryAfterUtc?: string, retryAfterSeconds?: string) {
+  if (retryAfterSeconds && !retryAfterUtc) return { retryAfter: 'indefinite', expirationTtl: undefined, indefinite: true };
+  const now = Date.now();
+  const policyUntil = now + OBSERVATION_COOLDOWN_TTL * 1000;
+  const providerUntil = retryAfterUtc ? Date.parse(retryAfterUtc) : NaN;
+  const until = Number.isFinite(providerUntil) ? Math.max(policyUntil, providerUntil) : policyUntil;
+  return { retryAfter: new Date(until).toISOString(), expirationTtl: Math.max(OBSERVATION_COOLDOWN_TTL, Math.ceil((until - now) / 1000)), indefinite: false };
+}
 
 function observationKey(category: string, keyword: string) {
-  return `${CACHE_VERSION}:map-observation:v1:${category}:${encodeURIComponent(keyword.toLowerCase())}`;
+  return `${CACHE_VERSION}:map-observation:v2:${category}:${encodeURIComponent(keyword.toLowerCase())}`;
+}
+
+type GraphqlHealth = { nextProbeAt: string; successes: number; healthyUntil?: string };
+const GRAPHQL_HEALTH_KEY = 'map-graphql-health:v1';
+const GRAPHQL_PROBE_KEYWORD = '강남맛집';
+const hoursFromNow = (hours: number) => new Date(Date.now() + hours * 3600000).toISOString();
+
+async function graphqlHealthy(env: Env): Promise<boolean> {
+  const state = await env.CACHE?.get<GraphqlHealth>(GRAPHQL_HEALTH_KEY, 'json');
+  return !!state?.healthyUntil && Date.parse(state.healthyUntil) > Date.now();
+}
+
+async function suspendGraphql(env: Env, err: CollectionError) {
+  const expiry = observationCooldownExpiry(err.retryAfterUtc, err.retryAfterSeconds);
+  await env.CACHE?.put(GRAPHQL_HEALTH_KEY, JSON.stringify({ nextProbeAt: expiry.retryAfter, successes: 0 }),
+    expiry.indefinite ? undefined : { expirationTtl: 30 * 86400 });
+  await notify(env, `⚠️ [GraphQL 순위 수집 중단] ${err.code}/${err.stage}\n다음 점검: ${expiry.indefinite ? '수동 확인 필요' : expiry.retryAfter}`);
+}
+
+async function probeGraphql(env: Env) {
+  if (!env.CACHE) return;
+  const state = await env.CACHE.get<GraphqlHealth>(GRAPHQL_HEALTH_KEY, 'json');
+  if (!state) {
+    // shortcut: an unproven GraphQL route stays disabled for 24 hours after deployment; probe only from cron.
+    await env.CACHE.put(GRAPHQL_HEALTH_KEY, JSON.stringify({ nextProbeAt: hoursFromNow(24), successes: 0 }), { expirationTtl: 30 * 86400 });
+    return;
+  }
+  if (state.nextProbeAt === 'indefinite' || Date.parse(state.nextProbeAt) > Date.now()) return;
+  try {
+    if (state.successes === 1) {
+      const listing = await collectSearchListing(GRAPHQL_PROBE_KEYWORD, 'restaurant', 300);
+      if (listing.stopReason !== 'limit' || listing.items.length !== 300) throw collectionFailure('PARSE_CHANGED', 'graphql-probe-pages');
+    } else {
+      const page = await fetchOrderedPage(GRAPHQL_PROBE_KEYWORD, 1);
+      if (page.items.length < 50) throw collectionFailure('PARSE_CHANGED', 'graphql-probe-first-page');
+    }
+    const successes = Math.min(2, state.successes + 1);
+    await env.CACHE.put(GRAPHQL_HEALTH_KEY, JSON.stringify({ successes, nextProbeAt: hoursFromNow(successes === 1 ? 0.5 : 1),
+      healthyUntil: successes === 2 ? hoursFromNow(2) : undefined }), { expirationTtl: 30 * 86400 });
+  } catch (err) {
+    await suspendGraphql(env, err instanceof CollectionError ? err : collectionFailure('UPSTREAM_HTTP', 'graphql-probe'));
+  }
+}
+
+async function loadGapListing(env: Env, keyword: string, category: string, placeId: string, useGraphql: boolean): Promise<SearchListing> {
+  const prefix = observationKey(category, keyword) + (useGraphql ? ':graphql' : '');
+  const listKey = `${CACHE_VERSION}:map-list:v4:${useGraphql ? 'graphql' : 'html'}:${category}:${keyword}${useGraphql ? ':' + placeId : ''}`;
+  const cachedList = await env.CACHE?.get<SearchListing>(listKey, 'json');
+  if (cachedList) return cachedList;
+  const cooldown = await env.CACHE?.get<ObservationCooldown>(`${prefix}:cooldown`, 'json');
+  if (cooldown && (cooldown.indefinite || Date.parse(cooldown.retryAfter) > Date.now())) {
+    throw collectionFailure(cooldown.code === 'BLOCKED' ? 'BLOCKED' : 'RATE_LIMITED', 'rank-list', undefined, {
+      failureSource: 'keyword_cooldown', keywordCooldownUntilUtc: cooldown.indefinite ? undefined : cooldown.retryAfter,
+      keywordCooldownIndefinite: cooldown.indefinite, retryAfterSeconds: cooldown.upstreamRetryAfterSeconds,
+    });
+  }
+  try {
+    const listing = await collectSearchListing(keyword, category, useGraphql ? 300 : 50, placeId);
+    if (listing.stopReason === 'collection_failed') {
+      if (listing.errorCode === 'RATE_LIMITED' || listing.errorCode === 'BLOCKED') {
+        const expiry = observationCooldownExpiry(listing.errorRetryAfterUtc, listing.errorRetryAfterSeconds);
+        await env.CACHE?.put(`${prefix}:cooldown`, JSON.stringify({ retryAfter: expiry.retryAfter, code: listing.errorCode, indefinite: expiry.indefinite }),
+          expiry.indefinite ? undefined : { expirationTtl: expiry.expirationTtl! });
+      }
+      return listing; // confirmed prefix only; never cache a partially collected ranking.
+    }
+    await env.CACHE?.put(listKey, JSON.stringify(listing), { expirationTtl: KEYWORD_TTL });
+    const successKey = `${prefix}:success${listing.stopReason === 'target_found' ? ':' + placeId : ''}`;
+    await env.CACHE?.put(successKey, JSON.stringify({ listing, savedAt: new Date().toISOString() }), { expirationTtl: OBSERVATION_SUCCESS_TTL });
+    return listing;
+  } catch (err) {
+    if (err instanceof CollectionError && (err.code === 'RATE_LIMITED' || err.code === 'BLOCKED')) {
+      const expiry = observationCooldownExpiry(err.retryAfterUtc, err.retryAfterSeconds);
+      await env.CACHE?.put(`${prefix}:cooldown`, JSON.stringify({ retryAfter: expiry.retryAfter, code: err.code, indefinite: expiry.indefinite,
+        upstreamRetryAfterSeconds: err.retryAfterSeconds }), expiry.indefinite ? undefined : { expirationTtl: expiry.expirationTtl! });
+      err.keywordCooldownUntilUtc = expiry.indefinite ? undefined : expiry.retryAfter;
+      err.keywordCooldownIndefinite = expiry.indefinite;
+    }
+    throw err;
+  }
+}
+
+async function recentGapListing(env: Env, keyword: string, category: string, placeId: string): Promise<StoredObservation | undefined> {
+  const prefix = observationKey(category, keyword);
+  const keys = [`${prefix}:success`, `${prefix}:graphql:success`, `${prefix}:graphql:success:${placeId}`];
+  const saved = await Promise.all(keys.map(key => env.CACHE?.get<StoredObservation>(key, 'json')));
+  return saved.filter((row): row is StoredObservation => !!row?.listing?.items?.length)
+    .sort((a, b) => Date.parse(b.savedAt) - Date.parse(a.savedAt))[0];
+}
+
+function unavailableRank(err: unknown): CollectionError {
+  const cause = err instanceof CollectionError ? err : collectionFailure('UPSTREAM_HTTP', 'rank-list');
+  return new CollectionError(cause.code, 'rank-unavailable', cause.upstreamStatus, cause.failureSource,
+    cause.retryAfterUtc, cause.cooldownUntilUtc, cause.keywordCooldownUntilUtc,
+    cause.retryAfterSeconds, cause.keywordCooldownIndefinite);
 }
 
 // places 테이블 upsert. search_histories.place_id가 FK로 이 테이블을 참조하므로,
@@ -325,12 +429,16 @@ app.get('/api/place', async (c) => {
   } catch (err: any) {
     console.error('진단 처리 중 오류:', err);
     c.executionCtx.waitUntil(notify(c.env, `⚠️ [진단 실패] query="${query}"\n${err.message || err}`));
-    if (err instanceof CollectionError) return c.json({ error: err.message, code: err.code, stage: err.stage }, 503);
+    if (err instanceof CollectionError) return c.json({ error: err.message, code: err.code, stage: err.stage,
+      failureSource: err.failureSource, upstreamStatus: err.upstreamStatus ?? null,
+      retryAfterUtc: err.retryAfterUtc ?? null, cooldownUntilUtc: err.cooldownUntilUtc ?? null,
+      keywordCooldownUntilUtc: err.keywordCooldownUntilUtc ?? null, keywordCooldownIndefinite: err.keywordCooldownIndefinite ?? false,
+      retryAfterSeconds: err.retryAfterSeconds ?? null }, 503);
     return c.json({ error: err.message || '매장 정보를 찾을 수 없습니다.' }, 500);
   }
 });
 
-// [2·3단계] 키워드 기반 Gap 분석 — 지도 목록 최대 350곳에서 위치 확인, 상위 경쟁사 지표 비교.
+// [2·3단계] 키워드 기반 Gap 분석 — 지도 첫 목록 최대 50곳에서 위치 확인, 상위 경쟁사 지표 비교.
 // competitorId가 있으면(키워드 대신/추가로) 순위 자동수집을 건너뛰고 그 업체 1곳과 바로 비교한다
 // (경쟁사 직접 지목, §2 3단계 확정). 만능 리졸버(scrapeFullPlaceMetrics)를 그대로 재사용하므로
 // 상호명/전화번호/naver.me 링크 뭘 넣어도 동작한다.
@@ -377,56 +485,49 @@ app.get('/api/gap', async (c) => {
       // Map list observation is separate from the legacy search widget.
       const category = /미용실|헤어|살롱/.test(keyword! + myStore.category) ? 'hairshop'
         : /맛집|밥집|식당|고기|횟집|카페|음식|한식|중식|일식|양식|백숙|삼계탕/.test(keyword! + myStore.category) ? 'restaurant' : 'place';
-      const listKey = `${CACHE_VERSION}:map-list:v2:${category}:${keyword}`;
-      const observationPrefix = observationKey(category, keyword!);
-      const [recentSuccess, cooldown] = await Promise.all([
-        c.env.CACHE?.get<StoredObservation>(`${observationPrefix}:success`, 'json'),
-        c.env.CACHE?.get<ObservationCooldown>(`${observationPrefix}:cooldown`, 'json'),
-      ]);
-      let listing = await c.env.CACHE?.get<SearchListing>(listKey, 'json');
+      const useGraphql = await graphqlHealthy(c.env);
+      const recentSuccess = await recentGapListing(c.env, keyword!, category, placeId);
+      let listing: SearchListing;
       try {
-        if (!listing && cooldown && new Date(cooldown.retryAfter).getTime() > Date.now()) {
-          throw new CollectionError('RATE_LIMITED', 'list');
+        listing = await loadGapListing(c.env, keyword!, category, placeId, useGraphql);
+        if (useGraphql && listing.stopReason === 'collection_failed') {
+          await suspendGraphql(c.env, new CollectionError(
+            listing.errorCode === 'RATE_LIMITED' || listing.errorCode === 'BLOCKED' ? listing.errorCode : 'UPSTREAM_HTTP',
+            listing.errorStage || 'rank-list', listing.errorUpstreamStatus, listing.errorFailureSource,
+            listing.errorRetryAfterUtc, listing.errorCooldownUntilUtc, listing.errorKeywordCooldownUntilUtc,
+            listing.errorRetryAfterSeconds,
+          ));
         }
-        if (!listing) {
-          listing = await collectSearchListing(keyword!, category);
-          if (listing.stopReason !== 'collection_failed') {
-            await Promise.all([
-              c.env.CACHE?.put(listKey, JSON.stringify(listing), { expirationTtl: KEYWORD_TTL }),
-              c.env.CACHE?.put(`${observationPrefix}:success`, JSON.stringify({ listing, savedAt: new Date().toISOString() }), { expirationTtl: OBSERVATION_SUCCESS_TTL }),
-            ]);
-          } else if (listing.errorCode === 'RATE_LIMITED' || listing.errorCode === 'BLOCKED') {
-            const retryAfter = new Date(Date.now() + OBSERVATION_COOLDOWN_TTL * 1000).toISOString();
-            await c.env.CACHE?.put(`${observationPrefix}:cooldown`, JSON.stringify({ retryAfter, code: listing.errorCode }), { expirationTtl: OBSERVATION_COOLDOWN_TTL });
-            if (recentSuccess?.listing) listing = { ...recentSuccess.listing, stale: true, retryAfter, errorCode: listing.errorCode };
-          }
-        }
-        ranking = listing.items.map(item => item.placeId);
-        rankObservation = { ...listing, category };
       } catch (err) {
-        if (err instanceof CollectionError && (err.code === 'RATE_LIMITED' || err.code === 'BLOCKED')) {
-          const retryAfter = cooldown?.retryAfter || new Date(Date.now() + OBSERVATION_COOLDOWN_TTL * 1000).toISOString();
-          if (!cooldown) {
-            await c.env.CACHE?.put(`${observationPrefix}:cooldown`, JSON.stringify({ retryAfter, code: err.code }), { expirationTtl: OBSERVATION_COOLDOWN_TTL });
-          }
-          if (recentSuccess?.listing) {
-            listing = { ...recentSuccess.listing, stale: true, retryAfter, errorCode: err.code };
-            ranking = listing.items.map(item => item.placeId);
-            rankObservation = { ...listing, category };
-          } else {
-            throw err;
-          }
+        if (useGraphql) {
+          await suspendGraphql(c.env, err instanceof CollectionError ? err : collectionFailure('UPSTREAM_HTTP', 'rank-list'));
+          // A 429/403 is a stop signal. Later customer requests use HTML after the breaker opens.
+          if (!(err instanceof CollectionError && (err.code === 'RATE_LIMITED' || err.code === 'BLOCKED'))) {
+            try { listing = await loadGapListing(c.env, keyword!, category, placeId, false); }
+            catch (htmlErr) {
+              if (!recentSuccess) throw unavailableRank(htmlErr);
+              listing = { ...recentSuccess.listing, stale: true, errorCode: htmlErr instanceof CollectionError ? htmlErr.code : 'UNKNOWN' };
+            }
+          } else if (recentSuccess) {
+            listing = { ...recentSuccess.listing, stale: true, errorCode: err.code, errorStage: err.stage,
+              errorFailureSource: err.failureSource, errorUpstreamStatus: err.upstreamStatus,
+              errorKeywordCooldownUntilUtc: err.keywordCooldownUntilUtc, errorKeywordCooldownIndefinite: err.keywordCooldownIndefinite };
+          } else throw new CollectionError(err.code, 'rank-graphql-limited', err.upstreamStatus, err.failureSource,
+            err.retryAfterUtc, err.cooldownUntilUtc, err.keywordCooldownUntilUtc,
+            err.retryAfterSeconds, err.keywordCooldownIndefinite);
+        } else if (recentSuccess) {
+          listing = { ...recentSuccess.listing, stale: true, errorCode: err instanceof CollectionError ? err.code : 'UNKNOWN',
+            errorStage: err instanceof CollectionError ? err.stage : undefined,
+            errorFailureSource: err instanceof CollectionError ? err.failureSource : undefined,
+            errorUpstreamStatus: err instanceof CollectionError ? err.upstreamStatus : undefined,
+            errorKeywordCooldownUntilUtc: err instanceof CollectionError ? err.keywordCooldownUntilUtc : undefined,
+            errorKeywordCooldownIndefinite: err instanceof CollectionError ? err.keywordCooldownIndefinite : undefined };
         } else {
-        // Keep existing diagnoses available when the separate map endpoint is blocked.
-        const widget = await cached(c.env, `widget:v1:${keyword}`, KEYWORD_TTL, async () => ({
-          ids: await getOrganicRanking(keyword!, 14), collectedAt: new Date().toISOString(),
-        }));
-        ranking = widget.ids;
-        rankObservation = { source: 'naver-search-widget', collectedAt: widget.collectedAt,
-          complete: false, stopReason: 'collection_failed', limit: 350, pages: 0,
-          errorCode: err instanceof CollectionError ? err.code : 'UNKNOWN', items: [] };
+          throw unavailableRank(err);
         }
       }
+      ranking = listing.items.map(item => item.placeId);
+      rankObservation = { ...listing, category };
       if (!ranking || ranking.length === 0) {
         return c.json({ error: `"${keyword}" 키워드의 검색 결과를 찾을 수 없습니다.` }, 404);
       }
@@ -440,9 +541,13 @@ app.get('/api/gap', async (c) => {
       if (top10Ids.length === 0) {
         return c.json({ error: '비교할 경쟁사가 없습니다.' }, 404);
       }
-      competitors = await Promise.all(
-        top10Ids.map(id => cachedPlace(c.env, id))
-      );
+      // 한꺼번에 상세 요청을 예약하면 cron 수집과 겹칠 때 네이버 측 제한을 더 쉽게
+      // 건드릴 수 있다. 순차 처리하면 실패 시 뒤 요청을 더 만들지 않고, 공통 수집기의
+      // 요청 간격·cooldown도 그대로 적용된다.
+      competitors = [];
+      for (const id of top10Ids) {
+        competitors.push(await cachedPlace(c.env, id));
+      }
 
       // 저장수는 개별 상세보다 기본 지도 목록 행에서 더 안정적으로 공개된다. 다른 정렬축을
       // 조회하지 않고 현재 순위 목록의 동일 업체 값만 붙여 순위 체계를 섞지 않는다.
@@ -629,7 +734,7 @@ app.get('/api/gap', async (c) => {
         const nameVolumes = await getKeywordVolumes(c.env, names, { cache: false, context: 'gap-store-name', relatedTo: displayLabel });
         // Map observation (including the full ordered list) is saved in search_histories.raw_data.
         // Do not blend this different source into legacy widget-only rank snapshots.
-        if (rankObservation?.source !== 'naver-map') await logRankSnapshots(c.env.DB, displayLabel, ranking, myStore, myRank, competitors, 'user', nameVolumes);
+        if (rankObservation?.source !== 'naver-map' && rankObservation?.source !== 'naver-map-html') await logRankSnapshots(c.env.DB, displayLabel, ranking, myStore, myRank, competitors, 'user', nameVolumes);
       })());
 
       // IndexNow 실시간 자동 통보 (백그라운드)
@@ -660,7 +765,26 @@ app.get('/api/gap', async (c) => {
   } catch (err: any) {
     console.error('Gap 분석 중 오류:', err);
     c.executionCtx.waitUntil(notify(c.env, `⚠️ [Gap 분석 실패] placeId="${placeId}" keyword="${keyword || competitorQuery}"\n${err.message || err}\n(네이버 구조 변경 또는 차단 가능성 — §7 확인 요망)`));
-    if (err instanceof CollectionError) return c.json({ error: err.message, code: err.code, stage: err.stage }, 503);
+    if (keyword && err instanceof CollectionError && c.env.DB) {
+      try {
+        const old = await c.env.DB.prepare(`SELECT raw_data FROM search_histories
+          WHERE place_id = ? AND target_keyword = ? AND created_at >= datetime('now', '-7 days')
+          ORDER BY created_at DESC LIMIT 1`).bind(placeId, keyword).first<{ raw_data: string }>();
+        const saved = old?.raw_data && JSON.parse(old.raw_data);
+        if (saved?.success && saved.rankObservation?.collectedAt) {
+          return c.json({ ...saved, rankObservation: { ...saved.rankObservation, stale: true,
+            errorCode: err.code, errorStage: err.stage } });
+        }
+      } catch (historyErr) { console.error('직전 정상 진단 조회 실패:', historyErr); }
+    }
+    if (err instanceof CollectionError) return c.json({ error: err.stage === 'rank-unavailable'
+      ? '네이버 응답 불가로 현재 순위 수집이 되지 않고 있습니다. 내일 다시 시도해 주세요.'
+      : err.stage === 'rank-graphql-limited' ? '추가 순위 확인이 제한되었습니다. 다시 검색하면 기본 50곳을 확인합니다.' : err.message,
+      code: err.code, stage: err.stage,
+      failureSource: err.failureSource, upstreamStatus: err.upstreamStatus ?? null,
+      retryAfterUtc: err.retryAfterUtc ?? null, cooldownUntilUtc: err.cooldownUntilUtc ?? null,
+      keywordCooldownUntilUtc: err.keywordCooldownUntilUtc ?? null, keywordCooldownIndefinite: err.keywordCooldownIndefinite ?? false,
+      retryAfterSeconds: err.retryAfterSeconds ?? null }, 503);
     return c.json({ error: err.message || 'Gap 분석에 실패했습니다.' }, 500);
   }
 });
@@ -2723,6 +2847,7 @@ type PeriodicKeyword = {
 const NEW_CRON = '*/10 * * * *';
 const DETAIL_CRONS = new Set(['7,37 * * * *']);
 const REFRESH_CRONS = new Set(['3,33 * * * *']);
+const GRAPHQL_PROBE_CRON = '13 * * * *';
 const PERIODIC_FAILURE_COOLDOWN_HOURS = 24;
 
 function sqlDateAfter(hours: number) {
@@ -3174,5 +3299,6 @@ export default {
     if (event.cron === NEW_CRON) ctx.waitUntil(runOnePeriodicKeyword(env, 'NEW', ctx));
     else if (DETAIL_CRONS.has(event.cron)) ctx.waitUntil(runOnePeriodicDetail(env));
     else if (REFRESH_CRONS.has(event.cron)) ctx.waitUntil(runOnePeriodicKeyword(env, 'REFRESH'));
+    else if (event.cron === GRAPHQL_PROBE_CRON) ctx.waitUntil(probeGraphql(env));
   },
 };
