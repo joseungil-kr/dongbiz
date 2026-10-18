@@ -82,6 +82,12 @@ test('failed later page preserves only confirmed prefix, overlapping page cannot
     const listing = await s.collectSearchListing('지역 맛집');
     assert.equal(calls, 2); assert.equal(listing.items.length, 50); assert.equal(listing.stopReason, 'collection_failed');
     assert.equal(listing.complete, false);
+    if (mode === 'blocked') {
+      assert.equal(listing.errorCode, 'RATE_LIMITED');
+      assert.equal(listing.errorStage, 'rank-list');
+      assert.equal(listing.errorFailureSource, 'upstream_http');
+      assert.equal(listing.errorUpstreamStatus, 429);
+    }
   }
 });
 test('terminal empty page preserves 300 confirmed rows and advertised total', async () => {

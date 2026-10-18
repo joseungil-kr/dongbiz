@@ -1,4 +1,4 @@
-import { naverHtml, collectionFailure, CollectionError } from './collection';
+import { naverHtml, collectionFailure, CollectionError, CollectionFailureSource } from './collection';
 
 export interface PlaceCandidate {
   placeId: string;
@@ -18,6 +18,14 @@ export interface SearchListing {
   complete: boolean;
   stopReason: 'end' | 'limit' | 'target_found' | 'collection_failed';
   errorCode?: string;
+  errorStage?: string;
+  errorFailureSource?: CollectionFailureSource;
+  errorUpstreamStatus?: number;
+  errorRetryAfterUtc?: string;
+  errorRetryAfterSeconds?: string;
+  errorCooldownUntilUtc?: string;
+  errorKeywordCooldownUntilUtc?: string;
+  errorKeywordCooldownIndefinite?: boolean;
   sort: string | null;
 }
 const HEADERS = {
@@ -179,6 +187,15 @@ export async function collectSearchListing(keyword: string, category = 'place', 
       if (!out.items.length) throw err;
       out.stopReason = 'collection_failed';
       out.errorCode = err instanceof CollectionError ? err.code : 'UNKNOWN';
+      if (err instanceof CollectionError) {
+        out.errorStage = err.stage;
+        out.errorFailureSource = err.failureSource;
+        out.errorUpstreamStatus = err.upstreamStatus;
+        out.errorRetryAfterUtc = err.retryAfterUtc;
+        out.errorRetryAfterSeconds = err.retryAfterSeconds;
+        out.errorCooldownUntilUtc = err.cooldownUntilUtc;
+        out.errorKeywordCooldownUntilUtc = err.keywordCooldownUntilUtc;
+      }
       break;
     }
   }

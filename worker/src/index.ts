@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { cachedPlace } from './place-cache';
-import { CollectionError } from './collection';
+import { CollectionError, collectionFailure } from './collection';
 import { isStoreName, searchPlaceCandidates, collectSearchListing, SearchListing } from './place-search';
 import { basicAuth } from 'hono/basic-auth';
 import { scrapeFullPlaceMetrics, getOrganicRanking, getPlaceList, SortMode, PlaceListItem } from './scraper';
@@ -111,7 +111,16 @@ const KEYWORD_TTL = 60 * 60 * 6; // 6h
 const OBSERVATION_SUCCESS_TTL = 60 * 60 * 24 * 7;
 const OBSERVATION_COOLDOWN_TTL = 60 * 60 * 24;
 type StoredObservation = { listing: SearchListing; savedAt: string };
-type ObservationCooldown = { retryAfter: string; code: string };
+type ObservationCooldown = { retryAfter: string; code: string; upstreamRetryAfter?: string; upstreamRetryAfterSeconds?: string; upstreamStatus?: number; failureSource?: string; indefinite?: boolean };
+
+function observationCooldownExpiry(retryAfterUtc?: string, retryAfterSeconds?: string) {
+  if (retryAfterSeconds && !retryAfterUtc) return { retryAfter: 'indefinite', expirationTtl: undefined, indefinite: true };
+  const now = Date.now();
+  const policyUntil = now + OBSERVATION_COOLDOWN_TTL * 1000;
+  const providerUntil = retryAfterUtc ? Date.parse(retryAfterUtc) : NaN;
+  const until = Number.isFinite(providerUntil) ? Math.max(policyUntil, providerUntil) : policyUntil;
+  return { retryAfter: new Date(until).toISOString(), expirationTtl: Math.max(OBSERVATION_COOLDOWN_TTL, Math.ceil((until - now) / 1000)), indefinite: false };
+}
 
 function observationKey(category: string, keyword: string) {
   return `${CACHE_VERSION}:map-observation:v1:${category}:${encodeURIComponent(keyword.toLowerCase())}`;
@@ -325,7 +334,11 @@ app.get('/api/place', async (c) => {
   } catch (err: any) {
     console.error('진단 처리 중 오류:', err);
     c.executionCtx.waitUntil(notify(c.env, `⚠️ [진단 실패] query="${query}"\n${err.message || err}`));
-    if (err instanceof CollectionError) return c.json({ error: err.message, code: err.code, stage: err.stage }, 503);
+    if (err instanceof CollectionError) return c.json({ error: err.message, code: err.code, stage: err.stage,
+      failureSource: err.failureSource, upstreamStatus: err.upstreamStatus ?? null,
+      retryAfterUtc: err.retryAfterUtc ?? null, cooldownUntilUtc: err.cooldownUntilUtc ?? null,
+      keywordCooldownUntilUtc: err.keywordCooldownUntilUtc ?? null, keywordCooldownIndefinite: err.keywordCooldownIndefinite ?? false,
+      retryAfterSeconds: err.retryAfterSeconds ?? null }, 503);
     return c.json({ error: err.message || '매장 정보를 찾을 수 없습니다.' }, 500);
   }
 });
@@ -383,10 +396,16 @@ app.get('/api/gap', async (c) => {
         c.env.CACHE?.get<StoredObservation>(`${observationPrefix}:success`, 'json'),
         c.env.CACHE?.get<ObservationCooldown>(`${observationPrefix}:cooldown`, 'json'),
       ]);
+      const activeCooldown = cooldown && (cooldown.indefinite === true || new Date(cooldown.retryAfter).getTime() > Date.now()) ? cooldown : null;
       let listing = await c.env.CACHE?.get<SearchListing>(listKey, 'json');
       try {
-        if (!listing && cooldown && new Date(cooldown.retryAfter).getTime() > Date.now()) {
-          throw new CollectionError('RATE_LIMITED', 'list');
+        if (!listing && activeCooldown) {
+          throw collectionFailure('RATE_LIMITED', 'list', undefined, {
+            failureSource: 'keyword_cooldown',
+            keywordCooldownUntilUtc: activeCooldown.indefinite ? undefined : activeCooldown.retryAfter,
+            keywordCooldownIndefinite: activeCooldown.indefinite,
+            retryAfterSeconds: activeCooldown.upstreamRetryAfterSeconds,
+          });
         }
         if (!listing) {
           listing = await collectSearchListing(keyword!, category, 350, placeId);
@@ -396,21 +415,43 @@ app.get('/api/gap', async (c) => {
               c.env.CACHE?.put(`${observationPrefix}:success`, JSON.stringify({ listing, savedAt: new Date().toISOString() }), { expirationTtl: OBSERVATION_SUCCESS_TTL }),
             ]);
           } else if (listing.errorCode === 'RATE_LIMITED' || listing.errorCode === 'BLOCKED') {
-            const retryAfter = new Date(Date.now() + OBSERVATION_COOLDOWN_TTL * 1000).toISOString();
-            await c.env.CACHE?.put(`${observationPrefix}:cooldown`, JSON.stringify({ retryAfter, code: listing.errorCode }), { expirationTtl: OBSERVATION_COOLDOWN_TTL });
-            if (recentSuccess?.listing) listing = { ...recentSuccess.listing, stale: true, retryAfter, errorCode: listing.errorCode };
+            const expiry = observationCooldownExpiry(listing.errorRetryAfterUtc, listing.errorRetryAfterSeconds);
+            const { retryAfter, expirationTtl, indefinite } = expiry;
+            await c.env.CACHE?.put(`${observationPrefix}:cooldown`, JSON.stringify({ retryAfter, code: listing.errorCode,
+              upstreamRetryAfter: listing.errorRetryAfterUtc, upstreamStatus: listing.errorUpstreamStatus,
+              upstreamRetryAfterSeconds: listing.errorRetryAfterSeconds, failureSource: listing.errorFailureSource,
+              indefinite }), indefinite ? undefined : { expirationTtl: expirationTtl! });
+            listing = { ...listing, errorKeywordCooldownUntilUtc: indefinite ? undefined : retryAfter,
+              errorKeywordCooldownIndefinite: indefinite };
+            if (recentSuccess?.listing) listing = { ...recentSuccess.listing, stale: true, retryAfter: indefinite ? undefined : retryAfter,
+              errorCode: listing.errorCode, errorStage: listing.errorStage, errorFailureSource: listing.errorFailureSource,
+              errorUpstreamStatus: listing.errorUpstreamStatus, errorRetryAfterUtc: listing.errorRetryAfterUtc,
+              errorRetryAfterSeconds: listing.errorRetryAfterSeconds, errorCooldownUntilUtc: listing.errorCooldownUntilUtc,
+              errorKeywordCooldownUntilUtc: indefinite ? undefined : retryAfter, errorKeywordCooldownIndefinite: indefinite };
           }
         }
         ranking = listing.items.map(item => item.placeId);
         rankObservation = { ...listing, category };
       } catch (err) {
         if (err instanceof CollectionError && (err.code === 'RATE_LIMITED' || err.code === 'BLOCKED')) {
-          const retryAfter = cooldown?.retryAfter || new Date(Date.now() + OBSERVATION_COOLDOWN_TTL * 1000).toISOString();
-          if (!cooldown) {
-            await c.env.CACHE?.put(`${observationPrefix}:cooldown`, JSON.stringify({ retryAfter, code: err.code }), { expirationTtl: OBSERVATION_COOLDOWN_TTL });
+          const expiry = activeCooldown
+            ? { retryAfter: activeCooldown.retryAfter, expirationTtl: OBSERVATION_COOLDOWN_TTL, indefinite: activeCooldown.indefinite === true }
+            : observationCooldownExpiry(err.retryAfterUtc, err.retryAfterSeconds);
+          const { retryAfter, expirationTtl, indefinite } = expiry;
+          if (!activeCooldown) {
+            await c.env.CACHE?.put(`${observationPrefix}:cooldown`, JSON.stringify({ retryAfter, code: err.code,
+              upstreamRetryAfter: err.retryAfterUtc, upstreamStatus: err.upstreamStatus,
+              upstreamRetryAfterSeconds: err.retryAfterSeconds, failureSource: err.failureSource, indefinite }),
+              indefinite ? undefined : { expirationTtl: expirationTtl! });
           }
+          err.keywordCooldownUntilUtc = indefinite ? undefined : retryAfter;
+          err.keywordCooldownIndefinite = indefinite;
           if (recentSuccess?.listing) {
-            listing = { ...recentSuccess.listing, stale: true, retryAfter, errorCode: err.code };
+            listing = { ...recentSuccess.listing, stale: true, retryAfter: indefinite ? undefined : retryAfter, errorCode: err.code,
+              errorStage: err.stage, errorFailureSource: err.failureSource, errorUpstreamStatus: err.upstreamStatus,
+              errorRetryAfterUtc: err.retryAfterUtc, errorRetryAfterSeconds: err.retryAfterSeconds,
+              errorCooldownUntilUtc: err.cooldownUntilUtc, errorKeywordCooldownUntilUtc: err.keywordCooldownUntilUtc,
+              errorKeywordCooldownIndefinite: err.keywordCooldownIndefinite };
             ranking = listing.items.map(item => item.placeId);
             rankObservation = { ...listing, category };
           } else {
@@ -664,7 +705,11 @@ app.get('/api/gap', async (c) => {
   } catch (err: any) {
     console.error('Gap 분석 중 오류:', err);
     c.executionCtx.waitUntil(notify(c.env, `⚠️ [Gap 분석 실패] placeId="${placeId}" keyword="${keyword || competitorQuery}"\n${err.message || err}\n(네이버 구조 변경 또는 차단 가능성 — §7 확인 요망)`));
-    if (err instanceof CollectionError) return c.json({ error: err.message, code: err.code, stage: err.stage }, 503);
+    if (err instanceof CollectionError) return c.json({ error: err.message, code: err.code, stage: err.stage,
+      failureSource: err.failureSource, upstreamStatus: err.upstreamStatus ?? null,
+      retryAfterUtc: err.retryAfterUtc ?? null, cooldownUntilUtc: err.cooldownUntilUtc ?? null,
+      keywordCooldownUntilUtc: err.keywordCooldownUntilUtc ?? null, keywordCooldownIndefinite: err.keywordCooldownIndefinite ?? false,
+      retryAfterSeconds: err.retryAfterSeconds ?? null }, 503);
     return c.json({ error: err.message || 'Gap 분석에 실패했습니다.' }, 500);
   }
 });

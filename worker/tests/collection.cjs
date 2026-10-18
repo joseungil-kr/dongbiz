@@ -26,9 +26,10 @@ function load(entry, fetch, timeout = false) {
 }
 function kv() {
   const values = new Map();
+  const options = new Map();
   return { values, async get(key, type) {
     const value = values.get(key); return value == null ? null : type === 'json' ? JSON.parse(value) : value;
-  }, async put(key, value) { values.set(key, value); } };
+  }, async put(key, value, opts) { values.set(key, value); options.set(key, opts); }, options };
 }
 const tests = [];
 function test(name, fn) { tests.push([name, fn]); }
@@ -36,8 +37,89 @@ function test(name, fn) { tests.push([name, fn]); }
 test('429 classified, no immediate retry, host cooldown', async () => {
   let calls = 0;
   const c = load('src/collection.ts', async () => { calls++; return new Response('blocked', { status: 429 }); });
-  await assert.rejects(c.naverHtml('https://m.place.naver.com/a', 'detail'), e => e.code === 'RATE_LIMITED' && e.upstreamStatus === 429);
-  await assert.rejects(c.naverHtml('https://m.place.naver.com/b', 'feed'), e => e.code === 'RATE_LIMITED');
+  await assert.rejects(c.naverHtml('https://m.place.naver.com/a', 'detail'), e => e.code === 'RATE_LIMITED' && e.upstreamStatus === 429 && e.failureSource === 'upstream_http' && !!e.cooldownUntilUtc);
+  await assert.rejects(c.naverHtml('https://m.place.naver.com/b', 'feed'), e => e.code === 'RATE_LIMITED' && e.failureSource === 'host_cooldown' && e.upstreamStatus === undefined);
+  assert.equal(calls, 1);
+});
+test('HTTP-date Retry-After is normalized and not truncated to the old 15-minute cap', async () => {
+  const retryHeader = new Date(Date.now() + 1_200_000).toUTCString();
+  const c = load('src/collection.ts', async () => new Response('', { status: 429, headers: { 'Retry-After': retryHeader } }));
+  await assert.rejects(c.naverHtml('https://pcmap-api.place.naver.com/a', 'rank-list'), e => {
+    assert.equal(e.failureSource, 'upstream_http');
+    assert.equal(e.upstreamStatus, 429);
+    assert.equal(e.retryAfterUtc, new Date(retryHeader).toISOString());
+    assert.ok(new Date(e.cooldownUntilUtc).getTime() >= new Date(e.retryAfterUtc).getTime());
+    return true;
+  });
+});
+test('oversized numeric Retry-After keeps a safe host cooldown on repeated requests', async () => {
+  const retryAfterSeconds = '9'.repeat(30);
+  let calls = 0;
+  const c = load('src/collection.ts', async () => {
+    calls++;
+    return new Response('', { status: 429, headers: { 'Retry-After': retryAfterSeconds } });
+  });
+  await assert.rejects(c.naverHtml('https://pcmap-api.place.naver.com/a', 'rank-list'), e => {
+    assert.equal(e.code, 'RATE_LIMITED');
+    assert.equal(e.failureSource, 'upstream_http');
+    assert.equal(e.upstreamStatus, 429);
+    assert.equal(e.retryAfterSeconds, retryAfterSeconds);
+    return true;
+  });
+  await assert.rejects(c.naverHtml('https://pcmap-api.place.naver.com/b', 'rank-list'), e => {
+    assert.equal(e.code, 'RATE_LIMITED');
+    assert.equal(e.failureSource, 'host_cooldown');
+    assert.equal(e.upstreamStatus, undefined);
+    assert.equal(e.retryAfterSeconds, retryAfterSeconds);
+    assert.equal(e.cooldownUntilUtc, undefined);
+    return true;
+  });
+  assert.equal(calls, 1);
+});
+test('keyword cooldown and KV expiry cover upstream Retry-After beyond 24 hours', async () => {
+  const retryHeader = new Date(Date.now() + 36 * 60 * 60 * 1000).toUTCString();
+  const cache = kv();
+  await cache.put(`place:v10:${id}:feed`, JSON.stringify({ placeId: id, name: 'Test', seoMetrics: { visitorReviewsTotal: 12 } }));
+  const app = load('src/index.ts', async () => new Response('', { status: 429, headers: { 'Retry-After': retryHeader } })).default;
+  const response = await app.fetch(new Request(`https://local.test/api/gap?placeId=${id}&keyword=long-retry-after`),
+    { CACHE: cache }, { waitUntil() {} });
+  const failure = await response.json();
+  assert.equal(response.status, 503);
+  assert.equal(failure.failureSource, 'upstream_http');
+  assert.equal(failure.upstreamStatus, 429);
+  assert.ok(Date.parse(failure.keywordCooldownUntilUtc) >= Date.parse(retryHeader));
+  const key = [...cache.values.keys()].find(value => value.endsWith(':cooldown'));
+  assert.ok(key);
+  assert.ok(cache.options.get(key).expirationTtl >= Math.ceil((Date.parse(retryHeader) - Date.now()) / 1000));
+});
+test('oversized numeric Retry-After persists an indefinite keyword cooldown without KV expiry', async () => {
+  const retryAfterSeconds = '9'.repeat(30);
+  const cache = kv();
+  await cache.put(`place:v10:${id}:feed`, JSON.stringify({ placeId: id, name: 'Test', seoMetrics: { visitorReviewsTotal: 12 } }));
+  let calls = 0;
+  const app = load('src/index.ts', async () => {
+    calls++;
+    return new Response('', { status: 429, headers: { 'Retry-After': retryAfterSeconds } });
+  }).default;
+  const request = () => app.fetch(new Request(`https://local.test/api/gap?placeId=${id}&keyword=overflow-retry-after`),
+    { CACHE: cache }, { waitUntil() {} });
+  const first = await request();
+  const firstFailure = await first.json();
+  assert.equal(first.status, 503);
+  assert.equal(firstFailure.failureSource, 'upstream_http');
+  assert.equal(firstFailure.upstreamStatus, 429);
+  assert.equal(firstFailure.retryAfterSeconds, retryAfterSeconds);
+  assert.equal(firstFailure.keywordCooldownIndefinite, true);
+  const key = [...cache.values.keys()].find(value => value.endsWith(':cooldown'));
+  assert.ok(key);
+  assert.equal(JSON.parse(cache.values.get(key)).indefinite, true);
+  assert.equal(cache.options.get(key), undefined);
+
+  const second = await request();
+  const secondFailure = await second.json();
+  assert.equal(second.status, 503);
+  assert.equal(secondFailure.failureSource, 'keyword_cooldown');
+  assert.equal(secondFailure.keywordCooldownIndefinite, true);
   assert.equal(calls, 1);
 });
 test('403, 500, network and timeout have distinct codes', async () => {
@@ -102,7 +184,9 @@ test('public debug probes are blocked before fetch; place returns structured 503
   }
   assert.equal(calls, 0);
   const res = await app.fetch(new Request('https://local.test/api/place?query=' + id), { CACHE: kv() }, ctx);
-  assert.equal(res.status, 503); assert.equal((await res.json()).code, 'RATE_LIMITED');
+  const failure = await res.json();
+  assert.equal(res.status, 503); assert.equal(failure.code, 'RATE_LIMITED');
+  assert.equal(failure.failureSource, 'upstream_http'); assert.equal(failure.upstreamStatus, 429);
 });
 test('legacy cached empty ranking is ignored and failures are not re-cached', async () => {
   const cache = kv();
@@ -112,7 +196,11 @@ test('legacy cached empty ranking is ignored and failures are not re-cached', as
   const app = load('src/index.ts', async () => { calls++; return new Response('blocked', { status: 429 }); }).default;
   const res = await app.fetch(new Request(`https://local.test/api/gap?placeId=${id}&keyword=test`), { CACHE: cache }, { waitUntil() {} });
   assert.equal(res.status, 503); assert.equal(calls, 1); // rate limit must not trigger a legacy widget retry
-  assert.equal((await res.json()).code, 'RATE_LIMITED');
+  const failure = await res.json();
+  assert.equal(failure.code, 'RATE_LIMITED');
+  assert.equal(failure.failureSource, 'upstream_http'); assert.equal(failure.upstreamStatus, 429);
+  assert.ok(failure.keywordCooldownUntilUtc);
+  assert.ok([...cache.values.keys()].some(key => key.endsWith(':cooldown')));
 });
 
 test('short links share classified transport and resolve to canonical ID', async () => {
