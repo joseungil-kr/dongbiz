@@ -26,6 +26,8 @@ export interface SearchListing {
   errorCooldownUntilUtc?: string;
   errorKeywordCooldownUntilUtc?: string;
   errorKeywordCooldownIndefinite?: boolean;
+  stale?: boolean;
+  retryAfter?: string;
   sort: string | null;
 }
 const HEADERS = {
@@ -107,7 +109,7 @@ export async function searchPlaceCandidates(query: string): Promise<PlaceCandida
   }
   // 통합검색은 업체명에 따라 목록 블록이 없거나 여러 개가 섞인다. 순위 수집에 쓰는
   // 지도 목록의 첫 페이지를 후보 선택에도 재사용해 실제 업체명을 놓치지 않는다.
-  return (await fetchOrderedPage(query.trim(), 1)).items;
+  return (await fetchHtmlFirstPage(query.trim(), 'place')).items;
 }
 
 // Observed in Naver's restaurantPcmapList bundle. The HTML route always resets
@@ -182,7 +184,7 @@ export async function collectSearchListing(keyword: string, category = 'place', 
       // Gap 진단은 상위 6곳과 내 매장의 현재 위치만 필요하다. 내 매장을 찾은 뒤에도
       // 최대 350곳까지 계속 요청하면 네이버 호출량만 늘어난다. 현재 페이지까지의 순서는
       // 이미 확보했으므로 여기서 중단해도 내 순위와 상위 6곳 비교에는 영향이 없다.
-      if (targetPlaceId && ids.has(targetPlaceId)) {
+      if (limit > 50 && targetPlaceId && ids.has(targetPlaceId)) {
         out.complete = false;
         out.stopReason = 'target_found';
         break;

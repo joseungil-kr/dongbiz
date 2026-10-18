@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { cachedPlace } from './place-cache';
 import { CollectionError, collectionFailure } from './collection';
-import { isStoreName, searchPlaceCandidates, collectSearchListing, SearchListing } from './place-search';
+import { isStoreName, searchPlaceCandidates, collectSearchListing, fetchOrderedPage, SearchListing } from './place-search';
 import { basicAuth } from 'hono/basic-auth';
 import { scrapeFullPlaceMetrics, getOrganicRanking, getPlaceList, SortMode, PlaceListItem } from './scraper';
 import { notify, logDiagnosisToSheet, sendCustomerEmail, NotifyEnv } from './notify';
@@ -124,6 +124,101 @@ function observationCooldownExpiry(retryAfterUtc?: string, retryAfterSeconds?: s
 
 function observationKey(category: string, keyword: string) {
   return `${CACHE_VERSION}:map-observation:v2:${category}:${encodeURIComponent(keyword.toLowerCase())}`;
+}
+
+type GraphqlHealth = { nextProbeAt: string; successes: number; healthyUntil?: string };
+const GRAPHQL_HEALTH_KEY = 'map-graphql-health:v1';
+const GRAPHQL_PROBE_KEYWORD = '강남맛집';
+const hoursFromNow = (hours: number) => new Date(Date.now() + hours * 3600000).toISOString();
+
+async function graphqlHealthy(env: Env): Promise<boolean> {
+  const state = await env.CACHE?.get<GraphqlHealth>(GRAPHQL_HEALTH_KEY, 'json');
+  return !!state?.healthyUntil && Date.parse(state.healthyUntil) > Date.now();
+}
+
+async function suspendGraphql(env: Env, err: CollectionError) {
+  const expiry = observationCooldownExpiry(err.retryAfterUtc, err.retryAfterSeconds);
+  await env.CACHE?.put(GRAPHQL_HEALTH_KEY, JSON.stringify({ nextProbeAt: expiry.retryAfter, successes: 0 }),
+    expiry.indefinite ? undefined : { expirationTtl: 30 * 86400 });
+  await notify(env, `⚠️ [GraphQL 순위 수집 중단] ${err.code}/${err.stage}\n다음 점검: ${expiry.indefinite ? '수동 확인 필요' : expiry.retryAfter}`);
+}
+
+async function probeGraphql(env: Env) {
+  if (!env.CACHE) return;
+  const state = await env.CACHE.get<GraphqlHealth>(GRAPHQL_HEALTH_KEY, 'json');
+  if (!state) {
+    // shortcut: an unproven GraphQL route stays disabled for 24 hours after deployment; probe only from cron.
+    await env.CACHE.put(GRAPHQL_HEALTH_KEY, JSON.stringify({ nextProbeAt: hoursFromNow(24), successes: 0 }), { expirationTtl: 30 * 86400 });
+    return;
+  }
+  if (state.nextProbeAt === 'indefinite' || Date.parse(state.nextProbeAt) > Date.now()) return;
+  try {
+    if (state.successes === 1) {
+      const listing = await collectSearchListing(GRAPHQL_PROBE_KEYWORD, 'restaurant', 300);
+      if (listing.stopReason !== 'limit' || listing.items.length !== 300) throw collectionFailure('PARSE_CHANGED', 'graphql-probe-pages');
+    } else {
+      const page = await fetchOrderedPage(GRAPHQL_PROBE_KEYWORD, 1);
+      if (page.items.length < 50) throw collectionFailure('PARSE_CHANGED', 'graphql-probe-first-page');
+    }
+    const successes = Math.min(2, state.successes + 1);
+    await env.CACHE.put(GRAPHQL_HEALTH_KEY, JSON.stringify({ successes, nextProbeAt: hoursFromNow(successes === 1 ? 0.5 : 1),
+      healthyUntil: successes === 2 ? hoursFromNow(2) : undefined }), { expirationTtl: 30 * 86400 });
+  } catch (err) {
+    await suspendGraphql(env, err instanceof CollectionError ? err : collectionFailure('UPSTREAM_HTTP', 'graphql-probe'));
+  }
+}
+
+async function loadGapListing(env: Env, keyword: string, category: string, placeId: string, useGraphql: boolean): Promise<SearchListing> {
+  const prefix = observationKey(category, keyword) + (useGraphql ? ':graphql' : '');
+  const listKey = `${CACHE_VERSION}:map-list:v4:${useGraphql ? 'graphql' : 'html'}:${category}:${keyword}${useGraphql ? ':' + placeId : ''}`;
+  const cachedList = await env.CACHE?.get<SearchListing>(listKey, 'json');
+  if (cachedList) return cachedList;
+  const cooldown = await env.CACHE?.get<ObservationCooldown>(`${prefix}:cooldown`, 'json');
+  if (cooldown && (cooldown.indefinite || Date.parse(cooldown.retryAfter) > Date.now())) {
+    throw collectionFailure(cooldown.code === 'BLOCKED' ? 'BLOCKED' : 'RATE_LIMITED', 'rank-list', undefined, {
+      failureSource: 'keyword_cooldown', keywordCooldownUntilUtc: cooldown.indefinite ? undefined : cooldown.retryAfter,
+      keywordCooldownIndefinite: cooldown.indefinite, retryAfterSeconds: cooldown.upstreamRetryAfterSeconds,
+    });
+  }
+  try {
+    const listing = await collectSearchListing(keyword, category, useGraphql ? 300 : 50, placeId);
+    if (listing.stopReason === 'collection_failed') {
+      if (listing.errorCode === 'RATE_LIMITED' || listing.errorCode === 'BLOCKED') {
+        const expiry = observationCooldownExpiry(listing.errorRetryAfterUtc, listing.errorRetryAfterSeconds);
+        await env.CACHE?.put(`${prefix}:cooldown`, JSON.stringify({ retryAfter: expiry.retryAfter, code: listing.errorCode, indefinite: expiry.indefinite }),
+          expiry.indefinite ? undefined : { expirationTtl: expiry.expirationTtl! });
+      }
+      return listing; // confirmed prefix only; never cache a partially collected ranking.
+    }
+    await env.CACHE?.put(listKey, JSON.stringify(listing), { expirationTtl: KEYWORD_TTL });
+    const successKey = `${prefix}:success${listing.stopReason === 'target_found' ? ':' + placeId : ''}`;
+    await env.CACHE?.put(successKey, JSON.stringify({ listing, savedAt: new Date().toISOString() }), { expirationTtl: OBSERVATION_SUCCESS_TTL });
+    return listing;
+  } catch (err) {
+    if (err instanceof CollectionError && (err.code === 'RATE_LIMITED' || err.code === 'BLOCKED')) {
+      const expiry = observationCooldownExpiry(err.retryAfterUtc, err.retryAfterSeconds);
+      await env.CACHE?.put(`${prefix}:cooldown`, JSON.stringify({ retryAfter: expiry.retryAfter, code: err.code, indefinite: expiry.indefinite,
+        upstreamRetryAfterSeconds: err.retryAfterSeconds }), expiry.indefinite ? undefined : { expirationTtl: expiry.expirationTtl! });
+      err.keywordCooldownUntilUtc = expiry.indefinite ? undefined : expiry.retryAfter;
+      err.keywordCooldownIndefinite = expiry.indefinite;
+    }
+    throw err;
+  }
+}
+
+async function recentGapListing(env: Env, keyword: string, category: string, placeId: string): Promise<StoredObservation | undefined> {
+  const prefix = observationKey(category, keyword);
+  const keys = [`${prefix}:success`, `${prefix}:graphql:success`, `${prefix}:graphql:success:${placeId}`];
+  const saved = await Promise.all(keys.map(key => env.CACHE?.get<StoredObservation>(key, 'json')));
+  return saved.filter((row): row is StoredObservation => !!row?.listing?.items?.length)
+    .sort((a, b) => Date.parse(b.savedAt) - Date.parse(a.savedAt))[0];
+}
+
+function unavailableRank(err: unknown): CollectionError {
+  const cause = err instanceof CollectionError ? err : collectionFailure('UPSTREAM_HTTP', 'rank-list');
+  return new CollectionError(cause.code, 'rank-unavailable', cause.upstreamStatus, cause.failureSource,
+    cause.retryAfterUtc, cause.cooldownUntilUtc, cause.keywordCooldownUntilUtc,
+    cause.retryAfterSeconds, cause.keywordCooldownIndefinite);
 }
 
 // places 테이블 upsert. search_histories.place_id가 FK로 이 테이블을 참조하므로,
@@ -390,84 +485,47 @@ app.get('/api/gap', async (c) => {
       // Map list observation is separate from the legacy search widget.
       const category = /미용실|헤어|살롱/.test(keyword! + myStore.category) ? 'hairshop'
         : /맛집|밥집|식당|고기|횟집|카페|음식|한식|중식|일식|양식|백숙|삼계탕/.test(keyword! + myStore.category) ? 'restaurant' : 'place';
-      const listKey = `${CACHE_VERSION}:map-list:v3:${category}:${keyword}`;
-      const observationPrefix = observationKey(category, keyword!);
-      const [recentSuccess, cooldown] = await Promise.all([
-        c.env.CACHE?.get<StoredObservation>(`${observationPrefix}:success`, 'json'),
-        c.env.CACHE?.get<ObservationCooldown>(`${observationPrefix}:cooldown`, 'json'),
-      ]);
-      const activeCooldown = cooldown && (cooldown.indefinite === true || new Date(cooldown.retryAfter).getTime() > Date.now()) ? cooldown : null;
-      let listing = await c.env.CACHE?.get<SearchListing>(listKey, 'json');
+      const useGraphql = await graphqlHealthy(c.env);
+      const recentSuccess = await recentGapListing(c.env, keyword!, category, placeId);
+      let listing: SearchListing;
       try {
-        if (!listing && activeCooldown) {
-          throw collectionFailure('RATE_LIMITED', 'list', undefined, {
-            failureSource: 'keyword_cooldown',
-            keywordCooldownUntilUtc: activeCooldown.indefinite ? undefined : activeCooldown.retryAfter,
-            keywordCooldownIndefinite: activeCooldown.indefinite,
-            retryAfterSeconds: activeCooldown.upstreamRetryAfterSeconds,
-          });
+        listing = await loadGapListing(c.env, keyword!, category, placeId, useGraphql);
+        if (useGraphql && listing.stopReason === 'collection_failed') {
+          await suspendGraphql(c.env, new CollectionError(
+            listing.errorCode === 'RATE_LIMITED' || listing.errorCode === 'BLOCKED' ? listing.errorCode : 'UPSTREAM_HTTP',
+            listing.errorStage || 'rank-list', listing.errorUpstreamStatus, listing.errorFailureSource,
+            listing.errorRetryAfterUtc, listing.errorCooldownUntilUtc, listing.errorKeywordCooldownUntilUtc,
+            listing.errorRetryAfterSeconds,
+          ));
         }
-        if (!listing) {
-          listing = await collectSearchListing(keyword!, category, 50, placeId);
-          if (listing.stopReason !== 'collection_failed' && listing.stopReason !== 'target_found') {
-            await Promise.all([
-              c.env.CACHE?.put(listKey, JSON.stringify(listing), { expirationTtl: KEYWORD_TTL }),
-              c.env.CACHE?.put(`${observationPrefix}:success`, JSON.stringify({ listing, savedAt: new Date().toISOString() }), { expirationTtl: OBSERVATION_SUCCESS_TTL }),
-            ]);
-          } else if (listing.errorCode === 'RATE_LIMITED' || listing.errorCode === 'BLOCKED') {
-            const expiry = observationCooldownExpiry(listing.errorRetryAfterUtc, listing.errorRetryAfterSeconds);
-            const { retryAfter, expirationTtl, indefinite } = expiry;
-            await c.env.CACHE?.put(`${observationPrefix}:cooldown`, JSON.stringify({ retryAfter, code: listing.errorCode,
-              upstreamRetryAfter: listing.errorRetryAfterUtc, upstreamStatus: listing.errorUpstreamStatus,
-              upstreamRetryAfterSeconds: listing.errorRetryAfterSeconds, failureSource: listing.errorFailureSource,
-              indefinite }), indefinite ? undefined : { expirationTtl: expirationTtl! });
-            listing = { ...listing, errorKeywordCooldownUntilUtc: indefinite ? undefined : retryAfter,
-              errorKeywordCooldownIndefinite: indefinite };
-            if (recentSuccess?.listing) listing = { ...recentSuccess.listing, stale: true, retryAfter: indefinite ? undefined : retryAfter,
-              errorCode: listing.errorCode, errorStage: listing.errorStage, errorFailureSource: listing.errorFailureSource,
-              errorUpstreamStatus: listing.errorUpstreamStatus, errorRetryAfterUtc: listing.errorRetryAfterUtc,
-              errorRetryAfterSeconds: listing.errorRetryAfterSeconds, errorCooldownUntilUtc: listing.errorCooldownUntilUtc,
-              errorKeywordCooldownUntilUtc: indefinite ? undefined : retryAfter, errorKeywordCooldownIndefinite: indefinite };
-          }
-        }
-        ranking = listing.items.map(item => item.placeId);
-        rankObservation = { ...listing, category };
       } catch (err) {
-        if (err instanceof CollectionError && (err.code === 'RATE_LIMITED' || err.code === 'BLOCKED')) {
-          const expiry = activeCooldown
-            ? { retryAfter: activeCooldown.retryAfter, expirationTtl: OBSERVATION_COOLDOWN_TTL, indefinite: activeCooldown.indefinite === true }
-            : observationCooldownExpiry(err.retryAfterUtc, err.retryAfterSeconds);
-          const { retryAfter, expirationTtl, indefinite } = expiry;
-          if (!activeCooldown) {
-            await c.env.CACHE?.put(`${observationPrefix}:cooldown`, JSON.stringify({ retryAfter, code: err.code,
-              upstreamRetryAfter: err.retryAfterUtc, upstreamStatus: err.upstreamStatus,
-              upstreamRetryAfterSeconds: err.retryAfterSeconds, failureSource: err.failureSource, indefinite }),
-              indefinite ? undefined : { expirationTtl: expirationTtl! });
-          }
-          err.keywordCooldownUntilUtc = indefinite ? undefined : retryAfter;
-          err.keywordCooldownIndefinite = indefinite;
-          if (recentSuccess?.listing) {
-            listing = { ...recentSuccess.listing, stale: true, retryAfter: indefinite ? undefined : retryAfter, errorCode: err.code,
-              errorStage: err.stage, errorFailureSource: err.failureSource, errorUpstreamStatus: err.upstreamStatus,
-              errorRetryAfterUtc: err.retryAfterUtc, errorRetryAfterSeconds: err.retryAfterSeconds,
-              errorCooldownUntilUtc: err.cooldownUntilUtc, errorKeywordCooldownUntilUtc: err.keywordCooldownUntilUtc,
-              errorKeywordCooldownIndefinite: err.keywordCooldownIndefinite };
-            ranking = listing.items.map(item => item.placeId);
-            rankObservation = { ...listing, category };
-          } else {
-            throw err;
-          }
+        if (useGraphql) {
+          await suspendGraphql(c.env, err instanceof CollectionError ? err : collectionFailure('UPSTREAM_HTTP', 'rank-list'));
+          // A 429/403 is a stop signal. Later customer requests use HTML after the breaker opens.
+          if (!(err instanceof CollectionError && (err.code === 'RATE_LIMITED' || err.code === 'BLOCKED'))) {
+            try { listing = await loadGapListing(c.env, keyword!, category, placeId, false); }
+            catch (htmlErr) {
+              if (!recentSuccess) throw unavailableRank(htmlErr);
+              listing = { ...recentSuccess.listing, stale: true, errorCode: htmlErr instanceof CollectionError ? htmlErr.code : 'UNKNOWN' };
+            }
+          } else if (recentSuccess) {
+            listing = { ...recentSuccess.listing, stale: true, errorCode: err.code, errorStage: err.stage,
+              errorFailureSource: err.failureSource, errorUpstreamStatus: err.upstreamStatus,
+              errorKeywordCooldownUntilUtc: err.keywordCooldownUntilUtc, errorKeywordCooldownIndefinite: err.keywordCooldownIndefinite };
+          } else throw unavailableRank(err);
+        } else if (recentSuccess) {
+          listing = { ...recentSuccess.listing, stale: true, errorCode: err instanceof CollectionError ? err.code : 'UNKNOWN',
+            errorStage: err instanceof CollectionError ? err.stage : undefined,
+            errorFailureSource: err instanceof CollectionError ? err.failureSource : undefined,
+            errorUpstreamStatus: err instanceof CollectionError ? err.upstreamStatus : undefined,
+            errorKeywordCooldownUntilUtc: err instanceof CollectionError ? err.keywordCooldownUntilUtc : undefined,
+            errorKeywordCooldownIndefinite: err instanceof CollectionError ? err.keywordCooldownIndefinite : undefined };
         } else {
-        // Keep existing diagnoses available when the separate map endpoint is blocked.
-        const widget = await cached(c.env, `widget:v1:${keyword}`, KEYWORD_TTL, async () => ({
-          ids: await getOrganicRanking(keyword!, 14), collectedAt: new Date().toISOString(),
-        }));
-        ranking = widget.ids;
-        rankObservation = { source: 'naver-search-widget', collectedAt: widget.collectedAt,
-          complete: false, stopReason: 'collection_failed', limit: 50, pages: 0,
-          errorCode: err instanceof CollectionError ? err.code : 'UNKNOWN', items: [] };
+          throw unavailableRank(err);
         }
       }
+      ranking = listing.items.map(item => item.placeId);
+      rankObservation = { ...listing, category };
       if (!ranking || ranking.length === 0) {
         return c.json({ error: `"${keyword}" 키워드의 검색 결과를 찾을 수 없습니다.` }, 404);
       }
@@ -705,7 +763,20 @@ app.get('/api/gap', async (c) => {
   } catch (err: any) {
     console.error('Gap 분석 중 오류:', err);
     c.executionCtx.waitUntil(notify(c.env, `⚠️ [Gap 분석 실패] placeId="${placeId}" keyword="${keyword || competitorQuery}"\n${err.message || err}\n(네이버 구조 변경 또는 차단 가능성 — §7 확인 요망)`));
-    if (err instanceof CollectionError) return c.json({ error: err.message, code: err.code, stage: err.stage,
+    if (keyword && err instanceof CollectionError && c.env.DB) {
+      try {
+        const old = await c.env.DB.prepare(`SELECT raw_data FROM search_histories
+          WHERE place_id = ? AND target_keyword = ? AND created_at >= datetime('now', '-7 days')
+          ORDER BY created_at DESC LIMIT 1`).bind(placeId, keyword).first<{ raw_data: string }>();
+        const saved = old?.raw_data && JSON.parse(old.raw_data);
+        if (saved?.success && saved.rankObservation?.collectedAt) {
+          return c.json({ ...saved, rankObservation: { ...saved.rankObservation, stale: true,
+            errorCode: err.code, errorStage: err.stage } });
+        }
+      } catch (historyErr) { console.error('직전 정상 진단 조회 실패:', historyErr); }
+    }
+    if (err instanceof CollectionError) return c.json({ error: err.stage === 'rank-unavailable'
+      ? '네이버 응답 불가로 현재 순위 수집이 되지 않고 있습니다. 내일 다시 시도해 주세요.' : err.message, code: err.code, stage: err.stage,
       failureSource: err.failureSource, upstreamStatus: err.upstreamStatus ?? null,
       retryAfterUtc: err.retryAfterUtc ?? null, cooldownUntilUtc: err.cooldownUntilUtc ?? null,
       keywordCooldownUntilUtc: err.keywordCooldownUntilUtc ?? null, keywordCooldownIndefinite: err.keywordCooldownIndefinite ?? false,
@@ -2772,6 +2843,7 @@ type PeriodicKeyword = {
 const NEW_CRON = '*/10 * * * *';
 const DETAIL_CRONS = new Set(['7,37 * * * *']);
 const REFRESH_CRONS = new Set(['3,33 * * * *']);
+const GRAPHQL_PROBE_CRON = '13 * * * *';
 const PERIODIC_FAILURE_COOLDOWN_HOURS = 24;
 
 function sqlDateAfter(hours: number) {
@@ -3223,5 +3295,6 @@ export default {
     if (event.cron === NEW_CRON) ctx.waitUntil(runOnePeriodicKeyword(env, 'NEW', ctx));
     else if (DETAIL_CRONS.has(event.cron)) ctx.waitUntil(runOnePeriodicDetail(env));
     else if (REFRESH_CRONS.has(event.cron)) ctx.waitUntil(runOnePeriodicKeyword(env, 'REFRESH'));
+    else if (event.cron === GRAPHQL_PROBE_CRON) ctx.waitUntil(probeGraphql(env));
   },
 };

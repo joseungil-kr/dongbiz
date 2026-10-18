@@ -278,7 +278,7 @@
     <div id="step2Input" class="hidden w-full max-w-2xl step-highlight p-6 md:p-8 rounded-3xl shadow-xl shadow-blue-200/50 mb-8">
       <span class="inline-block text-[11px] font-black tracking-wide text-white bg-blue-600 rounded-full px-3 py-1 mb-2">STEP 2</span>
       <label for="keywordInput" class="block text-base font-black text-slate-900 mb-1.5 text-left">상위노출 원하는 키워드를 입력하세요 <span class="text-xs font-bold text-slate-400">(하루 3회 · 수집 실패는 차감하지 않음)</span></label>
-      <p class="text-xs text-slate-500 mb-3 text-left">지역명을 포함해주세요. 네이버 지도 첫 목록 최대 50곳에서 내 매장의 위치를 확인하고 상위 6곳 중 내 매장을 제외한 경쟁사와 비교합니다. 50곳에서 찾지 못하면 실제 순위를 단정하지 않습니다.</p>
+      <p class="text-xs text-slate-500 mb-3 text-left">지역명을 포함해주세요. 네이버 지도 목록에서 확인된 범위의 내 매장 위치와 상위 6곳의 지표를 비교합니다. 기본 50곳, 추가 목록 수집이 정상일 때 최대 300곳까지 확인하며 범위 밖 순위는 단정하지 않습니다.</p>
       <div class="flex flex-col sm:flex-row gap-3">
         <input type="text" id="keywordInput" placeholder="예: 안산 스카이차, 상록구 맛집"
           class="flex-1 px-4 py-4 rounded-2xl border-2 border-blue-300 bg-white text-base font-semibold text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-600 transition" />
@@ -1567,7 +1567,7 @@
       }
       const observation = data.rankObservation;
       rankMeta.textContent = data.isDirectCompare ? '지정한 경쟁사와의 비교이며 검색 순위는 계산하지 않습니다.'
-        : `${observation?.source === 'naver-map' || observation?.source === 'naver-map-html' ? '네이버 지도 기본 목록' : '네이버 통합검색 위젯'} · 확인 ${data.rankSearched}곳 · 비교 ${foundCount}곳 · ${observation?.collectedAt ? new Date(observation.collectedAt).toLocaleString('ko-KR') : '수집 시각 미기록'}`
+        : `${observation?.source === 'naver-map' || observation?.source === 'naver-map-html' ? '네이버 지도 기본 목록' : '수집 기록'} · 확인 ${data.rankSearched}곳 · 비교 ${foundCount}곳 · ${observation?.collectedAt ? new Date(observation.collectedAt).toLocaleString('ko-KR') : '수집 시각 미기록'}`
           + (observation?.stopReason === 'collection_failed' ? ' — 목록 수집이 일부 완료되지 않았습니다. 이번 검색은 횟수를 차감하지 않습니다.' : '')
           + (observation?.errorCode ? ` 수집 오류 ${observation.errorCode}${observation.errorStage ? '/' + observation.errorStage : ''}${observation.errorFailureSource ? '/' + observation.errorFailureSource : ''}${observation.errorUpstreamStatus ? ' (HTTP ' + observation.errorUpstreamStatus + ')' : ''}${observation.errorKeywordCooldownIndefinite ? ', 재수집 시각 미정' : observation.errorKeywordCooldownUntilUtc ? ', 재수집 ' + new Date(observation.errorKeywordCooldownUntilUtc).toLocaleString('ko-KR') : ''}.` : '')
           + (observation?.stopReason === 'target_found' ? ' — 내 매장 위치를 확인한 시점에서 추가 목록 요청을 중단했습니다.' : '')
@@ -1576,8 +1576,7 @@
         rankMeta.textContent += ` · 상위 경쟁사와의 평균 직선거리 ${stats.distanceFromMeKm.avg.toLocaleString()}km`;
       }
       if (observation?.stale) {
-        const retryAt = observation.retryAfter ? new Date(observation.retryAfter).toLocaleString('ko-KR') : '잠시 후';
-        rankMeta.textContent = `최근 성공 관측값을 표시하고 있습니다. 새 수집은 ${retryAt} 이후에 다시 시도합니다. ` + rankMeta.textContent;
+        rankMeta.textContent = `현재 목록을 수집하지 못해 ${observation.collectedAt ? new Date(observation.collectedAt).toLocaleString('ko-KR') : '시각 미기록'}의 마지막 정상 수집 결과를 표시합니다. ` + rankMeta.textContent;
         rankMeta.className = 'text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-xl p-3 my-3 leading-relaxed';
       }
 

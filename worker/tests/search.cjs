@@ -42,7 +42,8 @@ test('phone, link and ID bypass name candidate selection', async () => {
 test('name search falls back to the map list when integrated search has no usable list', async () => {
   const s = load('src/place-search.ts', async (url) => {
     if (url.includes('search.naver.com')) return new Response('window.__APOLLO_STATE__ = {"ROOT_QUERY":{}};');
-    return graphql([{ id, name: 'Dream Studio' }], 1);
+    assert.ok(url.includes('pcmap.place.naver.com/place/list'));
+    return htmlList([{ id, name: 'Dream Studio' }], 1, 'Dream Studio');
   });
   const candidates = await s.searchPlaceCandidates('Dream Studio');
   assert.equal(candidates.map(x => x.placeId).join(','), id);
@@ -90,7 +91,7 @@ test('customer rank uses one ordered HTML first page and never calls GraphQL', a
   assert.equal(listing.source, 'naver-map-html');
   assert.equal(listing.items.findIndex(item => item.placeId === id) + 1, 37);
   assert.equal(listing.items.length, 50);
-  assert.equal(listing.stopReason, 'target_found');
+  assert.equal(listing.stopReason, 'limit');
 });
 
 test('a place beyond the first 50 is not assigned a guessed rank', async () => {
@@ -103,6 +104,127 @@ test('a place beyond the first 50 is not assigned a guessed rank', async () => {
   assert.equal(listing.items.findIndex(item => item.placeId === id), -1);
   assert.equal(listing.stopReason, 'limit');
   assert.equal(listing.complete, false);
+});
+
+test('scheduled GraphQL checks stay off at first, then require a full 300-place pass', async () => {
+  const cache = kv(), starts = [];
+  const app = load('src/index.ts', async (url, init) => {
+    assert.ok(url.includes('pcmap-api.place.naver.com/graphql'));
+    const start = JSON.parse(init.body)[0].variables.input.start;
+    starts.push(start);
+    return graphql(Array.from({length:50}, (_, i) => ({id:String(8400000 + start + i),name:'업체'})), 500);
+  }).default;
+  const run = async () => {
+    const tasks = [];
+    await app.scheduled({cron:'13 * * * *'}, {CACHE:cache}, {waitUntil(p){tasks.push(p);}});
+    await Promise.all(tasks);
+    return JSON.parse(cache.values.get('map-graphql-health:v1'));
+  };
+  let health = await run();
+  assert.equal(health.successes, 0); assert.equal(starts.length, 0);
+  await cache.put('map-graphql-health:v1', JSON.stringify({nextProbeAt:'2000-01-01T00:00:00Z',successes:0}));
+  health = await run();
+  assert.equal(health.successes, 1); assert.equal(health.healthyUntil, undefined);
+  assert.deepEqual(starts, [1]);
+  await cache.put('map-graphql-health:v1', JSON.stringify({nextProbeAt:'2000-01-01T00:00:00Z',successes:1}));
+  health = await run();
+  assert.equal(health.successes, 2); assert.ok(Date.parse(health.healthyUntil) > Date.now());
+  assert.deepEqual(starts, [1,1,51,101,151,201,251]);
+});
+
+test('a failed scheduled GraphQL check suspends probes instead of retrying each hour', async () => {
+  const cache = kv(); let calls = 0;
+  await cache.put('map-graphql-health:v1', JSON.stringify({nextProbeAt:'2000-01-01T00:00:00Z',successes:0}));
+  const app = load('src/index.ts', async () => { calls++; return new Response('',{status:429}); }).default;
+  const run = async () => {
+    const tasks = [];
+    await app.scheduled({cron:'13 * * * *'}, {CACHE:cache}, {waitUntil(p){tasks.push(p);}});
+    await Promise.all(tasks);
+  };
+  await run();
+  const health = JSON.parse(cache.values.get('map-graphql-health:v1'));
+  assert.equal(health.successes,0); assert.ok(Date.parse(health.nextProbeAt) > Date.now() + 23*3600000);
+  await run(); assert.equal(calls,1);
+});
+
+test('confirmed GraphQL mode can find a customer beyond rank 50', async () => {
+  const cache = kv(), calls = [];
+  await cache.put('map-graphql-health:v1', JSON.stringify({nextProbeAt:'2099-01-01T00:00:00Z',successes:2,healthyUntil:'2099-01-01T00:00:00Z'}));
+  await cache.put(`place:v10:${id}:feed`, JSON.stringify({placeId:id,name:'Test',seoMetrics:{visitorReviewsTotal:12,hasTalktalk:false}}));
+  const app = load('src/index.ts', async (url, init) => {
+    calls.push(url);
+    if (url.includes('pcmap-api.place.naver.com/graphql')) {
+      const start = JSON.parse(init.body)[0].variables.input.start;
+      return graphql(Array.from({length:50}, (_, i) => ({id:start+i===137?id:String(8500000+start+i),name:'업체'})), 500);
+    }
+    const match = url.match(/place\/(\d+)\/home/);
+    assert.ok(match, 'only competitor details after the ordered GraphQL pages');
+    return new Response(detail.replaceAll(id, match[1]));
+  }).default;
+  const response = await app.fetch(new Request(`https://local/api/gap?placeId=${id}&keyword=지역맛집`), {CACHE:cache}, {waitUntil(){}});
+  const data = await response.json();
+  assert.equal(response.status, 200); assert.equal(data.myRank, 137); assert.equal(data.rankSearched, 150);
+  assert.equal(data.rankObservation.source, 'naver-map'); assert.equal(data.comparisonCount, 6);
+  assert.equal(calls.filter(url => url.includes('pcmap-api.place.naver.com/graphql')).length, 3);
+  assert.equal(calls.some(url => url.includes('pcmap.place.naver.com')), false);
+});
+
+test('GraphQL 429 opens the breaker without immediate HTML retry; next request uses HTML', async () => {
+  const cache = kv(), calls = [];
+  await cache.put('map-graphql-health:v1', JSON.stringify({nextProbeAt:'2099-01-01T00:00:00Z',successes:2,healthyUntil:'2099-01-01T00:00:00Z'}));
+  await cache.put(`place:v10:${id}:feed`, JSON.stringify({placeId:id,name:'Test',seoMetrics:{visitorReviewsTotal:12,hasTalktalk:false}}));
+  const app = load('src/index.ts', async (url) => {
+    calls.push(url);
+    if (url.includes('pcmap-api.place.naver.com/graphql')) return new Response('',{status:429});
+    if (url.includes('pcmap.place.naver.com')) return htmlList(Array.from({length:50}, (_, i) => ({id:String(8600000+i),name:'업체'})),500,'지역맛집');
+    const match = url.match(/place\/(\d+)\/home/);
+    assert.ok(match); return new Response(detail.replaceAll(id, match[1]));
+  }).default;
+  const request = () => new Request(`https://local/api/gap?placeId=${id}&keyword=지역맛집`);
+  const first = await app.fetch(request(), {CACHE:cache}, {waitUntil(){}});
+  assert.equal(first.status,503);
+  assert.equal((await first.json()).error,'네이버 응답 불가로 현재 순위 수집이 되지 않고 있습니다. 내일 다시 시도해 주세요.');
+  assert.equal(calls.filter(url => url.includes('pcmap.place.naver.com')).length,0);
+  assert.equal(JSON.parse(cache.values.get('map-graphql-health:v1')).successes,0);
+  const second = await app.fetch(request(), {CACHE:cache}, {waitUntil(){}});
+  const data = await second.json();
+  assert.equal(second.status,200); assert.equal(data.rankObservation.source,'naver-map-html');
+  assert.equal(data.rankSearched,50);
+});
+
+test('a non-rate GraphQL failure uses the verified HTML first page', async () => {
+  const cache = kv(), calls = [];
+  await cache.put('map-graphql-health:v1', JSON.stringify({nextProbeAt:'2099-01-01T00:00:00Z',successes:2,healthyUntil:'2099-01-01T00:00:00Z'}));
+  await cache.put(`place:v10:${id}:feed`, JSON.stringify({placeId:id,name:'Test',seoMetrics:{visitorReviewsTotal:12,hasTalktalk:false}}));
+  const app = load('src/index.ts', async url => {
+    calls.push(url);
+    if (url.includes('pcmap-api.place.naver.com/graphql')) return new Response('',{status:500});
+    if (url.includes('pcmap.place.naver.com')) return htmlList(Array.from({length:50}, (_, i) => ({id:String(8700000+i),name:'업체'})),500,'지역맛집');
+    const match = url.match(/place\/(\d+)\/home/);
+    assert.ok(match); return new Response(detail.replaceAll(id, match[1]));
+  }).default;
+  const response = await app.fetch(new Request(`https://local/api/gap?placeId=${id}&keyword=지역맛집`),{CACHE:cache},{waitUntil(){}});
+  const data = await response.json();
+  assert.equal(response.status,200); assert.equal(data.rankObservation.source,'naver-map-html');
+  assert.equal(calls.filter(url => url.includes('pcmap-api.place.naver.com/graphql')).length,1);
+  assert.equal(calls.filter(url => url.includes('pcmap.place.naver.com')).length,1);
+  assert.equal(JSON.parse(cache.values.get('map-graphql-health:v1')).successes,0);
+});
+
+test('HTML failure with no successful list returns an honest character-bubble message', async () => {
+  const cache = kv();
+  await cache.put(`place:v10:${id}:feed`, JSON.stringify({placeId:id,name:'Test',seoMetrics:{visitorReviewsTotal:12,hasTalktalk:false}}));
+  const app = load('src/index.ts', async url => {
+    assert.ok(url.includes('pcmap.place.naver.com'));
+    return new Response('',{status:429});
+  }).default;
+  const response = await app.fetch(new Request(`https://local/api/gap?placeId=${id}&keyword=지역맛집`), {CACHE:cache}, {waitUntil(){}});
+  const data = await response.json();
+  assert.equal(response.status,503); assert.equal(data.stage,'rank-unavailable');
+  assert.equal(data.error,'네이버 응답 불가로 현재 순위 수집이 되지 않고 있습니다. 내일 다시 시도해 주세요.');
+  const html = require('node:fs').readFileSync(require('node:path').join(__dirname,'..','public','index.html'),'utf8');
+  assert.match(html,/message: isGapSearch \? msg/);
+  assert.match(html,/showGuide\(\{[\s\S]*?pose: 'warning'/);
 });
 
 test('failed later page preserves only confirmed prefix, overlapping page cannot invent ranks', async () => {
@@ -161,7 +283,13 @@ function fakeDB(failWrite = false) {
         histories.set(args[0], { placeId: args[1], targetKeyword: args[2], myRank: args[3], raw_data: args[9], created_at: new Date().toISOString() });
       }
       return { success: true };
-    }, async first() { return histories.get(args[0]) || null; }, async all() {
+    }, async first() {
+      if (sql.includes('WHERE place_id = ? AND target_keyword = ?')) {
+        const row = [...histories.values()].reverse().find(row => row.placeId === args[0] && row.targetKeyword === args[1]);
+        return row ? {raw_data:row.raw_data} : null;
+      }
+      return histories.get(args[0]) || null;
+    }, async all() {
       if (!sql.includes('FROM search_histories')) return { results: [] };
       return { results: [...histories.values()]
         .filter(row => row.placeId === args[0] && row.targetKeyword === args[1] && row.myRank != null)
@@ -230,16 +358,42 @@ test('rate-limited keyword reuses its latest successful map observation without 
   const ctx = { waitUntil() {} };
   const request = () => new Request(`https://local/api/gap?placeId=${id}&keyword=${encodeURIComponent(keyword)}`);
   const first = await app.fetch(request(), { CACHE: cache }, ctx);
-  assert.equal(first.status, 200, await first.text());
-  cache.values.delete(`v9:map-list:v3:place:${keyword}`);
+  const firstData = await first.json();
+  assert.equal(first.status, 200, JSON.stringify(firstData));
+  cache.values.delete(`v9:map-list:v4:html:place:${keyword}`);
   blocked = true;
   const second = await app.fetch(request(), { CACHE: cache }, ctx);
   const data = await second.json();
   assert.equal(second.status, 200);
   assert.equal(data.rankObservation.status, 'stale_success');
   assert.equal(data.rankObservation.stale, true);
+  assert.equal(data.rankObservation.collectedAt, firstData.rankObservation.collectedAt);
   assert.equal(mapCalls, 2);
   assert.ok([...cache.values.keys()].some(key => key.includes(':map-observation:v2:place:') && key.endsWith(':cooldown')));
+});
+
+test('a recent saved diagnosis survives when both fresh listing and list cache are unavailable', async () => {
+  const cache = kv(), db = fakeDB(), keyword = '지역맛집';
+  let blocked = false;
+  await cache.put(`place:v10:${id}:feed`, JSON.stringify({placeId:id,name:'Test',seoMetrics:{visitorReviewsTotal:12,hasTalktalk:false}}));
+  const app = load('src/index.ts', async url => {
+    if (url.includes('pcmap.place.naver.com')) {
+      if (blocked) return new Response('',{status:429});
+      return htmlList(Array.from({length:50}, (_, i) => ({id:String(8800000+i),name:'업체'})),500,keyword);
+    }
+    const match = url.match(/place\/(\d+)\/home/);
+    assert.ok(match); return new Response(detail.replaceAll(id,match[1]));
+  }).default;
+  const request = () => new Request(`https://local/api/gap?placeId=${id}&keyword=${encodeURIComponent(keyword)}`);
+  const first = await app.fetch(request(),{CACHE:cache,DB:db},{waitUntil(){}});
+  const firstData = await first.json(); assert.equal(first.status,200);
+  for (const key of [...cache.values.keys()]) if (key.includes(':map-list:v4:') || key.includes(':map-observation:v2:') && key.endsWith(':success')) cache.values.delete(key);
+  blocked = true;
+  const second = await app.fetch(request(),{CACHE:cache,DB:db},{waitUntil(){}});
+  const secondData = await second.json();
+  assert.equal(second.status,200); assert.equal(secondData.shareId,firstData.shareId);
+  assert.equal(secondData.rankObservation.stale,true);
+  assert.equal(secondData.rankObservation.collectedAt,firstData.rankObservation.collectedAt);
 });
 
 test('keyword volume keeps related ad keywords, caches them, and never consumes the gap limit', async () => {
@@ -477,12 +631,13 @@ test('gap collection bounds list pagination and serializes competitor details', 
   const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'index.ts'), 'utf8');
   const placeSearch = fs.readFileSync(path.join(__dirname, '..', 'src', 'place-search.ts'), 'utf8');
   const publicHtml = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8');
-  assert.match(source, /collectSearchListing\(keyword!, category, 50, placeId\)/);
+  assert.match(source, /collectSearchListing\(keyword, category, useGraphql \? 300 : 50, placeId\)/);
   assert.match(source, /for \(const id of top10Ids\) \{[\s\S]*competitors\.push\(await cachedPlace\(c\.env, id\)\)/);
   assert.doesNotMatch(source, /competitors = await Promise\.all\([\s\S]*top10Ids\.map\(id => cachedPlace/);
   assert.match(placeSearch, /targetPlaceId\?: string/);
   assert.match(placeSearch, /stopReason = 'target_found'/);
-  assert.match(source, /listing\.stopReason !== 'collection_failed' && listing\.stopReason !== 'target_found'/);
+  assert.match(source, /listing\.stopReason === 'collection_failed'/);
+  assert.doesNotMatch(source.slice(source.indexOf("app.get('/api/gap'"), source.indexOf("app.get('/api/history'")), /getOrganicRanking/);
   assert.match(publicHtml, /내 매장 위치를 확인한 시점에서 추가 목록 요청을 중단했습니다/);
   assert.match(publicHtml, /Gap API failure/);
   assert.match(publicHtml, /data\.code/);
