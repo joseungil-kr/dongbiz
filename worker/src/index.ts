@@ -1197,38 +1197,31 @@ function median(nums: number[]): number {
   return s.length % 2 === 0 ? Math.round((s[mid - 1] + s[mid]) / 2) : s[mid];
 }
 
-// "안산 상록구맛집"과 "안산 상록구 맛집"은 사용자 입력만 다를 뿐 같은 검색이라 같은 페이지가
-// 된다. 띄어쓰기를 지운 값을 동일성 기준으로 삼는다.
+// 관련 키워드 및 기존 코멘트의 띄어쓰기 변형을 찾을 때만 사용한다.
+// 공개 URL과 canonical은 정확한 키워드 표기를 유지한다.
 function normKeyword(k: string): string {
   return k.replace(/\s+/g, '');
 }
 
-// 공개 자격: 정상 목록 관측 1회 이상. 첫 관측은 변화/추세를 숨겨 안전하게 렌더한다.
-// 띄어쓰기만 다른 표기는 관측이 많은 쪽 하나만 대표로 공개한다 — 안 그러면 내용이 같은
-// 페이지가 여러 장 색인되어 §6.1.3의 대량생성 리스크를 스스로 키운다.
-async function eligibleRankKeywordSummaries(db: D1Database): Promise<any[]> {
+// 등록 키워드마다 첫 유효 관측의 존재만 확인한다. 전체 이력 통계는 목록에서 제공하지 않는다.
+async function publishedRankKeywordDirectory(db: D1Database): Promise<{ keyword: string }[]> {
   const { results } = await db.prepare(`
-    SELECT keyword, COUNT(DISTINCT collected_at) AS obs, MAX(collected_at) AS last_at,
-           COUNT(DISTINCT place_id) AS places
-    FROM rank_snapshots
-    WHERE keyword != '__watch__' AND rank IS NOT NULL
-      AND (source IS NULL OR source != 'analytics')
-      AND (sort_mode = 'popular' OR sort_mode IS NULL)
-      AND (is_ad = 0 OR is_ad IS NULL)
-    GROUP BY keyword HAVING obs >= 1
-    ORDER BY last_at DESC
-  `).all();
-  const rep = new Map<string, any>();
-  for (const r of results as any[]) {
-    const key = normKeyword(r.keyword);
-    const cur = rep.get(key);
-    if (!cur || r.obs > cur.obs) rep.set(key, r);
-  }
-  return [...rep.values()];
+    SELECT pk.keyword FROM periodic_keywords pk
+    WHERE pk.collection_mode = 'rank' AND pk.keyword != '__watch__'
+      AND EXISTS (
+        SELECT 1 FROM rank_snapshots rs
+        WHERE rs.keyword = pk.keyword AND rs.rank IS NOT NULL AND rs.collected_at IS NOT NULL
+          AND (rs.source IS NULL OR rs.source != 'analytics')
+          AND (rs.sort_mode = 'popular' OR rs.sort_mode IS NULL)
+          AND (rs.is_ad = 0 OR rs.is_ad IS NULL)
+      )
+    ORDER BY pk.keyword
+  `).all<{ keyword: string }>();
+  return results;
 }
 
 async function eligibleRankKeywords(db: D1Database): Promise<string[]> {
-  return (await eligibleRankKeywordSummaries(db)).map(r => r.keyword);
+  return (await publishedRankKeywordDirectory(db)).map(r => r.keyword);
 }
 
 // 매장 전용 미니홈피 (§6.11, 샘플 단계). 전 페이지 noindex — 결제 연동 전까지 색인되면 안 된다.
@@ -1263,9 +1256,9 @@ app.get('/blog', (c) => c.html(renderBlogPage()));
 app.get('/rank', async (c) => {
   const db = c.env.DB;
   if (!db) return c.text('DB 미설정', 500);
-  const keywords = await eligibleRankKeywordSummaries(db);
+  const keywords = await publishedRankKeywordDirectory(db);
   const items = keywords.map(k =>
-    `<a href="/rank/${encodeURIComponent(k.keyword)}">${escapeHtml(k.keyword)}<span class="obs">관측 ${Number(k.obs)}회 · 업체 ${Number(k.places)}곳 · ${escapeHtml(fmtKST(k.last_at).slice(0, 10))}</span></a>`
+    `<a href="/rank/${encodeURIComponent(k.keyword)}">${escapeHtml(k.keyword)}</a>`
   ).join('');
 
   const org = {
@@ -1321,7 +1314,7 @@ app.get('/rank', async (c) => {
 <style>${RANK_PAGE_STYLE}${SITE_FOOTER_CSS}</style></head><body>${siteNav('place')}<div class="wrap">
 <nav class="crumb" aria-label="네비게이션"><a href="/">홈</a> <span class="sep">&gt;</span> <span class="cur">키워드별 순위현황</span></nav>
 <h1>키워드별 네이버 플레이스 순위 현황</h1>
-<p class="meta">동네장사가 자체 수집한 실측 순위 및 지표 데이터를 바탕으로 공개합니다. 총 ${keywords.length}개 키워드 관측 중 · 첫 정상 관측부터 공개합니다.</p>
+<p class="meta">정상 관측이 있는 등록 키워드 ${keywords.length}개를 안내합니다. 전체 이력의 관측 횟수·업체 수 집계는 제공하지 않습니다. 기존 개별 키워드 주소는 계속 이용할 수 있습니다.</p>
 <p class="answer">각 지역 및 업종별 1페이지 상위권 업체들의 방문자 리뷰, 블로그 리뷰, 키워드 투표 수, 사진 등록 수를 실측하여 1페이지 진입선과 변동 추세를 분석합니다. 키워드를 클릭하시면 세부 분석 리포트를 확인하실 수 있습니다.</p>
 <div class="kwlist">${items || '<span class="meta">아직 공개 가능한 키워드가 없습니다.</span>'}</div>
 <a class="cta" href="/">내 매장의 플레이스 상태 무료진단</a>
@@ -1351,7 +1344,7 @@ function relatedKeywords(current: string, all: string[], limit = 8): string[] {
       for (const x of g) if (mine.has(x)) hit++;
       return { k, hit, i };
     })
-    .sort((a, b) => b.hit - a.hit || a.i - b.i) // 겹침 우선, 같으면 최근 관측 순서 유지
+    .sort((a, b) => b.hit - a.hit || a.i - b.i) // 겹침 우선, 같으면 디렉터리 순서 유지
     .slice(0, limit)
     .map(r => r.k);
 }
@@ -1384,7 +1377,7 @@ function keywordTier(boundary: number | null): { label: string; color: string; d
   return { label: '고경쟁형', color: '#B91C1C;background:#FEF2F2', desc: '리뷰만으로 따라잡기 어려운 구간입니다. 더 좁은 키워드를 먼저 잡는 편이 현실적입니다.' };
 }
 
-function renderRankPageHtml(keyword: string, rows: any[], repKeyword: string, siblings: string[] = [], comment?: { comment_text: string; approved?: number }, mode: 'public' | 'admin' = 'public', saved = false): string {
+function renderRankPageHtml(keyword: string, rows: any[], commentKeyword: string, siblings: string[] = [], comment?: { comment_text: string; approved?: number }, mode: 'public' | 'admin' = 'public', saved = false): string {
   const batches = [...new Set(rows.map(r => r.collected_at))].sort();
   const latest = batches[batches.length - 1];
   const latestRows = dedupeByPlace(
@@ -1493,7 +1486,7 @@ function renderRankPageHtml(keyword: string, rows: any[], repKeyword: string, si
     itemListElement: [
       { '@type': 'ListItem', position: 1, name: '홈', item: 'https://dongbiz.com/' },
       { '@type': 'ListItem', position: 2, name: '키워드별 순위현황', item: 'https://dongbiz.com/rank' },
-      { '@type': 'ListItem', position: 3, name: keyword, item: `https://dongbiz.com/rank/${encodeURIComponent(repKeyword)}` },
+      { '@type': 'ListItem', position: 3, name: keyword, item: `https://dongbiz.com/rank/${encodeURIComponent(keyword)}` },
     ],
   }).replace(/</g, '\\u003c');
 
@@ -1557,15 +1550,16 @@ function renderRankPageHtml(keyword: string, rows: any[], repKeyword: string, si
 
   const title = `${keyword} 플레이스 순위 분석 · 상위 ${publicRows.length}곳 순위`;
   const desc = `'${keyword}' 플레이스 상위 ${publicRows.length}곳의 순위와 기본 수치. 1페이지 상위 ${top.length}곳의 지표 비교와 진입선 ${boundary.toLocaleString()}건(${tier.label}). 기준일 ${fmtKST(latest).slice(0, 10)}.`;
-  const canonical = `https://dongbiz.com/rank/${encodeURIComponent(repKeyword)}`;
+  const canonical = `https://dongbiz.com/rank/${encodeURIComponent(keyword)}`;
   const commentBlock = mode === 'admin' ? `<section class="jo-note" aria-labelledby="jo-note-title">
   <div class="jo-note-character"><img src="/images/jo_point.png" alt="오른쪽을 가리키는 조강사 캐릭터" width="120" height="172" loading="lazy"></div>
   <div class="jo-note-bubble"><h2 id="jo-note-title">조강사의 한마디</h2>
   ${saved ? '<p class="saved" role="status">저장했습니다.</p>' : ''}
-  <form method="post" action="/admin/rank/${encodeURIComponent(repKeyword)}">
+  ${commentKeyword !== keyword ? `<p>띄어쓰기 변형인 ‘${escapeHtml(commentKeyword)}’에 저장된 코멘트를 함께 사용합니다. 수정하면 해당 코멘트에 반영됩니다.</p>` : ''}
+  <form method="post" action="/admin/rank/${encodeURIComponent(commentKeyword)}">
     <label for="jo-comment">코멘트</label>
     <textarea id="jo-comment" name="comment_text" required maxlength="1000" placeholder="이 페이지의 데이터를 보고 조강사의 한마디를 남겨보세요.">${escapeHtml(comment?.comment_text || '')}</textarea>
-    <div class="jo-note-actions"><label><input type="checkbox" name="approved" value="1" ${comment?.approved === 0 ? '' : 'checked'}> 게시</label><button type="submit">저장</button><a href="/rank/${encodeURIComponent(repKeyword)}" target="_blank" rel="noopener noreferrer">공개 페이지 보기 ↗</a><a href="/admin/rank-comments">관리자 목록</a></div>
+    <div class="jo-note-actions"><label><input type="checkbox" name="approved" value="1" ${comment?.approved === 0 ? '' : 'checked'}> 게시</label><button type="submit">저장</button><a href="/rank/${encodeURIComponent(commentKeyword)}" target="_blank" rel="noopener noreferrer">공개 페이지 보기 ↗</a><a href="/admin/rank-comments">관리자 목록</a></div>
   </form></div>
 </section>` : comment?.comment_text?.trim() ? `<section class="jo-note" aria-labelledby="jo-note-title">
   <div class="jo-note-character"><img src="/images/jo_point.png" alt="오른쪽을 가리키는 조강사 캐릭터" width="120" height="172" loading="lazy"></div>
@@ -1652,7 +1646,8 @@ async function rankPage(c: any, mode: 'public' | 'admin') {
   const { results } = await db.prepare(`
     SELECT place_id, place_name, rank, visitor_reviews, blog_reviews, vote_count, photo_count, source, collected_at
     FROM rank_snapshots
-    WHERE keyword = ? AND rank IS NOT NULL
+    WHERE keyword = ? AND rank IS NOT NULL AND collected_at IS NOT NULL
+      AND keyword != '__watch__'
       AND (source IS NULL OR source != 'analytics')
       AND (sort_mode = 'popular' OR sort_mode IS NULL)
       AND (is_ad = 0 OR is_ad IS NULL)
@@ -1671,20 +1666,26 @@ async function rankPage(c: any, mode: 'public' | 'admin') {
 <a class="cta" href="/">내 매장 순위 무료로 진단하기</a></div>${siteFooter()}</body></html>`, 404);
   }
 
-  // 띄어쓰기 변형으로 들어와도 대표 표기 한 곳으로 canonical을 모아 중복 색인을 막는다.
-  const reps = await eligibleRankKeywords(db);
-  const repKeyword = reps.find(k => normKeyword(k) === normKeyword(keyword)) || keyword;
-  if (mode === 'admin' && !reps.includes(keyword)) return c.text('공개된 순위 페이지가 없는 키워드입니다.', 404);
-  let comment: { comment_text: string; approved: number } | null = null;
+  const related = await eligibleRankKeywords(db);
+  // canonical은 요청 주소로 고정하고, 코멘트는 기존 저장 키를 유지한다.
+  let comment: { keyword: string; comment_text: string; approved: number } | null = null;
   try {
-    comment = await db.prepare(`SELECT comment_text, approved FROM rank_page_comments WHERE keyword = ? ${mode === 'public' ? 'AND approved = 1' : ''}`)
-      .bind(repKeyword).first<{ comment_text: string; approved: number }>();
+    comment = await db.prepare('SELECT keyword, comment_text, approved FROM rank_page_comments WHERE keyword = ?')
+      .bind(keyword).first<{ keyword: string; comment_text: string; approved: number }>();
+    if (!comment) {
+      const { results } = await db.prepare('SELECT keyword, comment_text, approved FROM rank_page_comments')
+        .all<{ keyword: string; comment_text: string; approved: number }>();
+      const aliases = results.filter(row => normKeyword(row.keyword) === normKeyword(keyword));
+      // 여러 저장 키가 있으면 관측 수로 임의 선택하거나 기존 코멘트를 덮어쓰지 않는다.
+      if (aliases.length === 1) comment = aliases[0];
+    }
   } catch (error) {
     // Public rank data must remain available if code is deployed before migration 0004.
     if (!/no such table: rank_page_comments/i.test(String(error))) throw error;
     console.error('rank_page_comments migration 0004 is pending');
   }
-  return c.html(renderRankPageHtml(keyword, rows, repKeyword, relatedKeywords(keyword, reps), comment || undefined, mode, c.req.query('saved') === '1'));
+  return c.html(renderRankPageHtml(keyword, rows, comment?.keyword || keyword, relatedKeywords(keyword, related),
+    mode === 'public' && comment?.approved !== 1 ? undefined : comment || undefined, mode, c.req.query('saved') === '1'));
 }
 
 app.get('/rank/:keyword', (c) => rankPage(c, 'public'));
@@ -2045,18 +2046,18 @@ const ADMIN_NAV = `<nav class="nav">
 
 app.get('/admin/rank-comments', async (c) => {
   const search = (c.req.query('keyword') || '').trim().slice(0, 60);
-  const keywords = await eligibleRankKeywordSummaries(c.env.DB);
+  const keywords = await publishedRankKeywordDirectory(c.env.DB);
   const { results } = await c.env.DB.prepare(`SELECT keyword, comment_text, source, approved, updated_at
     FROM rank_page_comments`).all();
   const comments = new Map((results as any[]).map(row => [row.keyword, row]));
-  const rows = keywords.filter(row => row.keyword.includes(search)).map(row => {
+  const entries = [...new Set([...keywords.map(row => row.keyword), ...comments.keys()])];
+  const rows = entries.filter(keyword => keyword.includes(search)).map(keyword => {
+    const row = { keyword };
     const comment = comments.get(row.keyword);
     const rankUrl = `/rank/${encodeURIComponent(row.keyword)}`;
     return `<tr>
     <td>${escapeHtml(row.keyword)}</td>
-    <td>${escapeHtml(fmtKST(row.last_at))}</td>
-    <td>${Number(row.obs)}회</td>
-    <td>${comment ? (comment.approved ? '게시 중' : '비공개') : '코멘트 없음'}</td>
+    <td>${comment ? (comment.approved ? '공개 승인' : '비공개') : '코멘트 없음'}</td>
     <td>${comment ? escapeHtml(fmtKST(comment.updated_at)) : '-'}</td>
     <td><a href="/admin/rank/${encodeURIComponent(row.keyword)}">${comment ? '수정' : '한마디 작성'}</a>
       <a href="${rankUrl}" target="_blank" rel="noopener noreferrer" style="margin-left:8px">페이지 보기</a>
@@ -2066,8 +2067,9 @@ app.get('/admin/rank-comments', async (c) => {
   return c.html(`<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>조강사의 한마디 관리</title><style>${ADMIN_STYLE}</style></head><body>${ADMIN_NAV}
 <h1>조강사의 한마디</h1>
+<p>정상 관측이 있는 등록 키워드와 기존 코멘트 목록입니다. 전체 이력 통계는 제공하지 않습니다.</p>
 <form method="get" action="/admin/rank-comments" style="margin-bottom:16px"><label>키워드 검색 <input name="keyword" value="${escapeHtml(search)}"></label> <button>검색</button></form>
-<div style="overflow-x:auto"><table><thead><tr><th>키워드</th><th>최근 관측일</th><th>관측 횟수</th><th>코멘트 상태</th><th>수정일</th><th>작업</th></tr></thead><tbody>${rows || '<tr><td colspan="6">공개 가능한 순위 키워드가 없습니다.</td></tr>'}</tbody></table></div>
+<div style="overflow-x:auto"><table><thead><tr><th>키워드</th><th>코멘트 상태</th><th>수정일</th><th>작업</th></tr></thead><tbody>${rows || '<tr><td colspan="4">등록 키워드 또는 저장된 코멘트가 없습니다.</td></tr>'}</tbody></table></div>
 </body></html>`);
 });
 
@@ -2077,8 +2079,14 @@ app.post('/admin/rank/:keyword', async (c) => {
   const commentText = String(body.comment_text || '').trim();
   const approved = body.approved === '1' ? 1 : 0;
   if (!keyword || keyword.length > 60 || !commentText || commentText.length > 1000) return c.text('입력값이 올바르지 않습니다.', 400);
-  const eligible = await eligibleRankKeywords(c.env.DB);
-  if (!eligible.includes(keyword)) return c.text('공개된 순위 페이지가 없는 키워드입니다.', 400);
+  const eligible = keyword !== '__watch__' && await c.env.DB.prepare(`
+    SELECT 1 FROM rank_snapshots WHERE keyword = ? AND rank IS NOT NULL AND collected_at IS NOT NULL
+      AND (source IS NULL OR source != 'analytics')
+      AND (sort_mode = 'popular' OR sort_mode IS NULL)
+      AND (is_ad = 0 OR is_ad IS NULL)
+    LIMIT 1
+  `).bind(keyword).first();
+  if (!eligible) return c.text('공개된 순위 페이지가 없는 키워드입니다.', 400);
   await c.env.DB.prepare(`INSERT INTO rank_page_comments (keyword, comment_text, author, source, approved)
     VALUES (?, ?, '조강사', 'manual', ?)
     ON CONFLICT(keyword) DO UPDATE SET comment_text = excluded.comment_text, author = '조강사',

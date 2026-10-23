@@ -1,0 +1,141 @@
+Dongbiz D1 latest-branch candidate — 2026-10-23, NOT DEPLOYED
+
+Workspace and provenance
+  Candidate worktree: C:\project\dongbiz-d1-candidate
+  Candidate branch: fix/d1-read-budget-20261023
+  Base: ba89a2043a2635f38c6167b3710f24341a219e16
+  Base remote branch: fix/gap-collection-20261017
+  Final SHA: the commit containing this report; see git log -1.
+  Original worktree: C:\project\dongbiz, master f365f174abec5e72cb7b547d588839aecc8acaa2
+  Original untracked AUDIT_REPORT.md untouched. No master files copied/cherry-picked.
+  Git fetch obtained the explicit candidate branch; no pull/reset or remote writes.
+
+Compared with the earlier master fix
+  This candidate starts from October 18 rather than September 30. It includes the
+  10 queue/comment/SEO commits and 13 subsequent collection fixes absent in master.
+  Unlike the master fix, it retains the rank hub, related links, sitemap inventory,
+  IndexNow inventory and the existing NEW-success single-URL notification.
+  Public pages stay indexable. No blanket noindex or schema change is introduced.
+
+Six original aggregate call sites and their replacement
+  1. /rank: registered-keyword directory, no history counts.
+  2. shared public/admin rankPage: exact-keyword history, registry-based related
+     links, exact self canonical, independent existing comment key resolution.
+  3. /sitemap.xml: same registered published directory.
+  4. /admin/cron/run/indexnow: same registered published directory.
+  5. /admin/rank-comments: directory plus existing stored comment keys. Removes
+     last-observation/count columns; retains actual comment update timestamps.
+  6. POST /admin/rank/:keyword: one keyword's qualifying observation, LIMIT 1.
+  eligibleRankKeywordSummaries and its global COUNT(DISTINCT)/MAX/GROUP BY query
+  are removed. The helper eligibleRankKeywords now reads the cheap directory.
+
+Directory semantics and honest reductions
+  Reuses periodic_keywords; collection_mode='rank'. Does not require active=1:
+  pausing future collection must not hide already observed pages.
+  An indexed EXISTS lookup checks one qualifying observation per registered key.
+  It excludes __watch__, null collected_at, null rank, analytics source, ads and
+  non-popular sort. Null source/sort/is_ad retain their prior allowed behavior.
+  Non-null collected_at matches the prior COUNT(DISTINCT collected_at)>=1 rule.
+  No fabricated obs/places totals. The hub explicitly labels registered keywords
+  and says cumulative observation/place statistics are not provided.
+  The directory is ordered by keyword, not latest observation, and retains exact
+  spacing variants. Related-link ties use this new directory order.
+  Unregistered historical user keywords are no longer advertised by the directory,
+  related links, sitemap or bulk IndexNow. Their exact public/admin URLs continue
+  to work when valid data exists. Existing comment keys remain in the admin list.
+  Empty/unpublished/ads-only/analytics-only/null-date data does not produce a valid
+  detail page. Existing one-observation rendering and first-page metrics remain.
+
+Canonical and comment identity
+  The old canonical representative changed with greatest observation count and
+  was also used as the comment key. The new canonical/breadcrumb/og:url use the
+  exact requested keyword, with no tracking parameters.
+  Comment lookup first honors the exact stored key, including a private comment.
+  With no exact key, a single whitespace-normalized existing comment is reused.
+  With multiple such keys, none is arbitrarily chosen. No stored key is moved,
+  deleted, merged, or re-assigned based on observation counts.
+  Public rendering still requires approved===1. An exact private comment cannot
+  accidentally fall back to an approved alias. Admin editing uses the resolved
+  storage key and displays a notice when editing a shared spelling variant.
+  Admin authentication, save validation, toggle and noindex,nofollow remain.
+  Missing comment-table compatibility remains for detail reads; other DB errors
+  continue to fail rather than masquerade as successful empty statistics.
+  Tradeoff: whitespace variants may be semantically duplicate and are not merged
+  for SEO. If multiple old comment keys exist, a non-exact variant no longer gets
+  whichever comment happened to win by observation count. Exact keys stay editable.
+  Production prevalence of these cases has not been measured.
+
+Verification with actual command/output evidence
+  Runtime: Node v24.19.0, npm 10.9.2. New test uses built-in node:sqlite.
+  npm ci --ignore-scripts --offline used unchanged package-lock.json (61 packages).
+  Before modifying source, the new test failed:
+    node tests/rank-read-budget.cjs
+    AssertionError: global history aggregation must not run
+    at eligibleRankKeywordSummaries -> /rank
+  Existing candidate baseline also passed before edits: 15 collection + 39 search.
+  After modifying source and updating affected mock fixtures/assertions:
+    node C:\project\package\bin\npm-cli.js run test:collection
+    15 regression checks passed; no external requests.
+    39 search checks passed.
+    PASS SQLite directory filters, duplicate/NULL/empty data, indexed EXISTS plan:
+    SCAN pk USING INDEX sqlite_autoindex_periodic_keywords_1
+    SEARCH rs EXISTS USING INDEX idx_rank_snapshots_keyword_place (keyword=?)
+    PASS public self canonical, unique legacy alias comment, exact/private/ambiguous
+         keys, admin save/toggle/auth and unregistered history
+    PASS failed KV, 12 concurrent directories, late previous read cannot recache,
+         missing comment-table compatibility
+  These use the bundled real Hono handlers, in-memory SQLite for the new test,
+  and mocked external fetch/KV. The new test rejects global aggregation SQL,
+  checks actual SQL results and EXPLAIN QUERY PLAN using the existing index shape.
+  No new cache exists, so old requests can return their original snapshot but
+  cannot contaminate later requests. Tests exercise that ordering explicitly.
+  Final admin alias-notice refinement was checked with the new test again.
+  Build:
+    WRANGLER_SEND_METRICS=false and workspace-local WRANGLER_LOG_PATH
+    node node_modules/wrangler/bin/wrangler.js deploy --dry-run --outdir C:\project\.dongbiz-candidate-build
+    Total Upload: 534.92 KiB / gzip: 126.41 KiB (final candidate)
+    --dry-run: exiting now. Exit 0. No upload/deployment.
+  git diff --check passed.
+  git diff --exit-code ba89a20 for collection.ts, place-search.ts, scraper.ts,
+  wrangler.toml, schema.sql, migrations, public/index.html and package-lock.json
+  passed: those files are unchanged. index.ts diff touches only directory, rank
+  rendering/comment access and admin comment validation/list display.
+
+Limits of the performance evidence
+  Not measured: live D1 rows_read, real production table sizes, index presence,
+  deployed source or sustained traffic reduction. No percentage saving is claimed.
+  EXISTS short-circuits on the first valid indexed row; a key with much invalid
+  history may still inspect many rows. Direct detail URLs still read that key's
+  history. Alias fallback scans the smaller comment table when no exact key exists.
+  Other independent analytics/admin queries have not been removed by this fix.
+
+Deployment provenance checks without Cloudflare credentials
+  GitHub public REST actions/workflows: total_count 0, workflows [].
+  GitHub actions/runs: total_count 0, workflow_runs [].
+  GitHub deployments?per_page=10: [].
+  ba89a20 combined status: statuses [], total_count 0; pending is not evidence of
+  a pending deployment. No tracked .github workflow was found.
+  Documents describe older September deployments (for example 52cf0ca ->
+  b69bccbc-a56d-444e-a7ae-677da2fdf3f7). These are historical author reports and
+  cannot identify the currently deployed October code.
+  Existing deploy command is npm run deploy: wrangler deploy then ping_indexnow.cjs.
+  No public deployment/CI evidence ties current production to ba89a20.
+  The earlier read-only Wrangler deployments list failed for missing
+  CLOUDFLARE_API_TOKEN. No credentials were extracted, printed, added or changed.
+
+Remaining gate and recovery
+  Code candidate is ready for review, not claimed equal to current production.
+  Before any separately authorized deployment, obtain the active Worker version
+  ID and matching source/build commit; preserve any uncommitted deployed patch.
+  Verify registry columns and existing keyword index read-only. Review this commit
+  against that source and run its tests. Do not replace newer production code with
+  the master worktree or silently migrate a database to fit this candidate.
+  After deployment, compare same-duration D1 query counts/rows_read and separately
+  monitor account daily quota. Check registered/legacy URLs, comments, sitemap,
+  diagnosis and scheduled queue health without bypassing Naver cooldowns.
+  Local recovery: revert this candidate commit only. For deployed recovery use the
+  recorded prior Worker version; no data restoration is required. Reverting brings
+  back the expensive aggregation. Both this candidate and master remain preserved.
+  No runtime deployment, schema operation, data deletion, push or notification
+  was performed. Only the production-version read remains blocked by authentication;
+  the independent latest-branch implementation and validation are complete.

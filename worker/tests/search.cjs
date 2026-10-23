@@ -457,8 +457,8 @@ test('gap result leads with priorities and hides the mini-site preview', () => {
 });
 test('public rank pages expose observation metadata and exclude non-relevance rows', () => {
   const source = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'src', 'index.ts'), 'utf8');
-  assert.match(source, /eligibleRankKeywordSummaries/);
-  assert.match(source, /COUNT\(DISTINCT place_id\) AS places/);
+  assert.match(source, /publishedRankKeywordDirectory/);
+  assert.doesNotMatch(source, /COUNT\(DISTINCT place_id\) AS places/);
   assert.match(source, /마지막 표본/);
   assert.match(source, /기록 출처/);
   assert.match(source, /WHERE keyword = \? AND rank IS NOT NULL/);
@@ -509,6 +509,7 @@ test('rank comments render safely, admin saves and disables them, and public nav
   const db = { prepare(sql) {
     let args = [];
     return { bind(...values) { args = values; return this; }, async all() {
+      if (sql.includes('FROM periodic_keywords pk') && sql.includes('AND EXISTS')) return { results: [{ keyword }, { keyword: otherKeyword }] };
       if (sql.includes('FROM periodic_keywords pk')) return { results: [
         { keyword, active: 1, interval_hours: 48, observations: 1, last_success_at: snapshot.collected_at },
         { keyword: '첫 관측 대기', active: 1, interval_hours: 48, observations: 0 },
@@ -522,6 +523,7 @@ test('rank comments render safely, admin saves and disables them, and public nav
       return { results: [] };
     }, async first() {
       if (commentTableMissing && sql.includes('FROM rank_page_comments')) throw new Error('D1_ERROR: no such table: rank_page_comments');
+      if (sql.includes('SELECT 1 FROM rank_snapshots')) return args[0] === keyword ? { exists: 1 } : null;
       const row = comments.get(args[0]);
       return row && (!sql.includes('approved = 1') || row.approved) ? row : null;
     }, async run() {
@@ -554,7 +556,7 @@ test('rank comments render safely, admin saves and disables them, and public nav
   const adminPage = path => app.fetch(new Request('https://local' + path, { headers: auth }), env, ctx);
   response = await adminPage('/admin/rank-comments'); html = await response.text();
   assert.equal(response.status, 200);
-  assert.match(html, /최근 관측일/); assert.match(html, /관측 횟수/);
+  assert.match(html, /등록 키워드와 기존 코멘트/); assert.doesNotMatch(html, /<th>관측 횟수/);
   assert.match(html, new RegExp(`href="/admin/rank/${encodeURIComponent(keyword)}">한마디 작성`));
   assert.match(html, new RegExp(`href="/admin/rank/${encodeURIComponent(otherKeyword)}">한마디 작성`));
   assert.match(html, /코멘트 없음/);
@@ -624,7 +626,7 @@ test('rank comment migration and mobile layout exist without changing the queue 
     assert.match(sql, /approved INTEGER NOT NULL DEFAULT 1/);
   }
   assert.match(source, /@media\(max-width:520px\)\{\.jo-note\{display:block\}/);
-  assert.match(source, /mode === 'public' \? 'AND approved = 1' : ''/);
+  assert.match(source, /mode === 'public' && comment\?\.approved !== 1 \? undefined/);
 });
 test('gap collection bounds list pagination and serializes competitor details', () => {
   const fs = require('node:fs'), path = require('node:path');
@@ -684,8 +686,8 @@ test('queue split keeps NEW list-only, DETAIL top-six, refresh and seed invarian
 });
 test('periodic admin and public pages use first-observation publication safely', () => {
   const source = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'src', 'index.ts'), 'utf8');
-  assert.match(source, /HAVING obs >= 1/);
-  assert.match(source, /첫 정상 관측부터 공개합니다/);
+  assert.match(source, /AND EXISTS/);
+  assert.match(source, /정상 관측이 있는 등록 키워드/);
   assert.match(source, /첫 관측 데이터/);
   assert.match(source, /app\.post\('\/admin\/periodic-keywords\/run'/);
   assert.match(source, /role="status"/);
