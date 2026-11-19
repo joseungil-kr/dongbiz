@@ -15,10 +15,12 @@ binding = "DB"
 database_name = "dongbiz-db"
 database_id = "fb4d0641-f7c9-4060-938a-d3acf3de95e0"
 
-# KV Cache Bindings (§3.4 캐시 정책: placeId 24h, keyword 6h)
-[[kv_namespaces]]
-binding = "CACHE"
-id = "4063e07d64ba4db4a7e8ff6195e6735b"
+# 캐시·요청 한도 저장소: KV(CACHE)에서 위 D1으로 이전했다(2026-11-19).
+# 이유: KV 무료 한도는 하루 쓰기 1,000건인데 /api/keyword-volume 등 요청마다 쓰기가 생겨
+# 90% 경고가 반복됐다. D1 무료 한도는 하루 10만 rows write다.
+# 테이블(edge_cache, edge_counters)은 첫 요청 때 Worker가 자동 생성하므로 별도 마이그레이션이
+# 없어도 동작한다(수동 적용용 SQL: migrations/0003_edge_cache.sql).
+# KV 바인딩은 제거했다 — 남겨두면 실수로/과거 코드가 KV를 다시 건드려 한도를 태울 수 있다.
 
 # 자동 수집 일시 중지(2026-09-12): 네이버 요청 제한 완화 전까지 고정 키워드,
 # 사용자 검색 재수집, pcmap 목록, 워치리스트, 텍스트 수집 및 백세보리밥 헬스체크를 실행하지 않는다.

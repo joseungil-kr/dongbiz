@@ -5,13 +5,12 @@
  * 시크릿 미설정 시 null을 반환한다 — 알림/캐시와 같은 패턴으로, 키가 없어도 기능은 그대로 동작한다.
  */
 
-export interface SearchAdEnv {
+import { cacheGet, cachePut, type CacheEnv } from './cache';
+
+export interface SearchAdEnv extends CacheEnv {
   NAVER_AD_CUSTOMER_ID?: string;
   NAVER_AD_ACCESS_LICENSE?: string;
   NAVER_AD_SECRET_KEY?: string;
-  CACHE?: KVNamespace;
-  /** 조회한 검색량을 시계열로 남기기 위한 바인딩 (§9.12). 없으면 기록만 건너뛴다. */
-  DB?: D1Database;
 }
 
 export interface KeywordVolume {
@@ -145,24 +144,24 @@ export async function lookupKeywordVolume(env: SearchAdEnv, keyword: string): Pr
 
 /**
  * 여러 키워드의 월간 검색량을 한 번에 조회한다. 결과에 없는 키워드는 null.
- * KV 캐시는 키워드 단위라 이미 조회된 것은 API 호출에 포함되지 않는다.
+ * 캐시는 키워드 단위라 이미 조회된 것은 API 호출에 포함되지 않는다.
  */
 export async function getKeywordVolumes(
   env: SearchAdEnv,
   keywords: string[],
   opts: { cache?: boolean; context?: string; relatedTo?: string } = {},
 ): Promise<Record<string, KeywordVolume | null>> {
-  // KV도 subrequest로 잡힌다. 키워드 N개면 읽기 N + 쓰기 N이라 /api/gap처럼 한도(50)가
+  // D1 쿼리도 subrequest로 잡힌다. 키워드 N개면 읽기 N + 쓰기 N이라 /api/gap처럼 한도(50)가
   // 빡빡한 경로에서는 캐시를 끄고 fetch 몇 번으로 끝내는 편이 안전하다.
-  const useCache = opts.cache !== false && !!env.CACHE;
+  const useCache = opts.cache !== false && !!env.DB;
   const result: Record<string, KeywordVolume | null> = {};
   const unique = [...new Set(keywords.map((k) => k.trim()).filter(Boolean))];
   const missing: string[] = [];
 
   for (const keyword of unique) {
     result[keyword] = null;
-    const hit = useCache ? await env.CACHE!.get(`searchad:v1:${normalize(keyword)}`, 'json') : null;
-    if (hit) result[keyword] = hit as KeywordVolume;
+    const hit = useCache ? await cacheGet<KeywordVolume>(env, `searchad:v1:${normalize(keyword)}`) : null;
+    if (hit) result[keyword] = hit;
     else missing.push(keyword);
   }
 
@@ -172,7 +171,7 @@ export async function getKeywordVolumes(
     for (const [keyword, volume] of found) {
       result[keyword] = volume;
       fresh.push(volume);
-      if (useCache) await env.CACHE!.put(`searchad:v1:${normalize(keyword)}`, JSON.stringify(volume), { expirationTtl: CACHE_TTL });
+      if (useCache) await cachePut(env, `searchad:v1:${normalize(keyword)}`, volume, CACHE_TTL);
     }
   }
 

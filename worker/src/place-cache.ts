@@ -1,8 +1,8 @@
 import { resolvePlaceId, scrapeFullPlaceMetrics } from './scraper';
+import { cacheGet, cachePut, type CacheEnv } from './cache';
 
 const pending = new Map<string, Promise<any>>();
 const TTL = 86400;
-type CacheEnv = { CACHE?: KVNamespace };
 
 async function once<T>(key: string, work: () => Promise<T>): Promise<T> {
   const existing = pending.get(key);
@@ -17,21 +17,21 @@ export async function cachedPlace(env: CacheEnv, query: string, includeFeed = fa
   const input = query.trim();
   const aliasKey = `place-id:v1:${input}`;
   const id = /^[1-9]\d{6,11}$/.test(input) ? input : await once(aliasKey, async () => {
-    const hit = await env.CACHE?.get(aliasKey);
+    const hit = await cacheGet<string>(env, aliasKey);
     if (hit) return hit;
     const resolved = await resolvePlaceId(input);
-    await env.CACHE?.put(aliasKey, resolved, { expirationTtl: TTL });
+    await cachePut(env, aliasKey, resolved, TTL);
     return resolved;
   });
   const key = `place:v10:${id}:${includeFeed ? 'feed' : 'home'}`;
   const result = await once(key, async () => {
-    const hit = await env.CACHE?.get(key, 'json');
+    const hit = await cacheGet<any>(env, key);
     if (hit) return hit;
     const fresh = await scrapeFullPlaceMetrics(id, includeFeed);
     fresh.collectedAt = new Date().toISOString();
-    await env.CACHE?.put(key, JSON.stringify(fresh), { expirationTtl: TTL });
+    await cachePut(env, key, fresh, TTL);
     if (includeFeed) {
-      await env.CACHE?.put(`place:v10:${id}:home`, JSON.stringify(fresh), { expirationTtl: TTL });
+      await cachePut(env, `place:v10:${id}:home`, fresh, TTL);
     }
     return fresh;
   });

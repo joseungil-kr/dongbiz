@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { cachedPlace } from './place-cache';
+import { cacheGet, cachePut, consumeCounter, peekCounter } from './cache';
 import { CollectionError } from './collection';
 import { isStoreName, searchPlaceCandidates, collectSearchListing, SearchListing } from './place-search';
 import { basicAuth } from 'hono/basic-auth';
@@ -12,8 +13,7 @@ import { pickTopics, renderMiniHome, renderMiniTopic } from './minisite';
 import { getKeywordVolumes, lookupKeywordVolume, describeVolume, autocomplete, brandVariants, brandCore, normalizeKeyword, SearchAdEnv } from './searchad';
 
 export interface Env extends NotifyEnv, SearchAdEnv {
-  DB: D1Database;
-  CACHE?: KVNamespace; // 미바인딩 시 캐시 없이 동작 (§6 Phase A)
+  DB: D1Database; // 캐시·요청 한도도 이 D1을 쓴다 (§6 Phase A, 2026-11-19 KV→D1 이전)
   ADMIN_USER?: string;
   ADMIN_PASS?: string;
   RATE_LIMIT_BYPASS_TOKEN?: string; // 운영자 본인 테스트용 — 공개 UI엔 절대 안 넣고 URL에 수동으로만 붙인다
@@ -42,23 +42,23 @@ function generateShareId() {
 }
 
 // 캐시 키 버전. scraper.ts의 추출 로직을 바꿀 때마다 반드시 올릴 것.
-// 실제로 두 번 겪은 문제: 코드는 배포됐는데 KV에 남은 예전(버그) 값이 TTL(최대 24h) 동안 계속
+// 실제로 두 번 겪은 문제: 코드는 배포됐는데 캐시에 남은 예전(버그) 값이 TTL(최대 24h) 동안 계속
 // 서빙되어 "고쳤다는데 왜 아직도 이래?"가 재발했다. 버전을 올리면 이전 키가 자동으로 무효화되어
-// 수동으로 wrangler kv key delete 할 필요가 없다.
+// 만료 전 키를 손으로 지울 필요가 없다.
 const CACHE_VERSION = 'v9'; // v9: 비교 기준을 상위 10개→6개로 변경 (네이버 지도 1페이지 실노출 개수 기준, §4.2 B15)
 
 // 네이버 지도 "1페이지" 진입선 = 실제로 더보기 누르기 전 노출되는 6곳 (10 아님, 2026-09-08 사용자 확인).
 const TOP_N = 6;
 
-// KV 캐시 래퍼. CACHE 바인딩이 없으면 매번 새로 조회한다 (기능은 동작, 속도/원가만 손해).
+// D1 캐시 래퍼. DB 바인딩이 없으면 매번 새로 조회한다 (기능은 동작, 속도/원가만 손해).
 async function cached<T>(env: Env, key: string, ttlSeconds: number, fetcher: () => Promise<T>): Promise<T> {
-  if (!env.CACHE) return fetcher();
+  if (!env.DB) return fetcher();
   const versionedKey = `${CACHE_VERSION}:${key}`;
-  const hit = await env.CACHE.get(versionedKey, 'json');
+  const hit = await cacheGet<T>(env, versionedKey);
   if (hit !== null && !(Array.isArray(hit) && hit.length === 0)) return hit as T;
   const fresh = await fetcher();
   if (!(Array.isArray(fresh) && fresh.length === 0)) {
-    await env.CACHE.put(versionedKey, JSON.stringify(fresh), { expirationTtl: ttlSeconds });
+    await cachePut(env, versionedKey, fresh, ttlSeconds);
   }
   return fresh;
 }
@@ -83,26 +83,20 @@ function fmtKST(utcStr: string | null | undefined): string {
 
 const DAILY_GAP_LIMIT = 3;
 async function checkDailyGapLimit(env: Env, ip: string, consume = false): Promise<boolean> {
-  if (!env.CACHE) return true; // 캐시 미바인딩 시 제한 없이 통과(§6 패턴과 일관: 기능은 항상 동작)
   const today = toKST().toISOString().slice(0, 10); // KST 자정(24:00) 기준 날짜 경계
   const key = `gaplimit:${today}:${ip}`;
-  const count = Number(await env.CACHE.get(key)) || 0;
-  if (count >= DAILY_GAP_LIMIT) return false;
-  if (consume) await env.CACHE.put(key, String(count + 1), { expirationTtl: 60 * 60 * 25 });
-  return true;
+  // consume=false는 사전 확인(읽기 1회), true는 성공한 분석만 1 차감(UPSERT 1회).
+  if (consume) return consumeCounter(env, key, DAILY_GAP_LIMIT, 60 * 60 * 25);
+  return peekCounter(env, key, DAILY_GAP_LIMIT);
 }
 
 // 전용 검색량 도구는 플레이스 진단 한도와 분리한다. 월간 지표라 API 응답은 24시간 캐시하고,
 // 캐시를 반복 호출하는 악용까지 막기 위해 IP별 시간당 요청 수만 제한한다.
 const KEYWORD_VOLUME_HOURLY_LIMIT = 30;
 async function checkKeywordVolumeLimit(env: Env, ip: string): Promise<boolean> {
-  if (!env.CACHE) return true;
   const hour = toKST().toISOString().slice(0, 13);
   const key = `keyword-volume-limit:${hour}:${ip}`;
-  const count = Number(await env.CACHE.get(key)) || 0;
-  if (count >= KEYWORD_VOLUME_HOURLY_LIMIT) return false;
-  await env.CACHE.put(key, String(count + 1), { expirationTtl: 60 * 60 + 60 });
-  return true;
+  return consumeCounter(env, key, KEYWORD_VOLUME_HOURLY_LIMIT, 60 * 60 + 60);
 }
 
 const PLACE_TTL = 60 * 60 * 24; // 24h
@@ -379,10 +373,10 @@ app.get('/api/gap', async (c) => {
       const listKey = `${CACHE_VERSION}:map-list:v2:${category}:${keyword}`;
       const observationPrefix = observationKey(category, keyword!);
       const [recentSuccess, cooldown] = await Promise.all([
-        c.env.CACHE?.get<StoredObservation>(`${observationPrefix}:success`, 'json'),
-        c.env.CACHE?.get<ObservationCooldown>(`${observationPrefix}:cooldown`, 'json'),
+        cacheGet<StoredObservation>(c.env, `${observationPrefix}:success`),
+        cacheGet<ObservationCooldown>(c.env, `${observationPrefix}:cooldown`),
       ]);
-      let listing = await c.env.CACHE?.get<SearchListing>(listKey, 'json');
+      let listing = await cacheGet<SearchListing>(c.env, listKey);
       try {
         if (!listing && cooldown && new Date(cooldown.retryAfter).getTime() > Date.now()) {
           throw new CollectionError('RATE_LIMITED', 'list');
@@ -391,12 +385,12 @@ app.get('/api/gap', async (c) => {
           listing = await collectSearchListing(keyword!, category);
           if (listing.stopReason !== 'collection_failed') {
             await Promise.all([
-              c.env.CACHE?.put(listKey, JSON.stringify(listing), { expirationTtl: KEYWORD_TTL }),
-              c.env.CACHE?.put(`${observationPrefix}:success`, JSON.stringify({ listing, savedAt: new Date().toISOString() }), { expirationTtl: OBSERVATION_SUCCESS_TTL }),
+              cachePut(c.env, listKey, listing, KEYWORD_TTL),
+              cachePut(c.env, `${observationPrefix}:success`, { listing, savedAt: new Date().toISOString() }, OBSERVATION_SUCCESS_TTL),
             ]);
           } else if (listing.errorCode === 'RATE_LIMITED' || listing.errorCode === 'BLOCKED') {
             const retryAfter = new Date(Date.now() + OBSERVATION_COOLDOWN_TTL * 1000).toISOString();
-            await c.env.CACHE?.put(`${observationPrefix}:cooldown`, JSON.stringify({ retryAfter, code: listing.errorCode }), { expirationTtl: OBSERVATION_COOLDOWN_TTL });
+            await cachePut(c.env, `${observationPrefix}:cooldown`, { retryAfter, code: listing.errorCode }, OBSERVATION_COOLDOWN_TTL);
             if (recentSuccess?.listing) listing = { ...recentSuccess.listing, stale: true, retryAfter, errorCode: listing.errorCode };
           }
         }
@@ -406,7 +400,7 @@ app.get('/api/gap', async (c) => {
         if (err instanceof CollectionError && (err.code === 'RATE_LIMITED' || err.code === 'BLOCKED')) {
           const retryAfter = cooldown?.retryAfter || new Date(Date.now() + OBSERVATION_COOLDOWN_TTL * 1000).toISOString();
           if (!cooldown) {
-            await c.env.CACHE?.put(`${observationPrefix}:cooldown`, JSON.stringify({ retryAfter, code: err.code }), { expirationTtl: OBSERVATION_COOLDOWN_TTL });
+            await cachePut(c.env, `${observationPrefix}:cooldown`, { retryAfter, code: err.code }, OBSERVATION_COOLDOWN_TTL);
           }
           if (recentSuccess?.listing) {
             listing = { ...recentSuccess.listing, stale: true, retryAfter, errorCode: err.code };
@@ -700,13 +694,13 @@ app.get('/api/keyword-volume', async (c) => {
 
   type CachedLookup = { lookup: NonNullable<Awaited<ReturnType<typeof lookupKeywordVolume>>>; cachedAt: string };
   const cacheKey = `keyword-volume:v1:${normalizeKeyword(query)}`;
-  let cached = c.env.CACHE ? await c.env.CACHE.get(cacheKey, 'json') as CachedLookup | null : null;
+  let cached = await cacheGet<CachedLookup>(c.env, cacheKey);
   if (!cached) {
     try {
       const lookup = await lookupKeywordVolume(c.env, query);
       if (!lookup) return c.json({ error: `'${query}'의 월간 검색량을 찾지 못했습니다. 다른 검색어로 시도해 주세요.` }, 404);
       cached = { lookup, cachedAt: new Date().toISOString() };
-      if (c.env.CACHE) await c.env.CACHE.put(cacheKey, JSON.stringify(cached), { expirationTtl: 60 * 60 * 24 });
+      await cachePut(c.env, cacheKey, cached, 60 * 60 * 24);
     } catch (err) {
       console.error('키워드 검색량 조회 실패:', err);
       return c.json({ error: '검색량 서비스가 일시적으로 응답하지 않습니다. 잠시 뒤 다시 시도해 주세요.' }, 503);

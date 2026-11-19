@@ -172,3 +172,21 @@ CREATE TABLE IF NOT EXISTS place_texts (
                              -- keyword_list와 절대 섞지 말 것 — 전자는 업체가 조작 가능, 이건 아니다.
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+
+-- 9. 캐시·요청 한도 (§3.4 캐시 정책). 2026-11-19 Workers KV → D1 이전.
+-- KV 무료 한도는 하루 쓰기 1,000건이라 요청마다 쓰기가 생기는 경로에서 한도를 넘겼다.
+-- Worker 첫 요청 때 같은 스키마를 자동 생성한다(worker/src/cache.ts). 값은 JSON 문자열,
+-- 시각은 전부 유닉스 초. 만료 행은 쓰기 요청 중 확률적으로 소량씩 정리한다.
+CREATE TABLE IF NOT EXISTS edge_cache (
+    cache_key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    expires_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_edge_cache_expires ON edge_cache (expires_at);
+
+CREATE TABLE IF NOT EXISTS edge_counters (
+    counter_key TEXT PRIMARY KEY,  -- gaplimit:{KST날짜}:{ip}, keyword-volume-limit:{KST시각}:{ip}
+    count INTEGER NOT NULL,        -- 한도까지만 증가한다(초과 요청은 UPDATE 건너뜀)
+    expires_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_edge_counters_expires ON edge_counters (expires_at);
