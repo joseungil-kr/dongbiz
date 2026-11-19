@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { cachedPlace } from './place-cache';
-import { cacheGet, cachePut, consumeCounter, peekCounter } from './cache';
+import { cacheGet, cachePut, consumeCounter, peekCounter, type CacheEnv } from './cache';
 import { CollectionError } from './collection';
 import { isStoreName, searchPlaceCandidates, collectSearchListing, SearchListing } from './place-search';
 import { basicAuth } from 'hono/basic-auth';
@@ -1055,7 +1055,46 @@ function normKeyword(k: string): string {
 // 공개 자격: 관측 2회 이상. 1회짜리는 집계·변동성이 성립하지 않아 껍데기 페이지가 된다(§6.1.2).
 // 띄어쓰기만 다른 표기는 관측이 많은 쪽 하나만 대표로 공개한다 — 안 그러면 내용이 같은
 // 페이지가 여러 장 색인되어 §6.1.3의 대량생성 리스크를 스스로 키운다.
-async function eligibleRankKeywordSummaries(db: D1Database): Promise<any[]> {
+/**
+ * 공개 순위 키워드 요약은 rank_snapshots **전체**를 훑는다(2026-11-19 실측 기준 약 12만 행).
+ * 이걸 요청마다 계산하면 /rank·/rank/:keyword·/sitemap.xml 한 번에 12만 rows read가 나가서,
+ * D1 무료 한도(하루 500만)를 페이지뷰 40여 회로 태운다. 그래서 10분 캐시를 둔다.
+ * 값이 조금 늦는 대신(최대 10분) 읽기 예산이 요청 수와 무관해진다.
+ */
+const RANK_SUMMARY_CACHE_KEY = 'rank-keywords:v1';
+const RANK_SUMMARY_TTL = 600;
+
+/** 공개 SEO 페이지를 엣지 캐시에 태울 때의 TTL(초). 크롤러 폭주가 Worker·D1까지 오지 않게 한다. */
+const SEO_EDGE_TTL = 300;
+
+/**
+ * 공개 SEO 페이지용 엣지 캐시. Cloudflare Cache API는 Worker 응답을 자동으로 캐시하지 않으므로
+ * (Cache-Control 헤더만으로는 부족) 명시적으로 put/match 한다. 쿼리스트링은 키에서 뺀다 —
+ * 같은 페이지가 ?utm=... 같은 파라미터로 쪼개져 캐시가 비는 것을 막는다.
+ */
+async function edgeCached(c: any, ttl: number, render: () => Promise<Response>): Promise<Response> {
+  const url = new URL(c.req.url);
+  const cache = typeof caches !== 'undefined' ? (caches as any).default : null;
+  const key = new Request(url.origin + url.pathname, { method: 'GET' });
+  if (cache) {
+    try {
+      const hit = await cache.match(key);
+      if (hit) return hit;
+    } catch { /* 캐시 조회 실패는 그냥 원본 렌더로 넘어간다 */ }
+  }
+  const res = await render();
+  if (!res || !res.ok) return res; // 오류 페이지는 캐시하지 않는다.
+  const out = new Response(res.body, res);
+  out.headers.set('Cache-Control', `public, max-age=${ttl}, s-maxage=${ttl}`);
+  if (cache) {
+    try { c.executionCtx?.waitUntil(cache.put(key, out.clone())); } catch { /* noop */ }
+  }
+  return out;
+}
+
+async function eligibleRankKeywordSummaries(env: CacheEnv, db: D1Database): Promise<any[]> {
+  const cached = await cacheGet<{ rows: any[] }>(env, RANK_SUMMARY_CACHE_KEY);
+  if (cached?.rows) return cached.rows;
   const { results } = await db.prepare(`
     SELECT keyword, COUNT(DISTINCT collected_at) AS obs, MAX(collected_at) AS last_at,
            COUNT(DISTINCT place_id) AS places
@@ -1073,11 +1112,13 @@ async function eligibleRankKeywordSummaries(db: D1Database): Promise<any[]> {
     const cur = rep.get(key);
     if (!cur || r.obs > cur.obs) rep.set(key, r);
   }
-  return [...rep.values()];
+  const rows = [...rep.values()];
+  await cachePut(env, RANK_SUMMARY_CACHE_KEY, { rows }, RANK_SUMMARY_TTL);
+  return rows;
 }
 
-async function eligibleRankKeywords(db: D1Database): Promise<string[]> {
-  return (await eligibleRankKeywordSummaries(db)).map(r => r.keyword);
+async function eligibleRankKeywords(env: CacheEnv, db: D1Database): Promise<string[]> {
+  return (await eligibleRankKeywordSummaries(env, db)).map(r => r.keyword);
 }
 
 // 매장 전용 미니홈피 (§6.11, 샘플 단계). 전 페이지 noindex — 결제 연동 전까지 색인되면 안 된다.
@@ -1112,7 +1153,8 @@ app.get('/blog', (c) => c.html(renderBlogPage()));
 app.get('/rank', async (c) => {
   const db = c.env.DB;
   if (!db) return c.text('DB 미설정', 500);
-  const keywords = await eligibleRankKeywordSummaries(db);
+  return edgeCached(c, SEO_EDGE_TTL, async () => {
+  const keywords = await eligibleRankKeywordSummaries(c.env, db);
   const items = keywords.map(k =>
     `<a href="/rank/${encodeURIComponent(k.keyword)}">${escapeHtml(k.keyword)}<span class="obs">관측 ${Number(k.obs)}회 · 업체 ${Number(k.places)}곳 · ${escapeHtml(fmtKST(k.last_at).slice(0, 10))}</span></a>`
   ).join('');
@@ -1127,6 +1169,7 @@ app.get('/rank', async (c) => {
 <div class="kwlist">${items || '<span class="meta">아직 공개 가능한 키워드가 없습니다.</span>'}</div>
 <a class="cta" href="/">내 매장 순위 무료로 진단하기</a>
 </div>${siteFooter()}</body></html>`);
+  });
 });
 
 // 형제 링크용 관련 키워드 선정(사양 §1.7 횡 연결). 허브에서만 링크되면 페이지가 늘수록
@@ -1417,6 +1460,7 @@ app.get('/rank/:keyword', async (c) => {
   if (!db) return c.text('DB 미설정', 500);
   const keyword = decodeURIComponent(c.req.param('keyword'));
 
+  return edgeCached(c, SEO_EDGE_TTL, async () => {
   const { results } = await db.prepare(`
     SELECT place_id, place_name, rank, visitor_reviews, blog_reviews, vote_count, photo_count, source, collected_at
     FROM rank_snapshots
@@ -1440,9 +1484,10 @@ app.get('/rank/:keyword', async (c) => {
   }
 
   // 띄어쓰기 변형으로 들어와도 대표 표기 한 곳으로 canonical을 모아 중복 색인을 막는다.
-  const reps = await eligibleRankKeywords(db);
+  const reps = await eligibleRankKeywords(c.env, db);
   const repKeyword = reps.find(k => normKeyword(k) === normKeyword(keyword)) || keyword;
   return c.html(renderRankPageHtml(keyword, rows, repKeyword, relatedKeywords(keyword, reps)));
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1675,7 +1720,8 @@ ${faqs}
 
 app.get('/sitemap.xml', async (c) => {
   const db = c.env.DB;
-  const keywords = db ? await eligibleRankKeywords(db) : [];
+  return edgeCached(c, SEO_EDGE_TTL, async () => {
+  const keywords = db ? await eligibleRankKeywords(c.env, db) : [];
   const urls = [
     '  <url><loc>https://dongbiz.com/</loc><changefreq>weekly</changefreq><priority>1.0</priority></url>',
     '  <url><loc>https://dongbiz.com/guide</loc><changefreq>weekly</changefreq><priority>0.9</priority></url>',
@@ -1693,6 +1739,7 @@ ${urls}
 </urlset>`, 200, {
     'Content-Type': 'application/xml; charset=utf-8',
   });
+  });
 });
 
 // IndexNow Key Route
@@ -1702,7 +1749,7 @@ app.get(`/${INDEXNOW_KEY}.txt`, (c) => c.text(INDEXNOW_KEY));
 // IndexNow Ping Route
 app.get('/admin/cron/run/indexnow', async (c) => {
   const db = c.env.DB;
-  const keywords = db ? await eligibleRankKeywords(db) : [];
+  const keywords = db ? await eligibleRankKeywords(c.env, db) : [];
   const urlList = [
     'https://dongbiz.com/',
     'https://dongbiz.com/guide',
