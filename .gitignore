@@ -10,3 +10,11 @@ dist/
 gap_*.json
 place_*.json
 *_test.json
+
+# 생성 파이프라인 작업물·로그
+data/content/_work/
+data/content/_locks/
+data/content/engine.log
+data/content/progress.jsonl
+data/_dryrun/
+REPORTS/shots/

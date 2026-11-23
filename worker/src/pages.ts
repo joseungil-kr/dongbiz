@@ -381,6 +381,7 @@ export function siteFooter(): string {
         <a href="/keyword-volume">네이버 키워드 검색량</a>
         <a href="/rank">키워드별 순위 현황</a>
         <a href="/guide">상위노출 가이드</a>
+        <a href="/cost">철거·원상복구 비용</a>
       </div>
       <div>
         <h4>서비스</h4>

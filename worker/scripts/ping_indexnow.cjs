@@ -57,6 +57,9 @@ async function main() {
   const guideUrls = slugs.map(s => `https://${HOST}/guide/${encodeURIComponent(s)}`);
 
   const urlList = [
+    `https://${HOST}/cost`,
+    ...Object.keys(JSON.parse(fs.readFileSync(path.join(__dirname, '../../data/content.json'), 'utf8')))
+      .map(slug => `https://${HOST}/cost/${encodeURIComponent(slug)}`),
     `https://${HOST}/`,
     `https://${HOST}/guide`,
     `https://${HOST}/rank`,

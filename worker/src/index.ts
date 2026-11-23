@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { COST_URLS, renderCostHub, renderCostPage } from './cost-pages';
 import { cors } from 'hono/cors';
 import { cachedPlace } from './place-cache';
 import { cacheGet, cachePut, consumeCounter, peekCounter, type CacheEnv } from './cache';
@@ -1615,6 +1616,23 @@ app.get('/guide', (c) => {
 <h1>네이버 플레이스 상위노출 가이드</h1>
 <p class="meta">실제로 수집한 순위·지표 데이터를 근거로 씁니다.</p>
 <div class="guide-list">${items}</div>
+<h2 style="font-size:17px;margin:36px 0 4px;letter-spacing:-0.01em">점포 정리</h2>
+<p class="meta">폐업·이전할 때 철거 범위와 원상복구 비용을 정리한 페이지입니다.</p>
+<div class="guide-list">
+<a class="guide-card" href="/cost">
+  <div class="guide-thumb-wrap">
+    <img src="/cost-images/cost-restaurant-demolition.webp" alt="철거를 앞둔 식당 주방 현장" class="guide-thumb" loading="lazy" decoding="async">
+  </div>
+  <div class="guide-body">
+    <h2 class="guide-title">철거·원상복구 비용, 무엇으로 정해지나</h2>
+    <p class="guide-summary">안산·군포·시흥 상가·식당·카페·사무실의 철거 범위와 견적 비교 기준을 현장 사진과 실측 업체 정보로 정리했습니다.</p>
+    <div class="guide-meta">
+      <span class="badge">철거·원상복구</span>
+      <span class="read-more">자세히 보기 &rarr;</span>
+    </div>
+  </div>
+</a>
+</div>
 <a class="cta" href="/">내 매장 순위 무료로 진단하기</a>
 </div>${siteFooter()}</body></html>`);
 });
@@ -1718,11 +1736,18 @@ ${faqs}
 </div>${siteFooter()}</body></html>`);
 });
 
+app.get('/cost', c => c.html(renderCostHub()));
+app.get('/cost/:slug', c => {
+  const html = renderCostPage(c.req.param('slug'));
+  return html ? c.html(html) : c.notFound();
+});
+
 app.get('/sitemap.xml', async (c) => {
   const db = c.env.DB;
   return edgeCached(c, SEO_EDGE_TTL, async () => {
   const keywords = db ? await eligibleRankKeywords(c.env, db) : [];
   const urls = [
+    ...COST_URLS.map((url, i) => `  <url><loc>${url}</loc><changefreq>monthly</changefreq><priority>${i === 0 ? '0.8' : '0.7'}</priority></url>`),
     '  <url><loc>https://dongbiz.com/</loc><changefreq>weekly</changefreq><priority>1.0</priority></url>',
     '  <url><loc>https://dongbiz.com/guide</loc><changefreq>weekly</changefreq><priority>0.9</priority></url>',
     ...GUIDES.map(g =>
@@ -1751,6 +1776,7 @@ app.get('/admin/cron/run/indexnow', async (c) => {
   const db = c.env.DB;
   const keywords = db ? await eligibleRankKeywords(c.env, db) : [];
   const urlList = [
+    ...COST_URLS,
     'https://dongbiz.com/',
     'https://dongbiz.com/guide',
     'https://dongbiz.com/rank',
