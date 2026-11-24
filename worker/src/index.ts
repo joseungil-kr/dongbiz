@@ -1,8 +1,9 @@
 import { Hono } from 'hono';
+import { readRankPublicSummary, refreshRankPublicSummary, retryRankPublicSummary } from './rank-public-summary';
 import { COST_URLS, renderCostHub, renderCostPage } from './cost-pages';
 import { cors } from 'hono/cors';
 import { cachedPlace } from './place-cache';
-import { cacheGet, cachePut, consumeCounter, peekCounter, type CacheEnv } from './cache';
+import { cacheGet, cachePut, consumeCounter, peekCounter } from './cache';
 import { CollectionError } from './collection';
 import { isStoreName, searchPlaceCandidates, collectSearchListing, SearchListing } from './place-search';
 import { basicAuth } from 'hono/basic-auth';
@@ -161,6 +162,7 @@ async function insertRankSnapshotRows(
       nameVolume ?? null, nameVolumeUnderTen == null ? null : (nameVolumeUnderTen ? 1 : 0), source
     ));
     await db.batch(stmts);
+    if (source !== 'analytics') await refreshRankPublicSummary(db, keyword);
   } catch (err) {
     console.error('rank_snapshots 기록 실패:', err);
   }
@@ -1056,16 +1058,6 @@ function normKeyword(k: string): string {
 // 공개 자격: 관측 2회 이상. 1회짜리는 집계·변동성이 성립하지 않아 껍데기 페이지가 된다(§6.1.2).
 // 띄어쓰기만 다른 표기는 관측이 많은 쪽 하나만 대표로 공개한다 — 안 그러면 내용이 같은
 // 페이지가 여러 장 색인되어 §6.1.3의 대량생성 리스크를 스스로 키운다.
-/**
- * 공개 순위 키워드 요약은 rank_snapshots **전체**를 훑는다(2026-11-19 실측 기준 약 12만 행).
- * 이걸 요청마다 계산하면 /rank·/rank/:keyword·/sitemap.xml 한 번에 12만 rows read가 나가서,
- * D1 무료 한도(하루 500만)를 페이지뷰 40여 회로 태운다. 그래서 10분 캐시를 둔다.
- * 값이 조금 늦는 대신(최대 10분) 읽기 예산이 요청 수와 무관해진다.
- */
-const RANK_SUMMARY_CACHE_KEY = 'rank-keywords:v1';
-const RANK_SUMMARY_TTL = 600;
-
-/** 공개 SEO 페이지를 엣지 캐시에 태울 때의 TTL(초). 크롤러 폭주가 Worker·D1까지 오지 않게 한다. */
 const SEO_EDGE_TTL = 300;
 
 /**
@@ -1093,33 +1085,19 @@ async function edgeCached(c: any, ttl: number, render: () => Promise<Response>):
   return out;
 }
 
-async function eligibleRankKeywordSummaries(env: CacheEnv, db: D1Database): Promise<any[]> {
-  const cached = await cacheGet<{ rows: any[] }>(env, RANK_SUMMARY_CACHE_KEY);
-  if (cached?.rows) return cached.rows;
-  const { results } = await db.prepare(`
-    SELECT keyword, COUNT(DISTINCT collected_at) AS obs, MAX(collected_at) AS last_at,
-           COUNT(DISTINCT place_id) AS places
-    FROM rank_snapshots
-    WHERE keyword != '__watch__' AND rank IS NOT NULL
-      AND (source IS NULL OR source != 'analytics')
-      AND (sort_mode = 'popular' OR sort_mode IS NULL)
-      AND (is_ad = 0 OR is_ad IS NULL)
-    GROUP BY keyword HAVING obs >= 2
-    ORDER BY last_at DESC
-  `).all();
+async function eligibleRankKeywordSummaries(db: D1Database) {
+  const results = await readRankPublicSummary(db);
   const rep = new Map<string, any>();
   for (const r of results as any[]) {
     const key = normKeyword(r.keyword);
     const cur = rep.get(key);
     if (!cur || r.obs > cur.obs) rep.set(key, r);
   }
-  const rows = [...rep.values()];
-  await cachePut(env, RANK_SUMMARY_CACHE_KEY, { rows }, RANK_SUMMARY_TTL);
-  return rows;
+  return [...rep.values()];
 }
 
-async function eligibleRankKeywords(env: CacheEnv, db: D1Database): Promise<string[]> {
-  return (await eligibleRankKeywordSummaries(env, db)).map(r => r.keyword);
+async function eligibleRankKeywords(db: D1Database): Promise<string[]> {
+  return (await eligibleRankKeywordSummaries(db)).map(r => r.keyword);
 }
 
 // 매장 전용 미니홈피 (§6.11, 샘플 단계). 전 페이지 noindex — 결제 연동 전까지 색인되면 안 된다.
@@ -1155,7 +1133,7 @@ app.get('/rank', async (c) => {
   const db = c.env.DB;
   if (!db) return c.text('DB 미설정', 500);
   return edgeCached(c, SEO_EDGE_TTL, async () => {
-  const keywords = await eligibleRankKeywordSummaries(c.env, db);
+  const keywords = await eligibleRankKeywordSummaries(db);
   const items = keywords.map(k =>
     `<a href="/rank/${encodeURIComponent(k.keyword)}">${escapeHtml(k.keyword)}<span class="obs">관측 ${Number(k.obs)}회 · 업체 ${Number(k.places)}곳 · ${escapeHtml(fmtKST(k.last_at).slice(0, 10))}</span></a>`
   ).join('');
@@ -1485,7 +1463,7 @@ app.get('/rank/:keyword', async (c) => {
   }
 
   // 띄어쓰기 변형으로 들어와도 대표 표기 한 곳으로 canonical을 모아 중복 색인을 막는다.
-  const reps = await eligibleRankKeywords(c.env, db);
+  const reps = await eligibleRankKeywords(db);
   const repKeyword = reps.find(k => normKeyword(k) === normKeyword(keyword)) || keyword;
   return c.html(renderRankPageHtml(keyword, rows, repKeyword, relatedKeywords(keyword, reps)));
   });
@@ -1745,7 +1723,7 @@ app.get('/cost/:slug', c => {
 app.get('/sitemap.xml', async (c) => {
   const db = c.env.DB;
   return edgeCached(c, SEO_EDGE_TTL, async () => {
-  const keywords = db ? await eligibleRankKeywords(c.env, db) : [];
+  const keywords = db ? await eligibleRankKeywords(db) : [];
   const urls = [
     ...COST_URLS.map((url, i) => `  <url><loc>${url}</loc><changefreq>monthly</changefreq><priority>${i === 0 ? '0.8' : '0.7'}</priority></url>`),
     '  <url><loc>https://dongbiz.com/</loc><changefreq>weekly</changefreq><priority>1.0</priority></url>',
@@ -1774,7 +1752,7 @@ app.get(`/${INDEXNOW_KEY}.txt`, (c) => c.text(INDEXNOW_KEY));
 // IndexNow Ping Route
 app.get('/admin/cron/run/indexnow', async (c) => {
   const db = c.env.DB;
-  const keywords = db ? await eligibleRankKeywords(c.env, db) : [];
+  const keywords = db ? await eligibleRankKeywords(db) : [];
   const urlList = [
     ...COST_URLS,
     'https://dongbiz.com/',
@@ -2480,6 +2458,7 @@ app.delete('/admin/analytics/:keyword', async (c) => {
   const db = c.env.DB;
   if (!db) return c.text('DB missing', 500);
   await db.prepare('DELETE FROM rank_snapshots WHERE keyword = ?').bind(keyword).run();
+  await refreshRankPublicSummary(db, keyword);
   return c.json({ success: true });
 });
 
@@ -2645,6 +2624,7 @@ async function collectPeriodicKeyword(env: Env, target: PeriodicKeyword): Promis
       item.saveCountRaw, item.saveCountMin, item.isAd ? 1 : 0, item.hasBooking ? 1 : 0,
     ));
     await db.batch(writes);
+    await refreshRankPublicSummary(db, target.keyword);
     const detailed = await collectKeywordSnapshot(env, target.keyword, 'analytics');
     if (!detailed) throw new Error('EMPTY_DETAIL_RESULT');
     await db.prepare(`
@@ -2857,7 +2837,7 @@ async function collectPlaceLists(env: Env, keywords: string[]): Promise<string[]
       }
     }
     if (stmts.length > 0) {
-      await db.batch(stmts).catch(err => {
+      await db.batch(stmts).then(() => refreshRankPublicSummary(db, keyword)).catch(err => {
         console.error(`pcmap 기록 실패("${keyword}"):`, err);
         done.push(`DB 쓰기 실패 ${err?.message || err}`);
       });
@@ -3004,6 +2984,9 @@ const CRON_TIMES = {
 export default {
   fetch: app.fetch,
   scheduled: async (event: ScheduledEvent, env: Env, ctx: ExecutionContext) => {
-    if (PERIODIC_KEYWORD_CRONS.has(event.cron)) ctx.waitUntil(runOnePeriodicKeyword(env));
+    if (PERIODIC_KEYWORD_CRONS.has(event.cron)) ctx.waitUntil((async () => {
+      await retryRankPublicSummary(env.DB);
+      await runOnePeriodicKeyword(env);
+    })());
   },
 };
